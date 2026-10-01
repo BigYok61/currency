@@ -1,0 +1,61 @@
+name: Kurse erfassen und Seite veroeffentlichen
+
+on:
+  schedule:
+    # GitHub-Cron laeuft in UTC und kann sich verspaeten. Stuendlich um :05 (Mo–Fr) plus ein Nachlauf am Samstag.
+    # Das Skript filtert selbst auf 08/10/12/14/16/18 Uhr Europe/Zurich (Sommer-/Winterzeit automatisch)
+    # und traegt verpasste Zeitpunkte aus dem ca. 7-taegigen Verlauf von biquote.io nach.
+    - cron: "5 * * * 1-5"
+    - cron: "5 6 * * 6"
+  push:
+    branches: [main]
+    paths-ignore: ["data/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Kurse erfassen
+        run: python3 scripts/capture.py
+      - name: Verlauf committen (nur bei Aenderungen)
+        run: |
+          if git diff --quiet -- data/rates.json; then
+            echo "Keine neuen Werte."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/rates.json
+            git commit -m "Kurse $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase --autostash
+            git push
+          fi
+      - name: Seite zusammenstellen
+        run: |
+          mkdir -p _site
+          cp -r index.html app.js style.css sw.js manifest.webmanifest icons data _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}

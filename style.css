@@ -1,0 +1,58 @@
+:root {
+  --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --faint: #b0b0b5; --line: #e5e5ea;
+  --accent: #0b5cad; --group: rgba(11,92,173,.10); --ecb: rgba(120,120,128,.08);
+  --alt: rgba(120,120,128,.05); --purple: #8e44ad; --purplebg: rgba(142,68,173,.06);
+  --up: #1e8e3e; --down: #d93025; --today: rgba(11,92,173,.05);
+  --label-w: 168px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --faint: #636366; --line: #38383a;
+    --accent: #4da3ff; --group: rgba(77,163,255,.16); --purple: #c38fe0; --purplebg: rgba(195,143,224,.08);
+    --up: #34c759; --down: #ff453a; --today: rgba(77,163,255,.07); }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%; }
+header { padding: max(12px, env(safe-area-inset-top)) 16px 8px; padding-left: max(16px, env(safe-area-inset-left)); }
+.titlebar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+#reload { font-size: 20px; border: 1px solid var(--line); background: transparent; color: var(--accent);
+  border-radius: 8px; width: 40px; height: 36px; cursor: pointer; }
+.sub { margin: 2px 0; color: var(--muted); }
+.note { margin: 2px 0; font-size: 12px; color: var(--muted); }
+.purple { color: var(--purple); }
+.error { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255,149,0,.14); font-size: 13px; }
+main { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 0 8px; height: 26px; white-space: nowrap; text-align: right; }
+thead th { height: 32px; font-size: 12px; color: var(--muted); position: sticky; top: 0; background: var(--bg);
+  border-bottom: 1px solid var(--line); }
+thead th.today { color: var(--accent); }
+.lab { position: sticky; left: 0; z-index: 1; text-align: left; background: var(--bg); min-width: var(--label-w);
+  max-width: var(--label-w); overflow: hidden; text-overflow: ellipsis; border-right: 1px solid var(--line); padding-left: max(10px, env(safe-area-inset-left)); }
+thead .lab { z-index: 2; }
+td.today { background: var(--today); }
+tr.group td, tr.group th { background-color: var(--group); height: 32px; font-weight: 600; }
+tr.group .lab { background: linear-gradient(var(--group), var(--group)), var(--bg); }
+tr.group .live { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
+tr.fc td, tr.fc th, tr.dev td, tr.dev th { background-color: var(--purplebg); }
+tr.fc .lab, tr.dev .lab { background: linear-gradient(var(--purplebg), var(--purplebg)), var(--bg); }
+tr.fc th { color: var(--purple); font-weight: 400; }
+tr.fc td { color: var(--purple); }
+tr.dev th, tr.dev td { color: var(--muted); font-size: 12px; font-weight: 400; }
+tr.alt td, tr.alt th { background-color: var(--alt); }
+tr.alt .lab { background: linear-gradient(var(--alt), var(--alt)), var(--bg); }
+tr.ecb td, tr.ecb th { background-color: var(--ecb); font-style: italic; color: var(--muted); font-weight: 400; }
+tr.ecb .lab { background: linear-gradient(var(--ecb), var(--ecb)), var(--bg); }
+tbody th { font-weight: 400; }
+.empty { color: var(--faint); }
+.pending { font-size: 11px; }
+.arr { font-size: 8px; margin-right: 3px; vertical-align: 1px; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--muted); }
+.fcarr { font-weight: 700; margin-right: 3px; }
+footer { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 16px max(12px, env(safe-area-inset-bottom));
+  font-size: 12px; color: var(--muted); }
+footer a { color: var(--accent); text-decoration: none; }
+@media (max-width: 480px) { :root { --label-w: 150px; } table { font-size: 12.5px; } tbody .lab { font-size: 12px; } h1 { font-size: 18px; } th, td { padding: 0 6px; } }
