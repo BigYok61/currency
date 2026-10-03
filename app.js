@@ -28,8 +28,11 @@ const hdrFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'short', timeZone: 'U
 function header(key) { const d = new Date(key + 'T12:00:00Z'); return `${hdrFmt.format(d).replace('.', '')} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`; }
 const longFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const pctFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
 
 let history = { days: {} };
+/** Aktueller Kurs (Live-Abruf beim Öffnen/Aktualisieren): Code -> { v, at (Abrufzeit), quoteAt (Kurszeit), closed } – nie in rates.json */
 const live = {};
 
 const val = (c, k, h) => history.days[k]?.slots?.[pad(h)]?.[c.code] ?? null;
@@ -62,7 +65,8 @@ function render() {
   let h = '<thead><tr><th class="lab">Zeit (CH)</th>' +
     days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead><tbody>';
   for (const c of CURRENCIES) {
-    const lv = live[c.code] != null ? `<span class="live" title="Aktueller Mittelkurs">${r(live[c.code])}</span>` : '';
+    // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
+    const lv = live[c.code] && !days.includes(today) ? `<span class="live" title="Letzter Mittelkurs (Markt geschlossen)">${r(live[c.code].v)}</span>` : '';
     h += `<tr class="group"><th class="lab">${c.flag} ${c.label}${lv}</th>${days.map(k => td(k, '')).join('')}</tr>`;
     const slotRow = (hr, alt) => {
       let row = `<tr class="${alt ? 'alt' : ''}"><th class="lab">${pad(hr)}:00</th>`;
@@ -119,6 +123,23 @@ function render() {
     }
     h += '</tr>';
     HOURS.slice(1).forEach((hr, i) => { h += slotRow(hr, i % 2 === 0); });
+    // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den festen Zeitpunkten (füllt 18:00 nie)
+    const L = live[c.code];
+    h += `<tr class="now"><th class="lab" title="Live-Mittelkurs (biquote.io), abgerufen beim Öffnen bzw. Aktualisieren – wird nicht gespeichert">Aktuell${L ? ' ' + hmFmt.format(L.at) : ''}</th>`;
+    for (const k of days) {
+      if (k !== today || !L) { h += td(k, '–', 'empty'); continue; }
+      const base = val(c, k, HOURS[0]);
+      let arrow = '', title = `Abgerufen ${hmFmt.format(L.at)}`;
+      if (L.quoteAt) title += ` · Kurs von ${hmFmt.format(L.quoteAt)}`;
+      if (L.closed) title += ' (Markt geschlossen)';
+      if (base != null) {
+        const d = L.v - base;
+        arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
+        title = `Veränderung seit 08:00: ${r(d)} (${pctFmt.format((L.v / base - 1) * 100)} %)\n` + title;
+      }
+      h += td(k, arrow + r(L.v), L.closed ? 'stale' : '', title);
+    }
+    h += '</tr>';
     h += `<tr class="ecb"><th class="lab">EZB-Referenz</th>${days.map(k => { const v = ecb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr>`;
   }
   document.getElementById('grid').innerHTML = h + '</tbody>';
@@ -146,13 +167,18 @@ async function load() {
 }
 
 async function loadLive() {
-  // Aktueller Mittelkurs direkt von biquote.io (optional, nur Anzeige)
+  // Aktueller Mittelkurs direkt von biquote.io (gleiche Quelle wie die Zeitpunkte; nur Anzeige, wird nicht gespeichert)
   await Promise.all(CURRENCIES.map(async c => {
     try {
-      const t = await (await fetch(`https://biquote.io/api/${c.symbol}`, { cache: 'no-store' })).json();
+      const res = await fetch(`https://biquote.io/api/${c.symbol}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const t = await res.json();
       const mid = t.mid ?? ((t.bid ?? 0) + (t.ask ?? 0)) / 2;
-      if (mid > 0) live[c.code] = mid;
-    } catch { /* ignorieren */ }
+      if (mid > 0) {
+        const qt = t.lastQuoteAt || t.timestamp;
+        live[c.code] = { v: mid, at: new Date(), quoteAt: qt ? new Date(qt) : null, closed: t.marketState ? t.marketState !== 'open' : !!t.stale };
+      }
+    } catch { /* ignorieren: Zeile bleibt leer bzw. zeigt den letzten Abruf */ }
   }));
   render();
 }
@@ -173,10 +199,114 @@ function csv() {
         lines.push([L, 'Abweichung 7 Tage Ist − Prognose', ...days.map(k => { const f = fc7(c, k), a = actual7(c, k); return f != null && a ? num(a.v - f) : ''; })].join(';'));
       }
     });
+    const lv = live[c.code];
+    lines.push([L, lv ? `Aktuell ${hmFmt.format(lv.at)} (Live, nicht gespeichert)` : 'Aktuell', ...days.map(k => (k === zurichToday() && lv ? num(lv.v) : ''))].join(';'));
     lines.push([L, 'EZB-Referenzkurs', ...days.map(k => num(ecb(c, k)))].join(';'));
   }
   return '\uFEFF' + lines.join('\r\n') + '\r\n';
 }
+
+// ---------------------------------------------------------------- FX-Alarme (data/fx-alerts.json, Bearbeiten mit GitHub-Token)
+const REPO = 'BigYok61/waehrungsuebersicht';
+const ALERTS_PATH = 'data/fx-alerts.json';
+const STATE_PATH = 'data/fx-alert-state.json';
+const LS_TOKEN = 'wu.ghToken';
+const ALERT_CODES = ['USD', 'EUR'];
+const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
+const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
+const b64e = str => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
+const b64d = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, '')), ch => ch.charCodeAt(0)));
+let alertCfg = null, alertState = null;
+const $ = id => document.getElementById(id);
+
+async function ghGet(path) {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=main`, { headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+  if (res.status === 404) return { sha: null, data: null };
+  if (!res.ok) throw new Error(res.status === 401 ? 'Token ungültig oder abgelaufen' : res.status === 403 ? 'Kein Zugriff (Token für dieses Repository freigeben)' : `GitHub HTTP ${res.status}`);
+  const j = await res.json();
+  return { sha: j.sha, data: JSON.parse(b64d(j.content)) };
+}
+/** Öffentlich lesen (ohne Token): raw.githubusercontent.com, sonst die Kopie auf GitHub Pages */
+async function publicGet(path) {
+  for (const url of [`https://raw.githubusercontent.com/${REPO}/main/${path}?t=${Date.now()}`, `${path}?t=${Date.now()}`]) {
+    try { const res = await fetch(url, { cache: 'no-store' }); if (res.ok) return await res.json(); } catch { /* nächste Quelle */ }
+  }
+  return null;
+}
+async function loadAlerts() {
+  try { alertCfg = ghToken() ? (await ghGet(ALERTS_PATH)).data : await publicGet(ALERTS_PATH); } catch (e) { alertCfg = await publicGet(ALERTS_PATH); }
+  alertCfg ||= structuredClone(DEFAULT_ALERTS);
+  alertState = await publicGet(STATE_PATH);
+}
+/** Änderung auf den aktuellen Stand im Repo anwenden und committen (bei Konflikt erneut) */
+async function saveAlerts(mutate) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { sha, data } = await ghGet(ALERTS_PATH);
+    const cur = data || structuredClone(DEFAULT_ALERTS);
+    mutate(cur);
+    const body = { message: 'FX-Alarme geändert', branch: 'main', content: b64e(JSON.stringify(cur, null, 2) + '\n') };
+    if (sha) body.sha = sha;
+    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${ALERTS_PATH}`, { method: 'PUT', headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) { alertCfg = cur; return; }
+    if (res.status !== 409 && res.status !== 422) throw new Error(res.status === 403 ? 'Token ohne Schreibrecht (Contents: Read and write)' : res.status === 401 ? 'Token ungültig oder abgelaufen' : `GitHub HTTP ${res.status}`);
+  }
+  throw new Error('Konflikt beim Speichern – bitte erneut versuchen');
+}
+function alertMsg(text, ok) { const m = $('alMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
+function renderAlerts() {
+  const dlg = $('alerts'), rw = !!ghToken();
+  const todayKey = zurichToday();
+  const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
+  let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme (Push via ntfy)</h2><button value="close" aria-label="Schliessen">✕</button></form>
+    <p class="note">Push, wenn sich der Kurs im Tagesverlauf gegenüber 08:00 Schweizer Zeit (vorher: Tageseröffnung) stärker als die Schwelle bewegt.
+    Geprüft alle 15 Minuten, werktags ca. 07:00–22:00 Uhr; je Währung und Richtung höchstens eine Meldung pro Tag.</p>
+    <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
+  for (const code of ALERT_CODES) {
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
+    const s = ['down', 'up'].filter(d => sent[`${code}:${d}`]).map(d => `${d === 'down' ? '▼' : '▲'} ${esc(sent[`${code}:${d}`].time || '')}`).join(' ') || '–';
+    h += `<tr><td>${code}/CHF</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
+      <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
+      <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${s}</td></tr>`;
+  }
+  h += '</tbody></table><p id="alMsg" class="msg" hidden></p>';
+  if (rw) h += '<div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="tokOut" type="button" class="danger">Token entfernen</button></div>';
+  else h += `<p class="note">Nur lesbar. Zum Ändern einmalig einen GitHub-Token (Fine-grained, nur Repository ${REPO}, Contents: Read and write) eintragen –
+    oder die Datei direkt auf GitHub bearbeiten: <a href="https://github.com/${REPO}/edit/main/${ALERTS_PATH}" target="_blank" rel="noopener">${ALERTS_PATH}</a>.</p>
+    <div class="row"><input id="tok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tokSave" type="button">Token speichern</button></div>
+    <p class="note">Der Token wird nur in diesem Browser gespeichert (localStorage) und nur an api.github.com gesendet.</p>`;
+  dlg.innerHTML = h;
+  const sv = $('alSave');
+  if (sv) sv.onclick = async () => {
+    const vals = {};
+    for (const inp of dlg.querySelectorAll('input[data-code]')) {
+      const o = (vals[inp.dataset.code] ||= {});
+      if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
+      else {
+        const v = parseFloat(String(inp.value).replace(',', '.'));
+        if (!(v > 0 && v <= 20)) return alertMsg(`Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).`);
+        o[inp.dataset.k] = Math.round(v * 100) / 100;
+      }
+    }
+    sv.disabled = true; alertMsg('Speichere …', true);
+    try {
+      await saveAlerts(cur => { cur.version ||= 1; cur.currencies ||= {}; for (const [code, o] of Object.entries(vals)) cur.currencies[code] = Object.assign(cur.currencies[code] || {}, o); });
+      renderAlerts(); alertMsg('Gespeichert. Gilt ab dem nächsten Lauf (alle 15 Min.).', true);
+    } catch (e) { sv.disabled = false; alertMsg(`Speichern fehlgeschlagen: ${e.message}`); }
+  };
+  const ts = $('tokSave');
+  if (ts) ts.onclick = async () => {
+    const t = $('tok').value.trim(); if (!t) return;
+    localStorage.setItem(LS_TOKEN, t);
+    try { alertCfg = (await ghGet(ALERTS_PATH)).data || alertCfg; renderAlerts(); alertMsg('Token gespeichert – Bearbeiten ist aktiv.', true); }
+    catch (e) { localStorage.removeItem(LS_TOKEN); alertMsg(`Token abgelehnt: ${e.message}`); }
+  };
+  const to = $('tokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderAlerts(); };
+}
+$('alertsBtn').addEventListener('click', async () => {
+  const dlg = $('alerts');
+  dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
+  await loadAlerts(); renderAlerts();
+});
 
 document.getElementById('reload').addEventListener('click', load);
 document.getElementById('csv').addEventListener('click', e => {

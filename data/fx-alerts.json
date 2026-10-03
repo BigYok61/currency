@@ -1,0 +1,15 @@
+{
+  "currencies": {
+    "EUR": {
+      "down": 0.5,
+      "enabled": true,
+      "up": 0.25
+    },
+    "USD": {
+      "down": 0.5,
+      "enabled": true,
+      "up": 0.25
+    }
+  },
+  "version": 1
+}

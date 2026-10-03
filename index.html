@@ -13,16 +13,16 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <header>
   <div class="titlebar">
     <h1>Devisen-Mittelkurse in CHF</h1>
-    <button id="reload" type="button" aria-label="Aktualisieren">↻</button>
+    <div class="tools"><button id="alertsBtn" type="button" title="FX-Alarme (Push) einstellen">🔔</button><button id="reload" type="button" aria-label="Aktualisieren" title="Aktualisieren (inkl. aktueller Kurs)">↻</button></div>
   </div>
   <p id="stand" class="sub">Lade Daten …</p>
-  <p class="note">Mittelkurs werktags um 08, 10, 12, 14, 16 und 18 Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze</p>
+  <p class="note">Mittelkurs werktags um 08, 10, 12, 14, 16 und 18 Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze. «Aktuell» = Live-Kurs beim Öffnen/Aktualisieren (nur heute, wird nicht gespeichert)</p>
   <p class="note purple">* Prognose Tagesende (16:00) und Prognose 7 Tage (gleicher Wochentag eine Woche später, 16:00), jeweils um 08:00 erstellt: Schätzung, keine Anlageberatung. ↓ = CHF stärker, ↑ = CHF schwächer</p>
   <div id="error" class="error" hidden></div>
 </header>
@@ -37,6 +37,7 @@
   <a href="data/rates.json">Daten (JSON)</a>
   <a href="#" id="csv">CSV</a>
 </footer>
-<script src="app.js"></script>
+<dialog id="alerts" aria-label="FX-Alarme"></dialog>
+<script src="app.js?v=4"></script>
 </body>
 </html>

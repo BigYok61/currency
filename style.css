@@ -17,7 +17,7 @@ html, body { margin: 0; background: var(--bg); color: var(--fg);
 header { padding: max(12px, env(safe-area-inset-top)) 16px 8px; padding-left: max(16px, env(safe-area-inset-left)); }
 .titlebar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 h1 { font-size: 20px; margin: 0 0 2px; }
-#reload { font-size: 20px; border: 1px solid var(--line); background: transparent; color: var(--accent);
+#reload, #alertsBtn { font-size: 20px; border: 1px solid var(--line); background: transparent; color: var(--accent);
   border-radius: 8px; width: 40px; height: 36px; cursor: pointer; }
 .sub { margin: 2px 0; color: var(--muted); }
 .note { margin: 2px 0; font-size: 12px; color: var(--muted); }
@@ -56,3 +56,28 @@ footer { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 16px max(12
   font-size: 12px; color: var(--muted); }
 footer a { color: var(--accent); text-decoration: none; }
 @media (max-width: 480px) { :root { --label-w: 150px; } table { font-size: 12.5px; } tbody .lab { font-size: 12px; } h1 { font-size: 18px; } th, td { padding: 0 6px; } }
+.tools { display: flex; gap: 6px; }
+#alertsBtn { font-size: 17px; }
+tr.now td, tr.now th { background-color: var(--nowbg); font-weight: 600; border-top: 1px solid var(--line); }
+tr.now .lab { background: linear-gradient(var(--nowbg), var(--nowbg)), var(--bg); color: var(--accent); }
+tr.now td.empty { font-weight: 400; }
+tr.now td.stale { color: var(--muted); }
+:root { --nowbg: rgba(11,92,173,.07); }
+@media (prefers-color-scheme: dark) { :root { --nowbg: rgba(77,163,255,.10); } }
+dialog { border: none; border-radius: 14px; padding: 16px; background: var(--bg); color: var(--fg); width: min(620px, 96vw); max-height: 90vh; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.dlghead { display: flex; justify-content: space-between; align-items: center; margin: 0 0 6px; }
+.dlghead h2 { font-size: 17px; margin: 0; }
+.dlghead button { border: none; background: transparent; font-size: 18px; color: var(--muted); cursor: pointer; }
+.altab { width: 100%; margin: 10px 0; }
+.altab th, .altab td { text-align: left; height: 34px; }
+.altab .n { text-align: right; }
+.altab input[type=number] { width: 72px; font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); text-align: right; }
+dialog .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+dialog .row input { flex: 1; min-width: 200px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+dialog button:not(.dlghead button) { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--accent); cursor: pointer; }
+dialog button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+dialog button.danger { color: var(--down); }
+dialog a { color: var(--accent); }
+.msg { font-size: 13px; padding: 6px 8px; border-radius: 8px; margin: 6px 0; }
+.msg.ok { background: rgba(52,199,89,.14); } .msg.err { background: rgba(255,59,48,.14); }
