@@ -288,7 +288,7 @@ function csv() {
 }
 
 // ---------------------------------------------------------------- FX-Alarme (data/fx-alerts.json, Bearbeiten mit GitHub-Token)
-const REPO = 'BigYok61/waehrungsuebersicht';
+const REPO = 'BigYok61/currency';
 const ALERTS_PATH = 'data/fx-alerts.json';
 const STATE_PATH = 'data/fx-alert-state.json';
 const LS_TOKEN = 'wu.ghToken';
