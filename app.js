@@ -216,20 +216,20 @@ function render(opts = {}) {
   }
   const sc = document.getElementById('scroller');
   const left = sc.scrollLeft;
+  const top = sc.scrollTop;
   const grid = document.getElementById('grid');
   grid.innerHTML = h + '</tbody>';
-  grid.style.minWidth = `calc(var(--label-w) + ${days.length} * 108px)`;
+  const tableMin = `calc(var(--label-w) + ${days.length} * 108px)`;
+  grid.style.minWidth = tableMin;
+  // Karte so breit wie die Tabelle, damit Hintergrund und Ecken alle Spalten umfassen.
+  grid.closest('main').style.minWidth = `max(calc(100% - 2 * var(--edge)), ${tableMin})`;
   sc.scrollLeft = opts.keepScroll ? left : sc.scrollWidth;
+  sc.scrollTop = top;
 
   const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
   const last = ecbDays[ecbDays.length - 1];
   document.getElementById('stand').textContent = last ? `Stand: ${longFmt.format(new Date(last + 'T12:00:00Z'))}, EZB-Referenzkurse` : 'EZB-Referenzkurse (noch keine Daten)';
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
-  syncChrome();
-}
-function syncChrome() {
-  const header = document.querySelector('header');
-  if (header) document.documentElement.style.setProperty('--head-h', Math.ceil(header.getBoundingClientRect().height) + 'px');
 }
 
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
@@ -399,8 +399,6 @@ document.getElementById('reload').addEventListener('click', e => {
   b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
   load();
 });
-window.addEventListener('resize', syncChrome);
-syncChrome();
 document.getElementById('csv').addEventListener('click', e => {
   e.preventDefault();
   const a = document.createElement('a');
