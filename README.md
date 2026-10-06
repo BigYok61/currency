@@ -2,7 +2,7 @@
 
 Devisen-Mittelkurse USD, EUR, GBP in CHF – werktags 08/10/12/14/16/18 Uhr (Europe/Zurich),
 Prognose Tagesende, Prognose 7 Tage (je mit Abweichung), Zeile «Aktuell» (Live-Kurs), EZB-Referenzkurs, FX-Push-Alarme (ntfy).
-Statische Seite + geplante GitHub-Actions-Jobs. Web-App: https://bigyok61.github.io/waehrungsuebersicht/
+Statische Seite + geplante GitHub-Actions-Jobs. Web-App: https://bigyok61.github.io/currency/
 
 - `scripts/capture.py` – Erfassung (nur Python-Standardbibliothek, keine Schlüssel). Idempotent, ergänzt nur.
 - `data/rates.json` – dauerhafter Verlauf, gleiches Format wie die macOS-App (`History`/`DayRecord`).
@@ -11,8 +11,8 @@ Statische Seite + geplante GitHub-Actions-Jobs. Web-App: https://bigyok61.github
 - `data/fx-alerts.json` – Schwellen der FX-Alarme (bearbeitbar), `data/fx-alert-state.json` – heute bereits gesendete Alarme.
 - `index.html`, `app.js`, `style.css`, `sw.js`, `manifest.webmanifest` – PWA (iPhone: Teilen › Zum Home-Bildschirm).
 
-Daten-URL für die macOS-App: `https://<benutzer>.github.io/<repo>/data/rates.json`
-(alternativ `https://raw.githubusercontent.com/<benutzer>/<repo>/main/data/rates.json`).
+Daten-URL für die macOS-App: `https://bigyok61.github.io/currency/data/rates.json`
+(alternativ `https://raw.githubusercontent.com/BigYok61/currency/main/data/rates.json`).
 
 Einrichtung: öffentliches Repo anlegen, pushen, unter Settings › Pages › Source „GitHub Actions" wählen,
 einmal „Run workflow" ausführen.
@@ -41,8 +41,8 @@ dem Kurs von **08:00** (vor 08:00: Tageseröffnung) um **mehr als** die Schwelle
 
 Empfang: ntfy-App → gleiches Topic wie die Aktienübersicht. Das Topic ist als Repository-Secret `NTFY_TOPIC` hinterlegt
 (nie im Repository, das Repo ist öffentlich; ein Secret lässt sich nicht auslesen, nur neu setzen:
-`gh secret set NTFY_TOPIC -R BigYok61/waehrungsuebersicht`).
-Test-Push: `gh workflow run fx-alerts.yml -R BigYok61/waehrungsuebersicht -f test=true` (Meldung «TEST: …»).
+`gh secret set NTFY_TOPIC -R BigYok61/currency`).
+Test-Push: `gh workflow run fx-alerts.yml -R BigYok61/currency -f test=true` (Meldung «TEST: …»).
 
 ### Schwellen ändern
 Datei `data/fx-alerts.json` (Standard: fällt um mehr als 0.5 %, steigt um mehr als 0.25 %):
@@ -55,13 +55,13 @@ Datei `data/fx-alerts.json` (Standard: fällt um mehr als 0.5 %, steigt um mehr 
 Änderungen gelten ab dem nächsten Lauf. Drei Wege:
 1. **Web-App:** 🔔 oben rechts → Schwellen/Aktiv ändern → «Speichern» (braucht den GitHub-Token, siehe unten).
 2. **Mac-App (ab 1.4):** Einstellungen (⌘,) → «FX-Alarme» (Token im Schlüsselbund).
-3. **Direkt auf GitHub:** https://github.com/BigYok61/waehrungsuebersicht/edit/main/data/fx-alerts.json →
+3. **Direkt auf GitHub:** https://github.com/BigYok61/currency/edit/main/data/fx-alerts.json →
    Werte ändern → «Commit changes…». Ohne Token, nur mit dem GitHub-Login.
 
 ### GitHub-Token (einmalig, wie bei der Aktienübersicht)
 github.com → Profilbild → **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** →
 **Generate new token**: Name «Währungen», Ablaufdatum wählen, Repository access **Only select repositories** →
-**BigYok61/waehrungsuebersicht** (ein bestehender Aktienübersicht-Token kann alternativ um dieses Repository erweitert werden),
+**BigYok61/currency** (ein bestehender Aktienübersicht-Token kann alternativ um dieses Repository erweitert werden),
 Permissions → Repository permissions → **Contents: Read and write**, alles andere «No access» → **Generate token**, kopieren.
 Web-App: 🔔 → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
 «Token entfernen» löscht ihn). Mac-App: Einstellungen → FX-Alarme → Token (Schlüsselbund).

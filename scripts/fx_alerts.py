@@ -26,7 +26,7 @@ WINDOW = (7, 22)          # Stunden Zuerich: 07:00 bis 22:00 (inkl. 22:00-Lauf b
 BASE_HOUR = 8
 MAX_QUOTE_AGE = 20 * 60   # aeltere Kurse (Markt geschlossen/Stoerung) loesen keinen Alarm aus
 UA = "Waehrungsuebersicht/1.4 (+github-actions)"
-APP_URL = "https://bigyok61.github.io/waehrungsuebersicht/"
+APP_URL = "https://bigyok61.github.io/currency/"
 
 
 def log(*a):
