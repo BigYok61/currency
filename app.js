@@ -2,10 +2,18 @@
 // Währungsübersicht – liest data/rates.json (gleiches Format wie die macOS-App)
 const DATA_URL = 'data/rates.json';
 const CURRENCIES = [
-  { code: 'USD', label: '1 USD', flag: '🇺🇸', symbol: 'USDCHF' },
   { code: 'EUR', label: '1 EUR', flag: '🇪🇺', symbol: 'EURCHF' },
+  { code: 'USD', label: '1 USD', flag: '🇺🇸', symbol: 'USDCHF' },
   { code: 'GBP', label: '1 GBP', flag: '🇬🇧', symbol: 'GBPCHF' },
 ];
+/** Standardreihenfolge: EUR, USD, GBP, danach übrige Währungen in der Reihenfolge von CURRENCIES. */
+const DEFAULT_LEAD = ['EUR', 'USD', 'GBP'];
+const LS_ORDER = 'wu.currencyOrder';
+const CCY_NAMES = { EUR: 'Euro', USD: 'US-Dollar', GBP: 'Britisches Pfund' };
+const CHEVRON_UP = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 10.35 8 5.65 12.75 10.35" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_DOWN = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 5.65 8 10.35 12.75 5.65" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+/** null = nichts gespeichert (Standard). Array = vom Nutzer gewählte Codes. undefined = noch nicht gelesen. */
+let savedOrder;
 const HOURS = [8, 10, 12, 14, 16, 18];
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen
 const START = '2026-10-01';
@@ -57,17 +65,80 @@ function actual7(c, k) {
 
 function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
 
-function render() {
+function defaultCurrencies() {
+  const byCode = new Map(CURRENCIES.map(c => [c.code, c]));
+  const head = DEFAULT_LEAD.filter(code => byCode.has(code)).map(code => byCode.get(code));
+  const lead = new Set(DEFAULT_LEAD);
+  return [...head, ...CURRENCIES.filter(c => !lead.has(c.code))];
+}
+function readSavedOrder() {
+  try {
+    const raw = localStorage.getItem(LS_ORDER);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return null;
+    const codes = arr.filter(code => typeof code === 'string' && code);
+    return codes.length ? codes : null;
+  } catch { return null; }
+}
+function orderCodes() {
+  if (savedOrder === undefined) savedOrder = readSavedOrder();
+  return savedOrder;
+}
+/** Angezeigte Reihenfolge: gespeicherte Codes, unbekannte ignorieren, neue Währungen hinten in Standardreihenfolge. */
+function currenciesInOrder() {
+  const base = defaultCurrencies();
+  const saved = orderCodes();
+  if (!saved) return base;
+  const byCode = new Map(CURRENCIES.map(c => [c.code, c]));
+  const seen = new Set();
+  const out = [];
+  for (const code of saved) {
+    if (seen.has(code) || !byCode.has(code)) continue;
+    out.push(byCode.get(code));
+    seen.add(code);
+  }
+  for (const c of base) if (!seen.has(c.code)) out.push(c);
+  return out;
+}
+function persistOrder(list) {
+  savedOrder = list.map(c => c.code);
+  try { localStorage.setItem(LS_ORDER, JSON.stringify(savedOrder)); } catch { /* Anzeige gilt trotzdem für diese Sitzung */ }
+}
+function moveButtons(c, index, total) {
+  const name = CCY_NAMES[c.code] || c.label;
+  const btn = (dir, icon, disabled) =>
+    `<button type="button" class="ccy-move" data-move="${dir}" data-code="${esc(c.code)}" aria-label="${esc(name)} nach ${dir === 'up' ? 'oben' : 'unten'}"${disabled ? ' disabled' : ''}>${icon}</button>`;
+  return `<span class="ccy-moves">${btn('up', CHEVRON_UP, index === 0)}${btn('down', CHEVRON_DOWN, index === total - 1)}</span>`;
+}
+function moveCurrency(code, dir, opts = {}) {
+  const list = currenciesInOrder();
+  const i = list.findIndex(c => c.code === code);
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  const next = list.slice();
+  const [item] = next.splice(i, 1);
+  next.splice(j, 0, item);
+  persistOrder(next);
+  render({ keepScroll: true });
+  if (!opts.focus) return;
+  const pick = d => document.querySelector(`.ccy-move[data-code="${CSS.escape(code)}"][data-move="${d}"]:not(:disabled)`);
+  const btn = pick(dir) || pick(dir === 'up' ? 'down' : 'up');
+  if (btn) btn.focus({ preventScroll: true });
+}
+
+function render(opts = {}) {
   const today = zurichToday();
   const days = weekdayKeys(START, today < START ? START : today);
+  const shown = currenciesInOrder();
   const td = (k, html, cls = '', title = '') =>
     `<td class="${k === today ? 'today ' : ''}${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
   let h = '<thead><tr><th class="lab">Zeit (CH)</th>' +
     days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead><tbody>';
-  for (const c of CURRENCIES) {
+  for (const [i, c] of shown.entries()) {
     // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
     const lv = live[c.code] && !days.includes(today) ? `<span class="live" title="Letzter Mittelkurs (Markt geschlossen)">${r(live[c.code].v)}</span>` : '';
-    h += `<tr class="group"><th class="lab">${c.flag} ${c.label}${lv}</th>${days.map(k => td(k, '')).join('')}</tr>`;
+    h += `<tr class="group"><th class="lab"><div class="ccy-head"><span class="ccy-name"><span class="ccy-title">${c.flag} ${c.label}</span>${lv}</span>${moveButtons(c, i, shown.length)}</div></th>${days.map(k => td(k, '')).join('')}</tr>`;
     const slotRow = (hr, alt) => {
       let row = `<tr class="${alt ? 'alt' : ''}"><th class="lab">${pad(hr)}:00</th>`;
       for (const k of days) {
@@ -142,8 +213,10 @@ function render() {
     h += '</tr>';
     h += `<tr class="ecb"><th class="lab">EZB-Referenz</th>${days.map(k => { const v = ecb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr>`;
   }
+  const sc = document.getElementById('scroller');
+  const left = sc.scrollLeft;
   document.getElementById('grid').innerHTML = h + '</tbody>';
-  const sc = document.getElementById('scroller'); sc.scrollLeft = sc.scrollWidth;
+  sc.scrollLeft = opts.keepScroll ? left : sc.scrollWidth;
 
   const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
   const last = ecbDays[ecbDays.length - 1];
@@ -168,7 +241,7 @@ async function load() {
 
 async function loadLive() {
   // Aktueller Mittelkurs direkt von biquote.io (gleiche Quelle wie die Zeitpunkte; nur Anzeige, wird nicht gespeichert)
-  await Promise.all(CURRENCIES.map(async c => {
+  await Promise.all(currenciesInOrder().map(async c => {
     try {
       const res = await fetch(`https://biquote.io/api/${c.symbol}?t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return;
@@ -188,7 +261,7 @@ function csv() {
   const num = v => (v == null ? '' : v.toFixed(6));
   const dmy = k => `${k.slice(8, 10)}.${k.slice(5, 7)}.${k.slice(0, 4)}`;
   const lines = [['Währung', 'Zeit', ...days.map(dmy)].join(';')];
-  for (const c of CURRENCIES) {
+  for (const c of currenciesInOrder()) {
     const L = `${c.label} in CHF`;
     HOURS.forEach((hr, i) => {
       lines.push([L, `${pad(hr)}:00`, ...days.map(k => num(val(c, k, hr)))].join(';'));
@@ -308,6 +381,11 @@ $('alertsBtn').addEventListener('click', async () => {
   await loadAlerts(); renderAlerts();
 });
 
+document.getElementById('grid').addEventListener('click', e => {
+  const btn = e.target.closest('.ccy-move');
+  if (!btn || btn.disabled) return;
+  moveCurrency(btn.dataset.code, btn.dataset.move, { focus: e.detail === 0 });
+});
 document.getElementById('reload').addEventListener('click', load);
 document.getElementById('csv').addEventListener('click', e => {
   e.preventDefault();
