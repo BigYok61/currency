@@ -1,13 +1,13 @@
 {
-  "name": "Währungsübersicht",
+  "name": "Währungen",
   "short_name": "Währungen",
   "description": "Devisen-Mittelkurse USD, EUR, GBP in CHF",
   "lang": "de-CH",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#0b5cad",
+  "background_color": "#f5f5f7",
+  "theme_color": "#f5f5f7",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },

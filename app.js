@@ -1,5 +1,5 @@
 'use strict';
-// Währungsübersicht – liest data/rates.json (gleiches Format wie die macOS-App)
+// Währungen – liest data/rates.json (gleiches Format wie die macOS-App)
 const DATA_URL = 'data/rates.json';
 const CURRENCIES = [
   { code: 'EUR', label: '1 EUR', flag: '🇪🇺', symbol: 'EURCHF' },
@@ -12,6 +12,7 @@ const LS_ORDER = 'wu.currencyOrder';
 const CCY_NAMES = { EUR: 'Euro', USD: 'US-Dollar', GBP: 'Britisches Pfund' };
 const CHEVRON_UP = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 10.35 8 5.65 12.75 10.35" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CHEVRON_DOWN = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 5.65 8 10.35 12.75 5.65" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const XMARK = '<svg class="sym" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path d="M3.6 3.6 12.4 12.4M12.4 3.6 3.6 12.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 /** null = nichts gespeichert (Standard). Array = vom Nutzer gewählte Codes. undefined = noch nicht gelesen. */
 let savedOrder;
 const HOURS = [8, 10, 12, 14, 16, 18];
@@ -133,7 +134,7 @@ function render(opts = {}) {
   const shown = currenciesInOrder();
   const td = (k, html, cls = '', title = '') =>
     `<td class="${k === today ? 'today ' : ''}${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
-  let h = '<thead><tr><th class="lab">Zeit (CH)</th>' +
+  let h = `<colgroup><col class="c-lab">${days.map(() => '<col class="c-day">').join('')}</colgroup><thead><tr><th class="lab">Zeit (CH)</th>` +
     days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead><tbody>';
   for (const [i, c] of shown.entries()) {
     // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
@@ -215,13 +216,20 @@ function render(opts = {}) {
   }
   const sc = document.getElementById('scroller');
   const left = sc.scrollLeft;
-  document.getElementById('grid').innerHTML = h + '</tbody>';
+  const grid = document.getElementById('grid');
+  grid.innerHTML = h + '</tbody>';
+  grid.style.minWidth = `calc(var(--label-w) + ${days.length} * 108px)`;
   sc.scrollLeft = opts.keepScroll ? left : sc.scrollWidth;
 
   const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
   const last = ecbDays[ecbDays.length - 1];
   document.getElementById('stand').textContent = last ? `Stand: ${longFmt.format(new Date(last + 'T12:00:00Z'))}, EZB-Referenzkurse` : 'EZB-Referenzkurse (noch keine Daten)';
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
+  syncChrome();
+}
+function syncChrome() {
+  const header = document.querySelector('header');
+  if (header) document.documentElement.style.setProperty('--head-h', Math.ceil(header.getBoundingClientRect().height) + 'px');
 }
 
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
@@ -330,7 +338,7 @@ function renderAlerts() {
   const dlg = $('alerts'), rw = !!ghToken();
   const todayKey = zurichToday();
   const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
-  let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme (Push via ntfy)</h2><button value="close" aria-label="Schliessen">✕</button></form>
+  let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme (Push via ntfy)</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
     <p class="note">Push, wenn sich der Kurs im Tagesverlauf gegenüber 08:00 Schweizer Zeit (vorher: Tageseröffnung) stärker als die Schwelle bewegt.
     Geprüft alle 15 Minuten, werktags ca. 07:00–22:00 Uhr; je Währung und Richtung höchstens eine Meldung pro Tag.</p>
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
@@ -386,12 +394,18 @@ document.getElementById('grid').addEventListener('click', e => {
   if (!btn || btn.disabled) return;
   moveCurrency(btn.dataset.code, btn.dataset.move, { focus: e.detail === 0 });
 });
-document.getElementById('reload').addEventListener('click', load);
+document.getElementById('reload').addEventListener('click', e => {
+  const b = e.currentTarget;
+  b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
+  load();
+});
+window.addEventListener('resize', syncChrome);
+syncChrome();
 document.getElementById('csv').addEventListener('click', e => {
   e.preventDefault();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv()], { type: 'text/csv;charset=utf-8' }));
-  a.download = `Waehrungsuebersicht_${zurichToday()}.csv`; a.click();
+  a.download = `Waehrungen_${zurichToday()}.csv`; a.click();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 setInterval(load, 10 * 60 * 1000);
