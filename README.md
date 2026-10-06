@@ -1,4 +1,4 @@
-# Währungsübersicht (Web)
+# Währungen
 
 Devisen-Mittelkurse USD, EUR, GBP in CHF – werktags 08/10/12/14/16/18 Uhr (Europe/Zurich),
 Prognose Tagesende, Prognose 7 Tage (je mit Abweichung), Zeile «Aktuell» (Live-Kurs), EZB-Referenzkurs, FX-Push-Alarme (ntfy).
@@ -60,7 +60,7 @@ Datei `data/fx-alerts.json` (Standard: fällt um mehr als 0.5 %, steigt um mehr 
 
 ### GitHub-Token (einmalig, wie bei der Aktienübersicht)
 github.com → Profilbild → **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** →
-**Generate new token**: Name «Währungsübersicht», Ablaufdatum wählen, Repository access **Only select repositories** →
+**Generate new token**: Name «Währungen», Ablaufdatum wählen, Repository access **Only select repositories** →
 **BigYok61/waehrungsuebersicht** (ein bestehender Aktienübersicht-Token kann alternativ um dieses Repository erweitert werden),
 Permissions → Repository permissions → **Contents: Read and write**, alles andere «No access» → **Generate token**, kopieren.
 Web-App: 🔔 → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
