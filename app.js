@@ -15,9 +15,8 @@ const CHEVRON_DOWN = '<svg class="chev" viewBox="0 0 16 16" width="13" height="1
 const XMARK = '<svg class="sym" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path d="M3.6 3.6 12.4 12.4M12.4 3.6 3.6 12.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 /** null = nichts gespeichert (Standard). Array = vom Nutzer gewählte Codes. undefined = noch nicht gelesen. */
 let savedOrder;
-const BASE_HOUR = 8; // Veränderungspfeile, Prognose-Basis, FX-Alarme
-const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen
-const LOCKED_HOURS = [BASE_HOUR, CLOSE_HOUR];
+const LEGACY_BASIS = 8; // ältere Tage und ältere Prognosen ohne gespeicherte Basisstunde
+const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen, immer erfasst, nur auf dem Raster als Uhrzeit sichtbar
 const INTERVALS = [1, 2, 3, 4, 8, 12, 24];
 const DEFAULT_SCHEDULE = { start: 6, end: 20, intervalHours: 2 };
 let schedule = { ...DEFAULT_SCHEDULE };
@@ -28,9 +27,9 @@ function parseHour(v) {
   const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : NaN);
   return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
 }
-/** Ganze Stunden 0–23, aufsteigend, 08 und 16 immer dabei (Prognosen und FX-Alarme). */
+/** Ganze Stunden 0–23, aufsteigend. Nur das Raster, ohne zusätzlich erfasste Stunden. */
 function normalizeHours(list) {
-  const out = new Set(LOCKED_HOURS);
+  const out = new Set();
   const src = Array.isArray(list) ? list : [];
   for (const h of src) {
     const n = parseHour(h);
@@ -76,10 +75,9 @@ function matchSchedule(hours) {
         const pattern = expandSchedule(start, end, step);
         const got = normalizeHours(pattern);
         if (!sameHours(got, hours)) continue;
-        const extras = LOCKED_HOURS.filter(h => !pattern.includes(h)).length;
         const last = pattern[pattern.length - 1];
-        // Engstes Ende (letzter Slot), dann weniger Zusatzstunden, dann kleinerer Abstand, dann grössere Spanne.
-        const key = (end - last) * 100000 + extras * 1000 + step * 10 - (last - start);
+        // Engstes Ende (letzter Slot), dann kleinerer Abstand, dann grössere Spanne.
+        const key = (end - last) * 100000 + step * 10 - (last - start);
         if (bestKey == null || key < bestKey) { bestKey = key; best = { start, end, intervalHours: step }; }
       }
     }
@@ -108,7 +106,7 @@ function applyTimesConfig(data) {
 applyTimesConfig(null);
 function hoursLabel() {
   const parts = HOURS.map(pad);
-  if (parts.length <= 1) return parts[0] || pad(BASE_HOUR);
+  if (parts.length <= 1) return parts[0] || pad(schedule.start);
   return `${parts.slice(0, -1).join(', ')} und ${parts[parts.length - 1]}`;
 }
 const START = '2026-10-01';
@@ -144,18 +142,43 @@ const ecb = (c, k) => history.days[k]?.ecb?.[c.code] ?? null;
 const fc7 = (c, k) => history.days[k]?.forecast7?.[c.code] ?? null;
 function addDays(k, n) { const d = new Date(k + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 const target7 = k => history.days[k]?.forecast7Target ?? addDays(k, 7);
-/** Ist-Wert zur 7-Tage-Prognose: Zieltag 16:00, sonst nächster vorhandener Zeitpunkt (bis 5 Tage später) */
+/** Ist-Wert zur 7-Tage-Prognose: Zieltag 16:00 (auch wenn die Zeile verborgen ist), sonst nächster vorhandener Zeitpunkt. */
 function actual7(c, k) {
   const t = target7(k);
   for (let i = 0; i <= 5; i++) {
     const day = addDays(t, i);
+    const hours = [];
+    const push = hr => { if (!hours.includes(hr)) hours.push(hr); };
+    if (i === 0) push(CLOSE_HOUR);
     for (const hr of HOURS) {
       if (i === 0 && hr < CLOSE_HOUR) continue;
+      push(hr);
+    }
+    for (const hr of hours) {
       const v = val(c, day, hr);
       if (v != null) return { v, day, hr };
     }
   }
   return null;
+}
+/** Stunde für «Veränderung seit …»: Start, sonst erste erfasste Stunde des Tages, sonst 08:00. */
+function changeBasis(c, dayKey) {
+  if (val(c, dayKey, schedule.start) != null) return schedule.start;
+  const slots = history.days[dayKey]?.slots || {};
+  const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null && val(c, dayKey, h) != null).sort((a, b) => a - b);
+  if (hours.length) return hours[0];
+  if (val(c, dayKey, LEGACY_BASIS) != null) return LEGACY_BASIS;
+  return null;
+}
+/** Stunde, mit der die gespeicherte Prognose gerechnet wurde. Ältere Einträge ohne Feld: 08:00. */
+function forecastBasisHour(c, dayKey, kind) {
+  const rec = history.days[dayKey];
+  const map = kind === '7' ? rec?.forecast7Basis : rec?.forecastBasis;
+  const stored = parseHour(map?.[c.code]);
+  if (stored != null) return stored;
+  const hasForecast = kind === '7' ? fc7(c, dayKey) != null : fc(c, dayKey) != null;
+  if (hasForecast) return LEGACY_BASIS;
+  return changeBasis(c, dayKey);
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
@@ -234,43 +257,47 @@ function render(opts = {}) {
     // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
     const lv = live[c.code] && !days.includes(today) ? `<span class="live" title="Letzter Mittelkurs (Markt geschlossen)">${r(live[c.code].v)}</span>` : '';
     h += `<tr class="group"><th class="lab"><div class="ccy-head"><span class="ccy-name"><span class="ccy-title">${c.flag} ${c.label}</span>${lv}</span>${moveButtons(c, i, shown.length)}</div></th>${days.map(k => td(k, '')).join('')}</tr>`;
-    const slotRow = (hr, alt) => {
-      let row = `<tr class="${alt ? 'alt' : ''}"><th class="lab">${pad(hr)}:00</th>`;
+    const move = (v, basisHour, basisVal) => {
+      if (v == null || basisVal == null || basisHour == null) return { arrow: '', title: '' };
+      const d = v - basisVal;
+      const arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
+      return { arrow, title: `Veränderung seit ${pad(basisHour)}:00: ${r(d)}` };
+    };
+    const slotRow = (hr, alt, label) => {
+      let row = `<tr class="${alt || ''}"><th class="lab">${label}</th>`;
       for (const k of days) {
-        const v = val(c, k, hr), base = val(c, k, BASE_HOUR);
-        let arrow = '', title = '';
-        if (v != null && base != null && hr > BASE_HOUR) {
-          const d = v - base;
-          arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
-          title = `Veränderung seit 08:00: ${r(d)}`;
-        }
-        row += td(k, v == null ? '–' : arrow + r(v), v == null ? 'empty' : '', title);
+        const v = val(c, k, hr), basisHour = changeBasis(c, k);
+        const shown = basisHour != null && hr > basisHour ? move(v, basisHour, val(c, k, basisHour)) : { arrow: '', title: '' };
+        row += td(k, v == null ? '–' : shown.arrow + r(v), v == null ? 'empty' : '', shown.title);
       }
       return row + '</tr>';
     };
-    // Prognosen vor den Uhrzeiten; 08:00 steht bei den übrigen Messpunkten
+    // Prognosen vor den Uhrzeiten. Die Basis ist die Startstunde (bei älteren Prognosen 08:00).
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
     for (const k of days) {
-      const f = fc(c, k), base = val(c, k, BASE_HOUR);
+      const f = fc(c, k), basisHour = forecastBasisHour(c, k, 'day');
+      const base = basisHour != null ? val(c, k, basisHour) : null;
       let arrow = '';
       if (f != null && base != null) {
         const d = f - base;
         arrow = `<span class="fcarr" title="${d < -EPS ? 'Erwartung: CHF stärker' : d > EPS ? 'Erwartung: CHF schwächer' : 'Erwartung: unverändert'}">${d < -EPS ? '↓' : d > EPS ? '↑' : '→'}</span>`;
       }
-      h += td(k, f == null ? '–' : arrow + r(f), f == null ? 'empty' : '', f == null ? '' : 'Schätzung, keine Anlageberatung');
+      const title = f == null ? '' : `Schätzung, keine Anlageberatung${basisHour != null && base != null ? `\nBasis ${pad(basisHour)}:00: ${r(base)}` : ''}`;
+      h += td(k, f == null ? '–' : arrow + r(f), f == null ? 'empty' : '', title);
     }
     h += '</tr>';
-    // Prognose 7 Tage (erstellt um 08:00, Ziel: gleicher Wochentag eine Woche später, 16:00)
+    // Prognose 7 Tage (erstellt zur Basisstunde, Ziel: gleicher Wochentag eine Woche später, 16:00)
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung – Kurs eine Woche später (gleicher Wochentag, 16:00)">Prognose 7 Tage *</th>';
     for (const k of days) {
-      const f = fc7(c, k), base = val(c, k, BASE_HOUR);
+      const f = fc7(c, k), basisHour = forecastBasisHour(c, k, '7');
+      const base = basisHour != null ? val(c, k, basisHour) : null;
       let arrow = '';
       if (f != null && base != null) {
         const d = f - base;
         arrow = `<span class="fcarr">${d < -EPS ? '↓' : d > EPS ? '↑' : '→'}</span>`;
       }
       h += td(k, f == null ? '–' : arrow + r(f), f == null ? 'empty' : '',
-        f == null ? '' : `Schätzung, keine Anlageberatung\nZiel: ${header(target7(k))} 16:00 · Basis 08:00: ${r(base)}`);
+        f == null ? '' : `Schätzung, keine Anlageberatung\nZiel: ${header(target7(k))} 16:00${basisHour != null && base != null ? ` · Basis ${pad(basisHour)}:00: ${r(base)}` : ''}`);
     }
     h += '</tr><tr class="dev"><th class="lab">Abweichung Tagesende</th>';
     for (const k of days) {
@@ -287,20 +314,22 @@ function render(opts = {}) {
       else h += td(k, `→ ${header(target7(k)).split(' ')[1]}`, 'empty pending', `Ist-Wert ab ${header(target7(k))} 16:00`);
     }
     h += '</tr>';
-    HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1); });
+    HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1 ? 'alt' : '', `${pad(hr)}:00`); });
+    h += slotRow(CLOSE_HOUR, 'close', 'Tagesendkurs');
     // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den erfassten Zeitpunkten
     const L = live[c.code];
     h += `<tr class="now"><th class="lab" title="Live-Mittelkurs (biquote.io), abgerufen beim Öffnen bzw. Aktualisieren – wird nicht gespeichert">Aktuell${L ? ' ' + hmFmt.format(L.at) : ''}</th>`;
     for (const k of days) {
       if (k !== today || !L) { h += td(k, '–', 'empty'); continue; }
-      const base = val(c, k, BASE_HOUR);
+      const basisHour = changeBasis(c, k);
+      const base = basisHour != null ? val(c, k, basisHour) : null;
       let arrow = '', title = `Abgerufen ${hmFmt.format(L.at)}`;
       if (L.quoteAt) title += ` · Kurs von ${hmFmt.format(L.quoteAt)}`;
       if (L.closed) title += ' (Markt geschlossen)';
       if (base != null) {
         const d = L.v - base;
         arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
-        title = `Veränderung seit 08:00: ${r(d)} (${pctFmt.format((L.v / base - 1) * 100)} %)\n` + title;
+        title = `Veränderung seit ${pad(basisHour)}:00: ${r(d)} (${pctFmt.format((L.v / base - 1) * 100)} %)\n` + title;
       }
       h += td(k, arrow + r(L.v), L.closed ? 'stale' : '', title);
     }
@@ -322,7 +351,9 @@ function render(opts = {}) {
   const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
   const last = ecbDays[ecbDays.length - 1];
   const note = document.getElementById('hoursNote');
-  if (note) note.textContent = `Mittelkurs werktags um ${hoursLabel()} Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze. «Aktuell» = Live-Kurs beim Öffnen/Aktualisieren (nur heute, wird nicht gespeichert)`;
+  if (note) note.textContent = `Mittelkurs werktags um ${hoursLabel()} Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze. Tagesendkurs 16:00 wird immer erfasst. «Aktuell» = Live-Kurs beim Öffnen/Aktualisieren (nur heute, wird nicht gespeichert)`;
+  const fcNote = document.getElementById('fcNote');
+  if (fcNote) fcNote.textContent = `* Prognose Tagesende (16:00) und Prognose 7 Tage (gleicher Wochentag eine Woche später, 16:00), jeweils zum Startzeitpunkt ${pad(schedule.start)}:00 erstellt: Schätzung, keine Anlageberatung. ↓ = CHF stärker, ↑ = CHF schwächer`;
   document.getElementById('stand').textContent = last ? `Stand: ${longFmt.format(new Date(last + 'T12:00:00Z'))}, EZB-Referenzkurse` : 'EZB-Referenzkurse (noch keine Daten)';
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
 }
@@ -378,6 +409,7 @@ function csv() {
     HOURS.forEach(hr => {
       lines.push([L, `${pad(hr)}:00`, ...days.map(k => num(val(c, k, hr)))].join(';'));
     });
+    lines.push([L, 'Tagesendkurs 16:00', ...days.map(k => num(val(c, k, CLOSE_HOUR)))].join(';'));
     const lv = live[c.code];
     lines.push([L, lv ? `Aktuell ${hmFmt.format(lv.at)} (Live, nicht gespeichert)` : 'Aktuell', ...days.map(k => (k === zurichToday() && lv ? num(lv.v) : ''))].join(';'));
     lines.push([L, 'EZB-Referenzkurs', ...days.map(k => num(ecb(c, k)))].join(';'));
@@ -392,6 +424,8 @@ const TIMES_PATH = 'data/capture-times.json';
 const STATE_PATH = 'data/fx-alert-state.json';
 const DEFAULT_TIMES = { version: 2, start: '06', end: '20', intervalHours: 2 };
 const LS_TOKEN = 'wu.ghToken';
+const LS_TIMES = 'wu.captureTimes';
+const TIMES_FRESH_MS = 10 * 60 * 1000;
 const ALERT_CODES = ['USD', 'EUR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
 const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
@@ -414,17 +448,62 @@ async function publicGet(path) {
   }
   return null;
 }
+async function fetchJson(url) {
+  try { const res = await fetch(url, { cache: 'no-store' }); if (res.ok) return await res.json(); } catch { /* Quelle nicht erreichbar */ }
+  return null;
+}
 function timesConfigOk(data) {
   return !!(data && (parseSchedule(data) || (Array.isArray(data.hours) && data.hours.some(h => parseHour(h) != null))));
 }
-async function fetchTimes() {
+function timesEqual(a, b) {
+  const sa = parseSchedule(a), sb = parseSchedule(b);
+  if (sa && sb) return sa.start === sb.start && sa.end === sb.end && sa.intervalHours === sb.intervalHours;
+  if (sa || sb) return false;
+  if (!a || !b || !Array.isArray(a.hours) || !Array.isArray(b.hours)) return false;
+  return sameHours(normalizeHours(a.hours), normalizeHours(b.hours));
+}
+/** Gerade gespeichertes Raster merken, damit eine veraltete öffentliche Kopie es nicht überschreibt. */
+function rememberTimes(data) {
+  try { localStorage.setItem(LS_TIMES, JSON.stringify({ savedAt: Date.now(), data })); } catch { /* privater Modus oder voll */ }
+}
+function rememberedTimes() {
   try {
-    if (ghToken()) {
+    const raw = localStorage.getItem(LS_TIMES);
+    if (!raw) return null;
+    const rec = JSON.parse(raw);
+    if (!rec || typeof rec.savedAt !== 'number' || !timesConfigOk(rec.data)) return null;
+    if (Date.now() - rec.savedAt > TIMES_FRESH_MS) return null;
+    return rec.data;
+  } catch { return null; }
+}
+/**
+ * Mit Token gewinnt die API. Ohne Token raw.githubusercontent vor der Pages-Kopie.
+ * Ein in dieser Sitzung gespeichertes Raster (etwa 10 Minuten) schlägt eine ältere öffentliche Quelle.
+ */
+function pickTimes({ api, raw, pages, saved }) {
+  if (timesConfigOk(api)) return api;
+  const rawOk = timesConfigOk(raw), savedOk = timesConfigOk(saved);
+  if (savedOk && rawOk && !timesEqual(saved, raw)) return saved;
+  if (rawOk) return raw;
+  if (savedOk) return saved;
+  if (timesConfigOk(pages)) return pages;
+  return null;
+}
+async function fetchTimes() {
+  let api = null;
+  if (ghToken()) {
+    try {
       const { data } = await ghGet(TIMES_PATH);
-      if (timesConfigOk(data)) return data;
-    }
-  } catch { /* öffentlich weiter */ }
-  return publicGet(TIMES_PATH);
+      if (timesConfigOk(data)) api = data;
+    } catch { /* öffentlich weiter */ }
+  }
+  const saved = rememberedTimes();
+  if (timesConfigOk(api)) return pickTimes({ api, raw: null, pages: null, saved });
+  const raw = await fetchJson(`https://raw.githubusercontent.com/${REPO}/main/${TIMES_PATH}?t=${Date.now()}`);
+  const early = pickTimes({ api: null, raw, pages: null, saved });
+  if (early) return early;
+  const pages = await fetchJson(`${TIMES_PATH}?t=${Date.now()}`);
+  return pickTimes({ api: null, raw, pages, saved });
 }
 async function loadAlerts() {
   try { alertCfg = ghToken() ? (await ghGet(ALERTS_PATH)).data : await publicGet(ALERTS_PATH); } catch (e) { alertCfg = await publicGet(ALERTS_PATH); }
@@ -454,7 +533,7 @@ function renderAlerts() {
   const todayKey = zurichToday();
   const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
   let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme (Push via ntfy)</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
-    <p class="note">Push, wenn sich der Kurs im Tagesverlauf gegenüber 08:00 Schweizer Zeit (vorher: Tageseröffnung) stärker als die Schwelle bewegt.
+    <p class="note">Push, wenn sich der Kurs im Tagesverlauf gegenüber ${pad(schedule.start)}:00 Schweizer Zeit (vorher: Tageseröffnung) stärker als die Schwelle bewegt.
     Geprüft alle 15 Minuten, werktags ca. 07:00–22:00 Uhr; je Währung und Richtung höchstens eine Meldung pro Tag.</p>
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
@@ -507,23 +586,17 @@ async function openAlerts() {
   const tok = $('tok');
   if (tok) tok.focus();
 }
+if (typeof document !== 'undefined') {
 $('alertsBtn').addEventListener('click', () => { openAlerts(); });
 $('alerts').addEventListener('close', () => { if ($('times').open) renderTimes(); });
-
+}
 // ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
 function tmMsg(text, ok) { const m = $('tmMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
 function measurementCaption(n) {
   return n === 1 ? '1 Messung pro Tag' : `${n} Messungen pro Tag`;
 }
-function previewPills(hours, pattern) {
-  const onGrid = new Set(pattern);
-  return hours.map(hr => {
-    const fixed = LOCKED_HOURS.includes(hr);
-    const cls = fixed ? 'pill fixed' : 'pill';
-    const dot = fixed ? '<i class="pill-dot" aria-hidden="true"></i>' : '';
-    const title = fixed && !onGrid.has(hr) ? ' title="Zusätzlich erfasst"' : (fixed ? ' title="Immer erfasst"' : '');
-    return `<span class="${cls}"${title}>${pad(hr)}${dot}</span>`;
-  }).join('');
+function previewPills(hours) {
+  return hours.map(hr => `<span class="pill">${pad(hr)}</span>`).join('');
 }
 function timeOptions(selected) {
   let html = '';
@@ -564,14 +637,9 @@ function renderTimes() {
       if (save) save.disabled = true;
       return null;
     }
-    const all = normalizeHours(pattern);
-    pills.innerHTML = previewPills(all, pattern);
-    count.textContent = measurementCaption(all.length);
-    const outside = LOCKED_HOURS.filter(hr => !pattern.includes(hr));
-    if (outside.length) {
-      const label = outside.map(hr => `${pad(hr)}:00`).join(' und ');
-      notes.push(`${label} ${outside.length > 1 ? 'liegen' : 'liegt'} ausserhalb dieses Rasters und ${outside.length > 1 ? 'werden' : 'wird'} zusätzlich erfasst (Prognose und FX-Alarm).`);
-    }
+    pills.innerHTML = previewPills(pattern);
+    count.textContent = measurementCaption(pattern.length);
+    notes.push('Tagesendkurs 16:00 wird immer erfasst.');
     if (!timesFit) notes.push('Die gespeicherte Liste folgt keinem Von/Bis-Raster und gilt bis zum Speichern.');
     extra.hidden = notes.length === 0;
     extra.textContent = notes.join(' ');
@@ -603,19 +671,20 @@ function renderTimes() {
     if (!expandSchedule(sch.start, sch.end, sch.intervalHours).length) return tmMsg('Beginn muss vor dem Ende liegen.');
     sv.disabled = true; tmMsg('Speichere …', true);
     try {
-      await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
+      const saved = await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
         cur.version = 2;
         cur.start = pad(sch.start);
         cur.end = pad(sch.end);
         cur.intervalHours = sch.intervalHours;
         delete cur.hours;
       });
+      rememberTimes(saved);
       schedule = sch;
       HOURS = hoursFromSchedule(sch);
       timesFit = true;
       render({ keepScroll: true });
       renderTimes();
-      tmMsg('Gespeichert. Gilt ab dem nächsten stündlichen Lauf; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
+      tmMsg('Gespeichert. Erfassung und Seitenveröffentlichung laufen jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
     } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };
   const connect = $('tmConnect');
@@ -625,6 +694,7 @@ function renderTimes() {
     openAlerts();
   };
 }
+if (typeof document !== 'undefined') {
 $('timesBtn').addEventListener('click', async () => {
   const dlg = $('times');
   dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
@@ -654,3 +724,4 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 setInterval(load, 10 * 60 * 1000);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 load();
+}
