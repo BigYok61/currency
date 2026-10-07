@@ -272,36 +272,58 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button):not(.hour) {
+dialog button:not(.dlghead button):not(.hour):not(.segbtn) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):not(.hour):active { transform: scale(.98); }
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):active { transform: scale(.98); }
 dialog button.primary { background: var(--accent-fill); color: #fff; }
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
-  dialog button:not(.dlghead button):not(.primary):not(.hour):hover { background: var(--fill-hover); }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):hover { background: var(--fill-hover); }
 }
-dialog .hours {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 4px;
+dialog .tm {
+  margin: 14px 0 8px; border-radius: 12px; overflow: hidden;
+  background: color-mix(in srgb, var(--fill) 65%, var(--surface));
 }
-dialog .hours button.hour {
+dialog .tm-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 48px; padding: 8px 14px;
+}
+dialog .tm-row + .tm-row { box-shadow: inset 0 .5px 0 var(--line); }
+dialog .tm-row label, dialog .tm-interval > span {
+  font-size: 15px; font-weight: 590; letter-spacing: -.015em;
+}
+dialog select.tm-time {
+  font: inherit; font-size: 15px; font-weight: 590; font-variant-numeric: tabular-nums;
+  color: var(--accent); background-color: var(--surface);
+  border: .5px solid var(--line); border-radius: 8px;
+  min-height: 34px; padding: 4px 28px 4px 10px;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.2 4.3 6 8.1l3.8-3.8' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 12px;
+}
+dialog select.tm-time:disabled { opacity: .72; }
+dialog .tm-interval { flex-direction: column; align-items: stretch; gap: 8px; padding-top: 10px; padding-bottom: 12px; }
+dialog .seg {
+  display: flex; padding: 2px; border-radius: 9px; background: var(--fill);
+}
+dialog .seg button.segbtn {
+  flex: 1; min-height: 32px; margin: 0; padding: 6px 4px;
+  border: none; border-radius: 7px; background: transparent; color: var(--fg);
   font: inherit; font-weight: 590; font-variant-numeric: tabular-nums;
-  min-height: 40px; padding: 6px 4px; border-radius: 10px;
-  border: .5px solid var(--line); background: var(--field); color: var(--fg);
   cursor: pointer; touch-action: manipulation;
-  transition: background-color var(--ease), color var(--ease), transform .15s ease, border-color var(--ease);
 }
-dialog .hours button.hour[aria-pressed="true"] {
-  background: var(--accent-fill); color: #fff; border-color: transparent;
+dialog .seg button.segbtn[aria-pressed="true"] {
+  background: var(--surface); color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 0 0 .5px rgba(0,0,0,.06);
 }
-dialog .hours button.hour:disabled { cursor: default; }
-dialog .hours button.hour:disabled:not([aria-pressed="true"]) { opacity: .45; }
-dialog .hours button.hour:not(:disabled):active { transform: scale(.97); }
-@media (hover: hover) {
-  dialog .hours button.hour:not(:disabled):not([aria-pressed="true"]):hover { background: var(--fill-hover); }
-  dialog .hours button.hour[aria-pressed="true"]:not(:disabled):hover { filter: brightness(1.06); }
+dialog .seg button.segbtn:disabled { cursor: default; }
+dialog .seg button.segbtn:not(:disabled):not([aria-pressed="true"]):active { opacity: .7; }
+dialog .tm-preview {
+  margin: 2px 2px 0; font-size: 13px; font-weight: 590; font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em; line-height: 1.45;
 }
 dialog button.danger { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 dialog a { color: var(--accent); }

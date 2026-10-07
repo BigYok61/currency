@@ -4,8 +4,10 @@
 Liest 1h-Kerzen von biquote.io (Mittelkurs) und EZB-Referenzkurse (api.frankfurter.dev),
 ergaenzt data/rates.json und berechnet die Prognose Tagesende sowie die Prognose 7 Tage
 (Modelle 1:1 aus main.swift).
-Welche vollen Stunden gespeichert werden, steht in data/capture-times.json (Standard 06/08/10/12/14/16/18/20).
-08:00 und 16:00 werden immer erfasst (Prognosen und FX-Alarme). Die Datei wird hier nie geschrieben.
+Welche vollen Stunden gespeichert werden, steht in data/capture-times.json.
+Version 2: start/end/intervalHours (Standard 06–20 alle 2 Stunden). Version 1 (hours-Liste) bleibt lesbar.
+08:00 und 16:00 werden immer erfasst (Prognosen und FX-Alarme). Halbe Stunden gibt es nicht (1h-Kerzen).
+Die Datei wird hier nie geschrieben.
 Idempotent: Bereits gespeicherte Werte werden nie ueberschrieben (gleiche Merge-Regel wie die macOS-App).
 Da biquote ca. 7 Tage Verlauf liefert, werden verpasste/verspaetete Laeufe automatisch nachgetragen.
 Neue Slot-Schluessel ("06", "20", weitere "00"…"23") sind zusaetzlich zu "08"…"18"; das macOS-Format bleibt gleich.
@@ -18,7 +20,9 @@ ZURICH = ZoneInfo("Europe/Zurich")
 FORECAST_HOUR = 8    # Prognosen werden zum 08:00-Zeitpunkt berechnet
 CLOSE_HOUR = 16      # "Tagesende" = 16:00 (Ziel beider Prognosen)
 REQUIRED_HOURS = (FORECAST_HOUR, CLOSE_HOUR)
-DEFAULT_HOURS = [6, 8, 10, 12, 14, 16, 18, 20]
+INTERVALS = (1, 2, 3, 4)
+DEFAULT_SCHEDULE = (6, 20, 2)  # 06:00–20:00 alle 2 Stunden
+DEFAULT_HOURS = list(range(6, 21, 2))
 TIMES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "capture-times.json")
 ECB_LOOKBACK_DAYS = 45  # Kalendertage EZB-Verlauf als Ergaenzung fuer das 7-Tage-Modell
 START_DAY = date(2026, 10, 1)
@@ -149,34 +153,71 @@ def forecast_7_days(candles, ecb_series, day):
     return spot + change
 
 
-def load_capture_hours():
-    """Ganze Stunden 0-23 aus data/capture-times.json. 08 und 16 sind immer enthalten.
+def parse_hour(item):
+    """Ganze Stunde 0-23, oder None. Boolesche Werte zaehlen nicht als 0/1."""
+    if isinstance(item, bool):
+        return None
+    if isinstance(item, int) and 0 <= item <= 23:
+        return item
+    if isinstance(item, str) and item.strip().isdigit():
+        n = int(item.strip())
+        if 0 <= n <= 23:
+            return n
+    return None
 
-    Ungueltige oder leere Datei: Standardliste. Schreibt die Datei nie.
+
+def parse_step(item):
+    if isinstance(item, bool):
+        return None
+    if isinstance(item, int) and item in INTERVALS:
+        return item
+    if isinstance(item, str) and item.strip().isdigit():
+        n = int(item.strip())
+        if n in INTERVALS:
+            return n
+    return None
+
+
+def expand_schedule(start, end, step):
+    """Stunden start, start+step, … bis zur groessten, die noch <= end ist. None, wenn ungueltig."""
+    if start is None or end is None or step is None or not (0 <= start < end <= 23):
+        return None
+    return list(range(start, end + 1, step))
+
+
+def hours_from_list(raw):
+    parsed = []
+    if not isinstance(raw, list):
+        return None
+    for item in raw:
+        n = parse_hour(item)
+        if n is not None:
+            parsed.append(n)
+    return parsed or None
+
+
+def load_capture_hours():
+    """Stunden aus data/capture-times.json. 08 und 16 sind immer enthalten.
+
+    Version 2 (start, end, intervalHours) hat Vorrang. Sonst die Version-1-Liste hours.
+    Ungueltige oder fehlende Datei: 06–20 alle 2 Stunden. Schreibt die Datei nie.
     """
     chosen = None
     try:
         with open(TIMES, encoding="utf-8") as f:
             data = json.load(f)
-        raw = data.get("hours") if isinstance(data, dict) else None
-        parsed = []
-        if isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, bool):
-                    continue
-                n = item if isinstance(item, int) else None
-                if n is None and isinstance(item, str) and item.strip().isdigit():
-                    n = int(item.strip())
-                if isinstance(n, int) and 0 <= n <= 23:
-                    parsed.append(n)
-        if parsed:
-            chosen = parsed
-        else:
-            print("capture-times.json ohne gueltige Stunden, Standardzeiten", file=sys.stderr)
+        if isinstance(data, dict):
+            chosen = expand_schedule(parse_hour(data.get("start")), parse_hour(data.get("end")), parse_step(data.get("intervalHours")))
+            if chosen is None:
+                chosen = hours_from_list(data.get("hours"))
+                if chosen is not None:
+                    print("capture-times.json: Stundenliste (Version 1)", file=sys.stderr)
+        if not chosen:
+            print("capture-times.json ohne gueltige Zeiten, Standardraster", file=sys.stderr)
     except FileNotFoundError:
-        print("capture-times.json fehlt, Standardzeiten", file=sys.stderr)
+        print("capture-times.json fehlt, Standardraster", file=sys.stderr)
     except Exception as e:  # noqa
-        print(f"capture-times.json ungueltig ({e}), Standardzeiten", file=sys.stderr)
+        print(f"capture-times.json ungueltig ({e}), Standardraster", file=sys.stderr)
     hours = sorted(set(chosen or DEFAULT_HOURS) | set(REQUIRED_HOURS))
     print("Erfassungszeiten (Zurich): " + ", ".join(f"{h:02d}" for h in hours))
     return hours

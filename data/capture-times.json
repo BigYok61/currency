@@ -1,4 +1,6 @@
 {
-  "version": 1,
-  "hours": [6, 8, 10, 12, 14, 16, 18, 20]
+  "version": 2,
+  "start": "06",
+  "end": "20",
+  "intervalHours": 2
 }
