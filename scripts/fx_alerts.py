@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Waehrungsuebersicht – FX-Push-Alarme via ntfy (GitHub Actions, alle 15 Min. Mo–Fr).
 
-Meldet, wenn sich USD/CHF bzw. EUR/CHF im Tagesverlauf gegenueber dem Kurs von 08:00 Schweizer Zeit
-(vor 08:00: Tageseroeffnung = erste Stundenkerze ab 00:00 Zuerich) staerker bewegt als die Schwelle:
+Meldet, wenn sich USD/CHF bzw. EUR/CHF im Tagesverlauf gegenueber dem Kurs der Startstunde
+aus data/capture-times.json (Standard 06:00; vor dieser Stunde: Tageseroeffnung) staerker bewegt
+als die Schwelle:
   Rueckgang um mehr als `down` % bzw. Anstieg um mehr als `up` %.
 Schwellen und Ein/Aus je Waehrung: data/fx-alerts.json (Web-App, Mac-App oder direkt auf GitHub bearbeitbar).
 Je Waehrung und Richtung hoechstens eine Meldung pro Tag; Status in data/fx-alert-state.json (neuer Tag = neu scharf).
@@ -23,7 +24,8 @@ F_STATE = os.path.join(ROOT, "data", "fx-alert-state.json")
 SYMBOLS = {"USD": "USDCHF", "EUR": "EURCHF", "GBP": "GBPCHF"}
 DEFAULTS = {"USD": {"enabled": True, "down": 0.5, "up": 0.25}, "EUR": {"enabled": True, "down": 0.5, "up": 0.25}}
 WINDOW = (7, 22)          # Stunden Zuerich: 07:00 bis 22:00 (inkl. 22:00-Lauf bis 22:14)
-BASE_HOUR = 8
+LEGACY_BASIS_HOUR = 8
+TIMES = os.path.join(ROOT, "data", "capture-times.json")
 MAX_QUOTE_AGE = 20 * 60   # aeltere Kurse (Markt geschlossen/Stoerung) loesen keinen Alarm aus
 UA = "Waehrungsuebersicht/1.4 (+github-actions)"
 APP_URL = "https://bigyok61.github.io/currency/"
@@ -82,20 +84,46 @@ def pct(v):
     return ("+" if v > 0 else "−" if v < 0 else "±") + f"{abs(v):.2f} %"
 
 
-def base_rate(symbol, now_z):
-    """Kurs 08:00 (Eroeffnung der 08-Uhr-Stundenkerze) bzw. vor 08:00 die Tageseroeffnung. Rueckgabe (Kurs, Label)."""
+def basis_hour():
+    """Startstunde aus capture-times.json. Fehlt sie, gilt der Standard 06:00."""
+    try:
+        with open(TIMES, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("start")
+        if isinstance(raw, bool):
+            raw = None
+        if isinstance(raw, str) and raw.strip().isdigit():
+            raw = int(raw.strip())
+        if isinstance(raw, int) and 0 <= raw <= 23:
+            return raw
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return 6
+
+
+def base_rate(symbol, now_z, hour):
+    """Kurs zur Startstunde. Davor die Tageseroeffnung. Fehlt die Startkerze, die erste Kerze des Tages, sonst 08:00.
+
+    Rueckgabe (Kurs, Label).
+    """
     bars = get_json(f"https://biquote.io/api/{symbol}/ohlc?interval=1h&limit=30")["bars"]
-    today, first = now_z.date(), None
+    today, first, at_legacy = now_z.date(), None, None
     for b in sorted(bars, key=lambda b: b["openTime"]):
         t = datetime.fromisoformat(b["openTime"].replace("Z", "+00:00")).astimezone(ZURICH)
-        if t.date() != today:
+        if t.date() != today or t.minute != 0:
             continue
         if first is None:
             first = (b["open"], t)
-        if t.hour == BASE_HOUR and t.minute == 0:
-            return b["open"], "08:00"
-    if first and now_z.hour < BASE_HOUR:
+        if t.hour == hour:
+            return b["open"], f"{hour:02d}:00"
+        if t.hour == LEGACY_BASIS_HOUR:
+            at_legacy = (b["open"], "08:00")
+    if first and now_z.hour < hour:
         return first[0], "Tageseröffnung"
+    if first:
+        return first[0], first[1].strftime("%H:%M")
+    if at_legacy:
+        return at_legacy
     return None, None
 
 
@@ -119,7 +147,7 @@ def main():
         for code in ("USD", "EUR"):
             try:
                 cur, _, _ = current_rate(SYMBOLS[code], now_utc)
-                base, lab = base_rate(SYMBOLS[code], now_z)
+                base, lab = base_rate(SYMBOLS[code], now_z, basis_hour())
                 if cur and base:
                     lines.append(f"{code}/CHF {pct((cur / base - 1) * 100)} seit {lab} ({num(base)} → {num(cur)})")
                 elif cur:
@@ -154,7 +182,7 @@ def main():
             log(f"{code}: ungültige Schwelle – übersprungen"); continue
         try:
             cur, age, mstate = current_rate(SYMBOLS[code], now_utc)
-            base, lab = base_rate(SYMBOLS[code], now_z)
+            base, lab = base_rate(SYMBOLS[code], now_z, basis_hour())
         except Exception as e:  # noqa
             log(f"{code}: Abruf fehlgeschlagen ({type(e).__name__})"); continue
         if not cur or not base:

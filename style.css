@@ -207,6 +207,11 @@ main {
 .arr { font-size: 8px; margin-right: 3px; vertical-align: 1px; }
 .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--muted); }
 .fcarr { font-weight: 650; margin-right: 3px; }
+#grid tr.close td, #grid tr.close th {
+  font-weight: 550;
+  border-top: .5px solid var(--line);
+}
+#grid tr.close .lab { color: var(--fg); }
 #grid tr.now td, #grid tr.now th {
   background-color: var(--nowbg); font-weight: 600; color: var(--fg);
   border-top: .5px solid color-mix(in srgb, var(--accent) 28%, var(--line));

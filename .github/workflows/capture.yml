@@ -4,14 +4,19 @@ on:
   schedule:
     # GitHub-Cron laeuft in UTC und kann sich verspaeten. Stuendlich um :05 (Mo–Fr) plus ein Nachlauf am Samstag.
     # Jede volle Stunde Europe/Zurich faellt in CET (UTC+1) und CEST (UTC+2) auf eine dieser Stunden,
-    # also auch 06:00 und 20:00. data/capture-times.json nennt Von, Bis und Abstand (1, 2, 3, 4, 8, 12 oder 24 Stunden);
-    # 08 und 16 werden immer erfasst (Prognosen, FX-Alarme). Verpasste Punkte traegt das Skript
-    # aus dem ca. 7-taegigen Verlauf von biquote.io nach.
+    # also auch 06:00 und 20:00. data/capture-times.json nennt Von, Bis und Abstand (1, 2, 3, 4, 8, 12 oder 24 Stunden).
+    # Das Raster wird angezeigt; 16:00 wird immer zusaetzlich erfasst (Tagesendkurs). Die Prognose nutzt die Startstunde.
+    # Verpasste Punkte traegt das Skript aus dem ca. 7-taegigen Verlauf von biquote.io nach.
     - cron: "5 * * * 1-5"
     - cron: "5 6 * * 6"
   push:
     branches: [main]
-    paths-ignore: ["data/**"]
+    # capture-times.json und fx-alerts.json auf main loesen Erfassung (inkl. Nachtrag) und Pages aus.
+    # rates.json (dieser Job) und fx-alert-state.json (fx-alerts.yml) bleiben aussen vor, damit die
+    # eigenen Daten-Commits keine Schleife bilden. Pushes mit GITHUB_TOKEN starten Workflows ohnehin nicht.
+    paths-ignore:
+      - data/rates.json
+      - data/fx-alert-state.json
   workflow_dispatch:
 
 permissions:

@@ -6,7 +6,9 @@ ergaenzt data/rates.json und berechnet die Prognose Tagesende sowie die Prognose
 (Modelle 1:1 aus main.swift).
 Welche vollen Stunden gespeichert werden, steht in data/capture-times.json.
 Version 2: start/end/intervalHours (Standard 06–20 alle 2 Stunden). Version 1 (hours-Liste) bleibt lesbar.
-08:00 und 16:00 werden immer erfasst (Prognosen und FX-Alarme). Halbe Stunden gibt es nicht (1h-Kerzen).
+Angezeigt wird das Raster. Zusaetzlich wird 16:00 immer erfasst (Tagesendkurs, Ziel der Prognosen).
+Die Prognose bezieht sich auf die Startstunde, sonst die erste Rasterstunde vor 16:00, sonst 08:00.
+Halbe Stunden gibt es nicht (1h-Kerzen).
 Die Datei wird hier nie geschrieben.
 Idempotent: Bereits gespeicherte Werte werden nie ueberschrieben (gleiche Merge-Regel wie die macOS-App).
 Da biquote ca. 7 Tage Verlauf liefert, werden verpasste/verspaetete Laeufe automatisch nachgetragen.
@@ -17,9 +19,8 @@ from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 
 ZURICH = ZoneInfo("Europe/Zurich")
-FORECAST_HOUR = 8    # Prognosen werden zum 08:00-Zeitpunkt berechnet
-CLOSE_HOUR = 16      # "Tagesende" = 16:00 (Ziel beider Prognosen)
-REQUIRED_HOURS = (FORECAST_HOUR, CLOSE_HOUR)
+LEGACY_BASIS_HOUR = 8  # aeltere Tage ohne Startstunde
+CLOSE_HOUR = 16         # "Tagesende" = 16:00 (Ziel beider Prognosen, immer erfasst)
 INTERVALS = (1, 2, 3, 4, 8, 12, 24)
 DEFAULT_SCHEDULE = (6, 20, 2)  # 06:00–20:00 alle 2 Stunden
 DEFAULT_HOURS = list(range(6, 21, 2))
@@ -58,16 +59,36 @@ def weekdays(frm, to):
     return out
 
 
-def forecast_end_of_day(candles, day):
-    """Port von forecastEndOfDay (main.swift). candles: Liste (time_utc, open, high, low) in CHF/Einheit."""
-    t8 = slot_dt(day, FORECAST_HOUR)
-    cs = [c for c in candles if c[0] <= t8]
+def resolve_basis_hour(candles, day, start, grid_hours):
+    """Startstunde, sonst erste Rasterstunde vor 16:00, sonst 08:00 (aeltere Tage)."""
+    present = {c[0] for c in candles}
+
+    def has(hour):
+        return hour is not None and slot_dt(day, hour) in present
+
+    if has(start):
+        return start
+    for hour in sorted(h for h in grid_hours if h < CLOSE_HOUR):
+        if has(hour):
+            return hour
+    if has(LEGACY_BASIS_HOUR):
+        return LEGACY_BASIS_HOUR
+    return None
+
+
+def forecast_end_of_day(candles, day, basis_hour):
+    """Port von forecastEndOfDay (main.swift). candles: Liste (time_utc, open, high, low) in CHF/Einheit.
+
+    Spot und Tagesfenster haengen an basis_hour (konfigurierte Startstunde), nicht fest an 08:00.
+    """
+    t_basis = slot_dt(day, basis_hour)
+    cs = [c for c in candles if c[0] <= t_basis]
     by_time = {}
     for c in cs:
         by_time.setdefault(c[0], c)
-    if t8 not in by_time:
+    if t_basis not in by_time:
         return None
-    open8 = by_time[t8][1]
+    spot = by_time[t_basis][1]
     close_hour = CLOSE_HOUR
     prev_days, d = [], day
     for _ in range(14):
@@ -81,18 +102,18 @@ def forecast_end_of_day(candles, day):
     closes = [by_time[slot_dt(p, close_hour)][1] for p in prev_days]  # neuester zuerst
     prev_close = closes[0]
     trend = (closes[0] - closes[-1]) / (len(closes) - 1)
-    overnight = open8 - prev_close
+    overnight = spot - prev_close
     ranges = []
     for p in prev_days[:5]:
-        frm, to = slot_dt(p, FORECAST_HOUR), slot_dt(p, close_hour)
+        frm, to = slot_dt(p, basis_hour), slot_dt(p, close_hour)
         dc = [c for c in cs if frm <= c[0] < to]
         if dc:
             ranges.append(max(c[2] for c in dc) - min(c[3] for c in dc))
-    avg_range = sum(ranges) / len(ranges) if ranges else abs(open8) * 0.005
+    avg_range = sum(ranges) / len(ranges) if ranges else abs(spot) * 0.005
     change = 0.5 * trend - 0.3 * overnight
     limit = 0.5 * avg_range
     change = min(max(change, -limit), limit)
-    return open8 + change
+    return spot + change
 
 
 def forecast_target_day(day):
@@ -100,11 +121,11 @@ def forecast_target_day(day):
     return day + timedelta(days=7)
 
 
-def forecast_7_days(candles, ecb_series, day):
+def forecast_7_days(candles, ecb_series, day, basis_hour):
     """Prognose des Kurses 7 Tage spaeter (gleicher Wochentag, 16:00 Schweizer Zeit).
 
-    Port von forecastSevenDays (main.swift). Deterministisch: nur Kerzen bis und mit 08:00 von `day`
-    und EZB-Referenzkurse von Tagen VOR `day` (der EZB-Kurs von `day` erscheint erst ca. 16:00).
+    Port von forecastSevenDays (main.swift). Deterministisch: nur Kerzen bis und mit der Basisstunde
+    von `day` und EZB-Referenzkurse von Tagen VOR `day` (der EZB-Kurs von `day` erscheint erst ca. 16:00).
     candles: Liste (time_utc, open, high, low); ecb_series: dict "yyyy-mm-dd" -> CHF pro Einheit.
     Modell:
       Tagesschlusskurse der letzten bis zu 20 Handelstage: 16:00-Kurs (biquote), sonst EZB-Referenzkurs
@@ -113,17 +134,17 @@ def forecast_7_days(candles, ecb_series, day):
       revert = 0.15 * (Durchschnitt der Schlusskurse - spot)  (Rueckkehr zum Mittel, nur ab 5 Kursen)
       Begrenzung: Veraenderung hoechstens +/- 1 Wochen-Standardabweichung
                   (sd der Tagesrenditen * sqrt(5) * spot; ohne Verlauf 0.5 % pro Tag)
-    Rueckgabe None, wenn kein 08:00-Kurs oder weniger als 2 Schlusskurse vorhanden sind.
+    Rueckgabe None, wenn kein Kurs zur Basisstunde oder weniger als 2 Schlusskurse vorhanden sind.
     """
     import math
-    t8 = slot_dt(day, FORECAST_HOUR)
+    t_basis = slot_dt(day, basis_hour)
     by_time = {}
     for c in candles:
-        if c[0] <= t8:
+        if c[0] <= t_basis:
             by_time.setdefault(c[0], c)
-    if t8 not in by_time:
+    if t_basis not in by_time:
         return None
-    spot = by_time[t8][1]
+    spot = by_time[t_basis][1]
     closes, d = [], day  # neuester zuerst
     for _ in range(40):
         if len(closes) >= 20:
@@ -196,31 +217,45 @@ def hours_from_list(raw):
     return parsed or None
 
 
-def load_capture_hours():
-    """Stunden aus data/capture-times.json. 08 und 16 sind immer enthalten.
+def load_times():
+    """Startstunde, Raster (Anzeige) und erfasste Stunden.
 
-    Version 2 (start, end, intervalHours) hat Vorrang. Sonst die Version-1-Liste hours.
-    Ungueltige oder fehlende Datei: 06–20 alle 2 Stunden. Schreibt die Datei nie.
+    Version 2 (start, end, intervalHours) hat Vorrang. Sonst die Version-1-Liste hours;
+    deren Basis ist dann die frueheste Stunde. Ungueltige oder fehlende Datei: 06–20 alle 2 Stunden.
+    16:00 und die Startstunde werden immer erfasst. Die Startstunde liegt auf dem Raster.
+    Schreibt die Datei nie.
     """
-    chosen = None
+    start, grid = None, None
     try:
         with open(TIMES, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            chosen = expand_schedule(parse_hour(data.get("start")), parse_hour(data.get("end")), parse_step(data.get("intervalHours")))
-            if chosen is None:
-                chosen = hours_from_list(data.get("hours"))
-                if chosen is not None:
+            expanded = expand_schedule(parse_hour(data.get("start")), parse_hour(data.get("end")), parse_step(data.get("intervalHours")))
+            if expanded is not None:
+                start, grid = parse_hour(data.get("start")), expanded
+            else:
+                listed = hours_from_list(data.get("hours"))
+                if listed:
+                    grid = sorted(set(listed))
+                    start = grid[0]
                     print("capture-times.json: Stundenliste (Version 1)", file=sys.stderr)
-        if not chosen:
+        if not grid:
             print("capture-times.json ohne gueltige Zeiten, Standardraster", file=sys.stderr)
     except FileNotFoundError:
         print("capture-times.json fehlt, Standardraster", file=sys.stderr)
     except Exception as e:  # noqa
         print(f"capture-times.json ungueltig ({e}), Standardraster", file=sys.stderr)
-    hours = sorted(set(chosen or DEFAULT_HOURS) | set(REQUIRED_HOURS))
-    print("Erfassungszeiten (Zurich): " + ", ".join(f"{h:02d}" for h in hours))
-    return hours
+    if not grid:
+        start = DEFAULT_SCHEDULE[0]
+        grid = list(DEFAULT_HOURS)
+    capture = sorted(set(grid) | {CLOSE_HOUR, start})
+    print("Erfassungszeiten (Zurich): " + ", ".join(f"{h:02d}" for h in capture))
+    return start, grid, capture
+
+
+def load_capture_hours():
+    _start, _grid, capture = load_times()
+    return capture
 
 
 def load():
@@ -250,7 +285,7 @@ def put(dct, key, val):
 
 
 def main():
-    capture_hours = load_capture_hours()
+    start_hour, grid_hours, capture_hours = load_times()
     now = datetime.now(timezone.utc)
     today = now.astimezone(ZURICH).date()
     h = load()
@@ -305,24 +340,34 @@ def main():
             rec = h["days"].get(d.isoformat())
             if rec and code in (rec.get("forecast") or {}):
                 continue
-            f = forecast_end_of_day(candles, d)
+            basis = resolve_basis_hour(candles, d, start_hour, grid_hours)
+            if basis is None:
+                continue
+            f = forecast_end_of_day(candles, d, basis)
             if f is not None:
                 rec = day_rec(h, d.isoformat())
                 rec.setdefault("forecast", {})
-                changed += put(rec["forecast"], code, f)
-        # Prognose 7 Tage: einmal pro Tag (08:00), gespeichert beim Erstellungstag mit Zieldatum
+                if put(rec["forecast"], code, f):
+                    changed += 1
+                    rec.setdefault("forecastBasis", {})[code] = basis
+        # Prognose 7 Tage: einmal pro Tag zur Basisstunde, gespeichert beim Erstellungstag mit Zieldatum
         for d in days:
             rec = h["days"].get(d.isoformat())
             if not ecb_all[code]:  # ohne EZB-Verlauf nicht berechnen (identische Werte auf allen Geraeten)
                 break
             if rec and code in (rec.get("forecast7") or {}):
                 continue
-            f = forecast_7_days(candles, ecb_all[code], d)
+            basis = resolve_basis_hour(candles, d, start_hour, grid_hours)
+            if basis is None:
+                continue
+            f = forecast_7_days(candles, ecb_all[code], d, basis)
             if f is not None:
                 rec = day_rec(h, d.isoformat())
                 rec.setdefault("forecast7", {})
                 rec.setdefault("forecast7Target", forecast_target_day(d).isoformat())
-                changed += put(rec["forecast7"], code, f)
+                if put(rec["forecast7"], code, f):
+                    changed += 1
+                    rec.setdefault("forecast7Basis", {})[code] = basis
 
     if changed:
         h["updated"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
