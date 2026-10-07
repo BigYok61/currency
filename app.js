@@ -154,8 +154,7 @@ function render(opts = {}) {
       }
       return row + '</tr>';
     };
-    h += slotRow(HOURS[0], false);
-    // Prognose
+    // Prognosen vor den Uhrzeiten: 08:00 gehört zu 10:00–18:00, nicht über die Schätzungen
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
     for (const k of days) {
       const f = fc(c, k), base = val(c, k, HOURS[0]);
@@ -194,7 +193,7 @@ function render(opts = {}) {
       else h += td(k, `→ ${header(target7(k)).split(' ')[1]}`, 'empty pending', `Ist-Wert ab ${header(target7(k))} 16:00`);
     }
     h += '</tr>';
-    HOURS.slice(1).forEach((hr, i) => { h += slotRow(hr, i % 2 === 0); });
+    HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1); });
     // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den festen Zeitpunkten (füllt 18:00 nie)
     const L = live[c.code];
     h += `<tr class="now"><th class="lab" title="Live-Mittelkurs (biquote.io), abgerufen beim Öffnen bzw. Aktualisieren – wird nicht gespeichert">Aktuell${L ? ' ' + hmFmt.format(L.at) : ''}</th>`;
@@ -271,14 +270,12 @@ function csv() {
   const lines = [['Währung', 'Zeit', ...days.map(dmy)].join(';')];
   for (const c of currenciesInOrder()) {
     const L = `${c.label} in CHF`;
-    HOURS.forEach((hr, i) => {
+    lines.push([L, 'Prognose 16:00 (Schätzung)', ...days.map(k => num(fc(c, k)))].join(';'));
+    lines.push([L, 'Prognose 7 Tage (Schätzung, Ziel +7 Tage 16:00)', ...days.map(k => num(fc7(c, k)))].join(';'));
+    lines.push([L, 'Abweichung Ist − Prognose', ...days.map(k => { const f = fc(c, k), a = val(c, k, CLOSE_HOUR); return f != null && a != null ? num(a - f) : ''; })].join(';'));
+    lines.push([L, 'Abweichung 7 Tage Ist − Prognose', ...days.map(k => { const f = fc7(c, k), a = actual7(c, k); return f != null && a ? num(a.v - f) : ''; })].join(';'));
+    HOURS.forEach(hr => {
       lines.push([L, `${pad(hr)}:00`, ...days.map(k => num(val(c, k, hr)))].join(';'));
-      if (i === 0) {
-        lines.push([L, 'Prognose 16:00 (Schätzung)', ...days.map(k => num(fc(c, k)))].join(';'));
-        lines.push([L, 'Abweichung Ist − Prognose', ...days.map(k => { const f = fc(c, k), a = val(c, k, CLOSE_HOUR); return f != null && a != null ? num(a - f) : ''; })].join(';'));
-        lines.push([L, 'Prognose 7 Tage (Schätzung, Ziel +7 Tage 16:00)', ...days.map(k => num(fc7(c, k)))].join(';'));
-        lines.push([L, 'Abweichung 7 Tage Ist − Prognose', ...days.map(k => { const f = fc7(c, k), a = actual7(c, k); return f != null && a ? num(a.v - f) : ''; })].join(';'));
-      }
     });
     const lv = live[c.code];
     lines.push([L, lv ? `Aktuell ${hmFmt.format(lv.at)} (Live, nicht gespeichert)` : 'Aktuell', ...days.map(k => (k === zurichToday() && lv ? num(lv.v) : ''))].join(';'));
