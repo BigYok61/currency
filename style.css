@@ -25,6 +25,8 @@
   --field: rgba(120,120,128,.08);
   --shadow: 0 0 0 .5px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04), 0 12px 32px rgba(0,0,0,.06);
   --label-w: 236px;
+  --edge: 20px;
+  --card-radius: 12px;
   --ease: .18s ease;
 }
 @media (prefers-color-scheme: dark) {
@@ -57,14 +59,18 @@
 }
 * { box-sizing: border-box; }
 html, body {
-  margin: 0; background: var(--canvas); color: var(--fg);
+  margin: 0; height: 100%; background: var(--canvas); color: var(--fg);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility;
 }
+body {
+  display: flex; flex-direction: column;
+  height: 100vh; height: 100dvh; overflow: hidden;
+}
 ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 header {
-  position: sticky; top: 0; z-index: 4;
+  position: relative; z-index: 5; flex: none;
   padding: max(18px, env(safe-area-inset-top)) 28px 14px;
   padding-left: max(28px, env(safe-area-inset-left));
   padding-right: max(28px, env(safe-area-inset-right));
@@ -79,21 +85,34 @@ h1 {
   font-size: 28px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 0;
 }
 .tools { display: flex; gap: 8px; flex: none; }
-#reload, #alertsBtn {
+#reload, #alertsBtn, #timesBtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; padding: 0; border: none; border-radius: 9px;
   background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   transition: background-color var(--ease), transform .15s ease;
 }
-#reload .sym, #alertsBtn .sym { display: block; pointer-events: none; }
+#reload .sym, #alertsBtn .sym, #timesBtn .sym { display: block; pointer-events: none; }
 @media (hover: hover) {
-  #reload:hover, #alertsBtn:hover { background: var(--fill-hover); }
+  #reload:hover, #alertsBtn:hover, #timesBtn:hover { background: var(--fill-hover); }
 }
-#reload:active, #alertsBtn:active { transform: scale(.94); }
+#reload:active, #alertsBtn:active, #timesBtn:active { transform: scale(.94); }
 #reload.spin .sym { animation: spin .55s cubic-bezier(.4,0,.2,1); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #reload.spin .sym { animation: none; } }
+/* Titel bleibt über der Scrollfläche. Senkrecht und waagrecht scrollt nur
+   .scrollport – ein inneres overflow-x würde sticky an sich binden und die
+   Datumskopfzeile um «top» nach unten über die erste Währung schieben. */
+.scrollport {
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  overflow: auto; overflow-anchor: none; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
+}
+.lede, footer {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--canvas);
+}
 .lede {
   padding: 14px 28px 2px;
   padding-left: max(28px, env(safe-area-inset-left));
@@ -109,15 +128,11 @@ h1 {
   border: .5px solid color-mix(in srgb, #ff9f0a 40%, transparent);
 }
 main {
-  margin: 16px 20px 8px;
+  margin: 16px var(--edge) 8px;
+  min-width: calc(100% - 2 * var(--edge));
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   box-shadow: var(--shadow);
-}
-.scroller {
-  overflow-x: auto; overflow-y: clip; -webkit-overflow-scrolling: touch; border-radius: 12px;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
 }
 #grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%;
   font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -129,7 +144,7 @@ main {
 }
 #grid thead th {
   height: 36px; font-size: 12px; font-weight: 590; letter-spacing: -.01em; color: var(--muted);
-  position: sticky; top: var(--head-h, 0px); z-index: 2;
+  position: sticky; top: 0; z-index: 2;
   background: var(--header);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
   backdrop-filter: saturate(180%) blur(16px);
@@ -137,12 +152,16 @@ main {
 }
 #grid thead th.today { color: var(--accent); }
 #grid .lab {
-  position: sticky; left: 0; z-index: 1; text-align: left; background: var(--surface);
+  position: sticky; left: var(--edge); z-index: 1; text-align: left; background: var(--surface);
   min-width: var(--label-w); max-width: var(--label-w); overflow: hidden; text-overflow: ellipsis;
   border-right: .5px solid var(--line);
   padding-left: max(14px, env(safe-area-inset-left));
 }
 #grid thead .lab { z-index: 3; background: var(--surface); }
+#grid thead th:first-child { border-top-left-radius: var(--card-radius); }
+#grid thead th:last-child { border-top-right-radius: var(--card-radius); }
+#grid tbody tr:last-child th:first-child { border-bottom-left-radius: var(--card-radius); }
+#grid tbody tr:last-child td:last-child { border-bottom-right-radius: var(--card-radius); }
 #grid td.today { background: var(--today); }
 #grid tr.group td, #grid tr.group th {
   background-color: var(--group); height: 48px; font-weight: 650; font-size: 14px; letter-spacing: -.015em;
@@ -162,7 +181,7 @@ main {
 }
 .ccy-move .chev { display: block; pointer-events: none; }
 .ccy-move:disabled { color: var(--faint); cursor: default; }
-.ccy-move:focus-visible, #reload:focus-visible, #alertsBtn:focus-visible {
+.ccy-move:focus-visible, #reload:focus-visible, #alertsBtn:focus-visible, #timesBtn:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 @media (hover: hover) {
@@ -204,13 +223,12 @@ footer {
 footer a { color: var(--accent); text-decoration: none; transition: opacity var(--ease); }
 @media (hover: hover) { footer a:hover { text-decoration: underline; } }
 @media (max-width: 700px) {
-  :root { --label-w: 214px; }
+  :root { --label-w: 214px; --edge: 0px; --card-radius: 0px; }
   header { padding: max(12px, env(safe-area-inset-top)) 16px 10px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   .lede { padding: 10px 16px 2px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   h1 { font-size: 22px; }
-  #reload, #alertsBtn { width: 40px; height: 40px; border-radius: 11px; }
-  main { margin: 0; border-radius: 0; box-shadow: none; }
-  .scroller { border-radius: 0; }
+  #reload, #alertsBtn, #timesBtn { width: 40px; height: 40px; border-radius: 11px; }
+  main { margin: 0; border-radius: 0; box-shadow: none; min-width: 100%; }
   #grid { font-size: 12.5px; }
   #grid th, #grid td { padding: 0 8px; height: 32px; }
   #grid tr.group td, #grid tr.group th { height: 52px; }
@@ -254,16 +272,36 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button) {
+dialog button:not(.dlghead button):not(.hour) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):active { transform: scale(.98); }
+dialog button:not(.dlghead button):not(.hour):active { transform: scale(.98); }
 dialog button.primary { background: var(--accent-fill); color: #fff; }
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
-  dialog button:not(.dlghead button):not(.primary):hover { background: var(--fill-hover); }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):hover { background: var(--fill-hover); }
+}
+dialog .hours {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 4px;
+}
+dialog .hours button.hour {
+  font: inherit; font-weight: 590; font-variant-numeric: tabular-nums;
+  min-height: 40px; padding: 6px 4px; border-radius: 10px;
+  border: .5px solid var(--line); background: var(--field); color: var(--fg);
+  cursor: pointer; touch-action: manipulation;
+  transition: background-color var(--ease), color var(--ease), transform .15s ease, border-color var(--ease);
+}
+dialog .hours button.hour[aria-pressed="true"] {
+  background: var(--accent-fill); color: #fff; border-color: transparent;
+}
+dialog .hours button.hour:disabled { cursor: default; }
+dialog .hours button.hour:disabled:not([aria-pressed="true"]) { opacity: .45; }
+dialog .hours button.hour:not(:disabled):active { transform: scale(.97); }
+@media (hover: hover) {
+  dialog .hours button.hour:not(:disabled):not([aria-pressed="true"]):hover { background: var(--fill-hover); }
+  dialog .hours button.hour[aria-pressed="true"]:not(:disabled):hover { filter: brightness(1.06); }
 }
 dialog button.danger { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 dialog a { color: var(--accent); }

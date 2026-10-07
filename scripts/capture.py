@@ -4,17 +4,22 @@
 Liest 1h-Kerzen von biquote.io (Mittelkurs) und EZB-Referenzkurse (api.frankfurter.dev),
 ergaenzt data/rates.json und berechnet die Prognose Tagesende sowie die Prognose 7 Tage
 (Modelle 1:1 aus main.swift).
+Welche vollen Stunden gespeichert werden, steht in data/capture-times.json (Standard 06/08/10/12/14/16/18/20).
+08:00 und 16:00 werden immer erfasst (Prognosen und FX-Alarme). Die Datei wird hier nie geschrieben.
 Idempotent: Bereits gespeicherte Werte werden nie ueberschrieben (gleiche Merge-Regel wie die macOS-App).
 Da biquote ca. 7 Tage Verlauf liefert, werden verpasste/verspaetete Laeufe automatisch nachgetragen.
+Neue Slot-Schluessel ("06", "20", weitere "00"…"23") sind zusaetzlich zu "08"…"18"; das macOS-Format bleibt gleich.
 """
 import json, os, sys, urllib.request
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
 
 ZURICH = ZoneInfo("Europe/Zurich")
-CAPTURE_HOURS = [8, 10, 12, 14, 16, 18]
 FORECAST_HOUR = 8    # Prognosen werden zum 08:00-Zeitpunkt berechnet
-CLOSE_HOUR = 16      # "Tagesende" = 16:00 (Ziel beider Prognosen; 18:00 ist nur zusaetzlicher Messpunkt)
+CLOSE_HOUR = 16      # "Tagesende" = 16:00 (Ziel beider Prognosen)
+REQUIRED_HOURS = (FORECAST_HOUR, CLOSE_HOUR)
+DEFAULT_HOURS = [6, 8, 10, 12, 14, 16, 18, 20]
+TIMES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "capture-times.json")
 ECB_LOOKBACK_DAYS = 45  # Kalendertage EZB-Verlauf als Ergaenzung fuer das 7-Tage-Modell
 START_DAY = date(2026, 10, 1)
 CURRENCIES = [  # code, biquote-Symbol, invertiert, Einheit
@@ -144,6 +149,39 @@ def forecast_7_days(candles, ecb_series, day):
     return spot + change
 
 
+def load_capture_hours():
+    """Ganze Stunden 0-23 aus data/capture-times.json. 08 und 16 sind immer enthalten.
+
+    Ungueltige oder leere Datei: Standardliste. Schreibt die Datei nie.
+    """
+    chosen = None
+    try:
+        with open(TIMES, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("hours") if isinstance(data, dict) else None
+        parsed = []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, bool):
+                    continue
+                n = item if isinstance(item, int) else None
+                if n is None and isinstance(item, str) and item.strip().isdigit():
+                    n = int(item.strip())
+                if isinstance(n, int) and 0 <= n <= 23:
+                    parsed.append(n)
+        if parsed:
+            chosen = parsed
+        else:
+            print("capture-times.json ohne gueltige Stunden, Standardzeiten", file=sys.stderr)
+    except FileNotFoundError:
+        print("capture-times.json fehlt, Standardzeiten", file=sys.stderr)
+    except Exception as e:  # noqa
+        print(f"capture-times.json ungueltig ({e}), Standardzeiten", file=sys.stderr)
+    hours = sorted(set(chosen or DEFAULT_HOURS) | set(REQUIRED_HOURS))
+    print("Erfassungszeiten (Zurich): " + ", ".join(f"{h:02d}" for h in hours))
+    return hours
+
+
 def load():
     try:
         with open(OUT, encoding="utf-8") as f:
@@ -171,6 +209,7 @@ def put(dct, key, val):
 
 
 def main():
+    capture_hours = load_capture_hours()
     now = datetime.now(timezone.utc)
     today = now.astimezone(ZURICH).date()
     h = load()
@@ -212,7 +251,7 @@ def main():
             o, hi, lo = conv(b["open"]), conv(b["high"]), conv(b["low"])
             candles.append((t, o, max(hi, lo), min(hi, lo)))
             tz = t.astimezone(ZURICH)
-            if not is_weekday(tz.date()) or tz.minute != 0 or tz.hour not in CAPTURE_HOURS:
+            if not is_weekday(tz.date()) or tz.minute != 0 or tz.hour not in capture_hours:
                 continue
             key = tz.date().isoformat()
             if key < first_key:
