@@ -85,18 +85,18 @@ h1 {
   font-size: 28px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 0;
 }
 .tools { display: flex; gap: 8px; flex: none; }
-#reload, #alertsBtn {
+#reload, #alertsBtn, #timesBtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; padding: 0; border: none; border-radius: 9px;
   background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   transition: background-color var(--ease), transform .15s ease;
 }
-#reload .sym, #alertsBtn .sym { display: block; pointer-events: none; }
+#reload .sym, #alertsBtn .sym, #timesBtn .sym { display: block; pointer-events: none; }
 @media (hover: hover) {
-  #reload:hover, #alertsBtn:hover { background: var(--fill-hover); }
+  #reload:hover, #alertsBtn:hover, #timesBtn:hover { background: var(--fill-hover); }
 }
-#reload:active, #alertsBtn:active { transform: scale(.94); }
+#reload:active, #alertsBtn:active, #timesBtn:active { transform: scale(.94); }
 #reload.spin .sym { animation: spin .55s cubic-bezier(.4,0,.2,1); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #reload.spin .sym { animation: none; } }
@@ -181,7 +181,7 @@ main {
 }
 .ccy-move .chev { display: block; pointer-events: none; }
 .ccy-move:disabled { color: var(--faint); cursor: default; }
-.ccy-move:focus-visible, #reload:focus-visible, #alertsBtn:focus-visible {
+.ccy-move:focus-visible, #reload:focus-visible, #alertsBtn:focus-visible, #timesBtn:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 @media (hover: hover) {
@@ -227,7 +227,7 @@ footer a { color: var(--accent); text-decoration: none; transition: opacity var(
   header { padding: max(12px, env(safe-area-inset-top)) 16px 10px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   .lede { padding: 10px 16px 2px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   h1 { font-size: 22px; }
-  #reload, #alertsBtn { width: 40px; height: 40px; border-radius: 11px; }
+  #reload, #alertsBtn, #timesBtn { width: 40px; height: 40px; border-radius: 11px; }
   main { margin: 0; border-radius: 0; box-shadow: none; min-width: 100%; }
   #grid { font-size: 12.5px; }
   #grid th, #grid td { padding: 0 8px; height: 32px; }
@@ -272,16 +272,36 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button) {
+dialog button:not(.dlghead button):not(.hour) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):active { transform: scale(.98); }
+dialog button:not(.dlghead button):not(.hour):active { transform: scale(.98); }
 dialog button.primary { background: var(--accent-fill); color: #fff; }
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
-  dialog button:not(.dlghead button):not(.primary):hover { background: var(--fill-hover); }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):hover { background: var(--fill-hover); }
+}
+dialog .hours {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 4px;
+}
+dialog .hours button.hour {
+  font: inherit; font-weight: 590; font-variant-numeric: tabular-nums;
+  min-height: 40px; padding: 6px 4px; border-radius: 10px;
+  border: .5px solid var(--line); background: var(--field); color: var(--fg);
+  cursor: pointer; touch-action: manipulation;
+  transition: background-color var(--ease), color var(--ease), transform .15s ease, border-color var(--ease);
+}
+dialog .hours button.hour[aria-pressed="true"] {
+  background: var(--accent-fill); color: #fff; border-color: transparent;
+}
+dialog .hours button.hour:disabled { cursor: default; }
+dialog .hours button.hour:disabled:not([aria-pressed="true"]) { opacity: .45; }
+dialog .hours button.hour:not(:disabled):active { transform: scale(.97); }
+@media (hover: hover) {
+  dialog .hours button.hour:not(:disabled):not([aria-pressed="true"]):hover { background: var(--fill-hover); }
+  dialog .hours button.hour[aria-pressed="true"]:not(:disabled):hover { filter: brightness(1.06); }
 }
 dialog button.danger { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 dialog a { color: var(--accent); }

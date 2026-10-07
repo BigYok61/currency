@@ -1,11 +1,12 @@
 # Währungen
 
-Devisen-Mittelkurse USD, EUR, GBP in CHF – werktags 08/10/12/14/16/18 Uhr (Europe/Zurich),
+Devisen-Mittelkurse USD, EUR, GBP in CHF – werktags zu konfigurierbaren Stunden (Standard 06/08/10/12/14/16/18/20, Europe/Zurich),
 Prognose Tagesende, Prognose 7 Tage (je mit Abweichung), Zeile «Aktuell» (Live-Kurs), EZB-Referenzkurs, FX-Push-Alarme (ntfy).
 Statische Seite + geplante GitHub-Actions-Jobs. Web-App: https://bigyok61.github.io/currency/
 
-- `scripts/capture.py` – Erfassung (nur Python-Standardbibliothek, keine Schlüssel). Idempotent, ergänzt nur.
+- `scripts/capture.py` – Erfassung (nur Python-Standardbibliothek, keine Schlüssel). Idempotent, ergänzt nur. Liest `data/capture-times.json`.
 - `data/rates.json` – dauerhafter Verlauf, gleiches Format wie die macOS-App (`History`/`DayRecord`).
+- `data/capture-times.json` – welche vollen Stunden erfasst und angezeigt werden (bearbeitbar).
 - `.github/workflows/capture.yml` – stündlich :05 UTC (Mo–Fr), committet Daten, veröffentlicht GitHub Pages.
 - `scripts/fx_alerts.py` + `.github/workflows/fx-alerts.yml` – FX-Push-Alarme via ntfy (alle 15 Min., siehe unten).
 - `data/fx-alerts.json` – Schwellen der FX-Alarme (bearbeitbar), `data/fx-alert-state.json` – heute bereits gesendete Alarme.
@@ -19,17 +20,36 @@ einmal „Run workflow" ausführen.
 
 Lokal testen: `python3 scripts/capture.py && python3 -m http.server 8000`
 
-Datenformat je Tag (`days["yyyy-MM-dd"]`): `slots` ("08"…"18" → Code → CHF), `ecb`, `forecast` (Prognose 16:00
+Datenformat je Tag (`days["yyyy-MM-dd"]`): `slots` (Stunde `"00"`…`"23"` → Code → CHF; bisherige Schlüssel `"08"`…`"18"` bleiben, `"06"` und `"20"` kommen dazu), `ecb`, `forecast` (Prognose 16:00
 desselben Tages), `forecast7` (Prognose für 16:00 eine Woche später, erstellt um 08:00 dieses Tages) und
 `forecast7Target` (Zieldatum). Ist-Wert der 7-Tage-Prognose: Zieltag 16:00, sonst nächster vorhandener Zeitpunkt.
 Das 7-Tage-Modell nutzt die 16:00-Kurse von biquote (ca. 7 Tage Verlauf) und ergänzt ältere Tage mit EZB-Referenzkursen.
+Die macOS-App liest dieselben `slots`; unbekannte Schlüssel wie `"06"` und `"20"` sind zusätzliche Einträge und ändern das Format nicht.
+
+## Erfassungszeiten
+Standard in `data/capture-times.json`: 06, 08, 10, 12, 14, 16, 18 und 20 Uhr (Europe/Zurich).
+```json
+{ "version": 1, "hours": [6, 8, 10, 12, 14, 16, 18, 20] }
+```
+`hours` sind ganze Stunden 0–23, aufsteigend, mindestens eine. **08 und 16 lassen sich nicht entfernen:**
+die Prognosen werden um 08:00 erstellt und zielen auf 16:00, die FX-Alarme vergleichen mit 08:00.
+Web-App und `capture.py` nehmen beide Stunden immer dazu, auch wenn sie in der Datei fehlen.
+Der Cron bleibt stündlich (`5 * * * 1-5` plus Samstag 06:05 UTC): jede Zürcher Stunde, inklusive 06:00 und 20:00,
+fällt in CET (UTC+1) und CEST (UTC+2) auf einen dieser Läufe. Welche Stunden gespeichert werden, filtert das Skript.
+Fehlende Werte der letzten ca. 7 Tage trägt der biquote-Verlauf nach. Die Tabelle zeigt neue Stunden sofort, der Kurs erst nach dem nächsten Lauf («–» bis dahin).
+
+Änderungen gelten ab dem nächsten Lauf. Drei Wege:
+1. **Web-App:** Uhr-Symbol oben rechts → Stunden antippen → «Speichern» (braucht den GitHub-Token, siehe unten; ohne Token nur lesbar).
+2. **Direkt auf GitHub:** https://github.com/BigYok61/currency/edit/main/data/capture-times.json →
+   `hours` ändern → «Commit changes…». Ohne Token, nur mit dem GitHub-Login.
+3. Dieselbe Datei im Repository committen. `capture.py` schreibt sie nicht um.
 
 ## Zeile «Aktuell» (Live-Kurs)
-Unter den Zeitpunkten 08–18 Uhr steht je Währung die Zeile **«Aktuell HH:MM»**: der Mittelkurs von biquote.io
+Unter den erfassten Zeitpunkten steht je Währung die Zeile **«Aktuell HH:MM»**: der Mittelkurs von biquote.io
 (gleiche Quelle wie die Zeitpunkte), abgerufen beim Öffnen der App bzw. mit ↻ (zusätzlich alle 10 Minuten und beim
 Zurückkehren in die App). HH:MM = Abrufzeit (Schweizer Zeit); der Tooltip zeigt die Veränderung seit 08:00 (absolut und in %)
-und die Zeit des Kurses. Der Wert erscheint nur in der Spalte von heute, wird nie gespeichert und füllt den 18:00-Zeitpunkt
-nicht. Am Wochenende gibt es keine Spalte für heute; dann steht der letzte Kurs neben dem Währungsnamen.
+und die Zeit des Kurses. Der Wert erscheint nur in der Spalte von heute, wird nie gespeichert und füllt keinen
+erfassten Zeitpunkt. Am Wochenende gibt es keine Spalte für heute; dann steht der letzte Kurs neben dem Währungsnamen.
 Im CSV-Export erscheint die Zeile «Aktuell HH:MM (Live, nicht gespeichert)» mit dem Wert in der Spalte von heute.
 
 ## FX-Push-Alarme (ntfy)

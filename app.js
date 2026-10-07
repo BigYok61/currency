@@ -15,8 +15,27 @@ const CHEVRON_DOWN = '<svg class="chev" viewBox="0 0 16 16" width="13" height="1
 const XMARK = '<svg class="sym" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path d="M3.6 3.6 12.4 12.4M12.4 3.6 3.6 12.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 /** null = nichts gespeichert (Standard). Array = vom Nutzer gewählte Codes. undefined = noch nicht gelesen. */
 let savedOrder;
-const HOURS = [8, 10, 12, 14, 16, 18];
+const BASE_HOUR = 8; // Veränderungspfeile, Prognose-Basis, FX-Alarme
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen
+const LOCKED_HOURS = [BASE_HOUR, CLOSE_HOUR];
+const DEFAULT_HOURS = [6, 8, 10, 12, 14, 16, 18, 20];
+let HOURS = DEFAULT_HOURS.slice();
+/** Ganze Stunden 0–23, aufsteigend, 08 und 16 immer dabei (Prognosen und FX-Alarme). */
+function normalizeHours(list) {
+  const out = new Set(LOCKED_HOURS);
+  const src = Array.isArray(list) && list.length ? list : DEFAULT_HOURS;
+  for (const h of src) {
+    if (typeof h === 'boolean') continue;
+    const n = typeof h === 'number' ? h : (typeof h === 'string' && /^\d{1,2}$/.test(h.trim()) ? Number(h.trim()) : NaN);
+    if (Number.isInteger(n) && n >= 0 && n <= 23) out.add(n);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+function hoursLabel() {
+  const parts = HOURS.map(pad);
+  if (parts.length <= 1) return parts[0] || pad(BASE_HOUR);
+  return `${parts.slice(0, -1).join(', ')} und ${parts[parts.length - 1]}`;
+}
 const START = '2026-10-01';
 const TZ = 'Europe/Zurich';
 const EPS = 0.00005;
@@ -143,9 +162,9 @@ function render(opts = {}) {
     const slotRow = (hr, alt) => {
       let row = `<tr class="${alt ? 'alt' : ''}"><th class="lab">${pad(hr)}:00</th>`;
       for (const k of days) {
-        const v = val(c, k, hr), base = val(c, k, HOURS[0]);
+        const v = val(c, k, hr), base = val(c, k, BASE_HOUR);
         let arrow = '', title = '';
-        if (v != null && base != null && hr !== HOURS[0]) {
+        if (v != null && base != null && hr > BASE_HOUR) {
           const d = v - base;
           arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
           title = `Veränderung seit 08:00: ${r(d)}`;
@@ -154,10 +173,10 @@ function render(opts = {}) {
       }
       return row + '</tr>';
     };
-    // Prognosen vor den Uhrzeiten: 08:00 gehört zu 10:00–18:00, nicht über die Schätzungen
+    // Prognosen vor den Uhrzeiten; 08:00 steht bei den übrigen Messpunkten
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
     for (const k of days) {
-      const f = fc(c, k), base = val(c, k, HOURS[0]);
+      const f = fc(c, k), base = val(c, k, BASE_HOUR);
       let arrow = '';
       if (f != null && base != null) {
         const d = f - base;
@@ -169,7 +188,7 @@ function render(opts = {}) {
     // Prognose 7 Tage (erstellt um 08:00, Ziel: gleicher Wochentag eine Woche später, 16:00)
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung – Kurs eine Woche später (gleicher Wochentag, 16:00)">Prognose 7 Tage *</th>';
     for (const k of days) {
-      const f = fc7(c, k), base = val(c, k, HOURS[0]);
+      const f = fc7(c, k), base = val(c, k, BASE_HOUR);
       let arrow = '';
       if (f != null && base != null) {
         const d = f - base;
@@ -194,12 +213,12 @@ function render(opts = {}) {
     }
     h += '</tr>';
     HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1); });
-    // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den festen Zeitpunkten (füllt 18:00 nie)
+    // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den erfassten Zeitpunkten
     const L = live[c.code];
     h += `<tr class="now"><th class="lab" title="Live-Mittelkurs (biquote.io), abgerufen beim Öffnen bzw. Aktualisieren – wird nicht gespeichert">Aktuell${L ? ' ' + hmFmt.format(L.at) : ''}</th>`;
     for (const k of days) {
       if (k !== today || !L) { h += td(k, '–', 'empty'); continue; }
-      const base = val(c, k, HOURS[0]);
+      const base = val(c, k, BASE_HOUR);
       let arrow = '', title = `Abgerufen ${hmFmt.format(L.at)}`;
       if (L.quoteAt) title += ` · Kurs von ${hmFmt.format(L.quoteAt)}`;
       if (L.closed) title += ' (Markt geschlossen)';
@@ -227,6 +246,8 @@ function render(opts = {}) {
 
   const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
   const last = ecbDays[ecbDays.length - 1];
+  const note = document.getElementById('hoursNote');
+  if (note) note.textContent = `Mittelkurs werktags um ${hoursLabel()} Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze. «Aktuell» = Live-Kurs beim Öffnen/Aktualisieren (nur heute, wird nicht gespeichert)`;
   document.getElementById('stand').textContent = last ? `Stand: ${longFmt.format(new Date(last + 'T12:00:00Z'))}, EZB-Referenzkurse` : 'EZB-Referenzkurse (noch keine Daten)';
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
 }
@@ -234,13 +255,18 @@ function render(opts = {}) {
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
 
 async function load() {
-  try {
-    const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    history = await res.json(); history.days ||= {};
+  const [rates, times] = await Promise.all([
+    fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .catch(e => e),
+    fetchTimes(),
+  ]);
+  if (times && Array.isArray(times.hours)) HOURS = normalizeHours(times.hours);
+  if (rates instanceof Error) {
+    showError(navigator.onLine === false ? 'Keine Internetverbindung. Es werden die zuletzt geladenen Kurse angezeigt.' : `Die Kurse konnten nicht geladen werden (${rates.message}).`);
+  } else {
+    history = rates; history.days ||= {};
     showError('');
-  } catch (e) {
-    showError(navigator.onLine === false ? 'Keine Internetverbindung. Es werden die zuletzt geladenen Kurse angezeigt.' : `Die Kurse konnten nicht geladen werden (${e.message}).`);
   }
   render();
   loadLive();
@@ -287,7 +313,9 @@ function csv() {
 // ---------------------------------------------------------------- FX-Alarme (data/fx-alerts.json, Bearbeiten mit GitHub-Token)
 const REPO = 'BigYok61/currency';
 const ALERTS_PATH = 'data/fx-alerts.json';
+const TIMES_PATH = 'data/capture-times.json';
 const STATE_PATH = 'data/fx-alert-state.json';
+const DEFAULT_TIMES = { version: 1, hours: DEFAULT_HOURS.slice() };
 const LS_TOKEN = 'wu.ghToken';
 const ALERT_CODES = ['USD', 'EUR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
@@ -311,24 +339,36 @@ async function publicGet(path) {
   }
   return null;
 }
+async function fetchTimes() {
+  try {
+    if (ghToken()) {
+      const { data } = await ghGet(TIMES_PATH);
+      if (data && Array.isArray(data.hours) && data.hours.length) return data;
+    }
+  } catch { /* öffentlich weiter */ }
+  return publicGet(TIMES_PATH);
+}
 async function loadAlerts() {
   try { alertCfg = ghToken() ? (await ghGet(ALERTS_PATH)).data : await publicGet(ALERTS_PATH); } catch (e) { alertCfg = await publicGet(ALERTS_PATH); }
   alertCfg ||= structuredClone(DEFAULT_ALERTS);
   alertState = await publicGet(STATE_PATH);
 }
 /** Änderung auf den aktuellen Stand im Repo anwenden und committen (bei Konflikt erneut) */
-async function saveAlerts(mutate) {
+async function saveRepoFile(path, message, fallback, mutate) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const { sha, data } = await ghGet(ALERTS_PATH);
-    const cur = data || structuredClone(DEFAULT_ALERTS);
+    const { sha, data } = await ghGet(path);
+    const cur = data || structuredClone(fallback);
     mutate(cur);
-    const body = { message: 'FX-Alarme geändert', branch: 'main', content: b64e(JSON.stringify(cur, null, 2) + '\n') };
+    const body = { message, branch: 'main', content: b64e(JSON.stringify(cur, null, 2) + '\n') };
     if (sha) body.sha = sha;
-    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${ALERTS_PATH}`, { method: 'PUT', headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (res.ok) { alertCfg = cur; return; }
+    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, { method: 'PUT', headers: { Authorization: `Bearer ${ghToken()}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) return cur;
     if (res.status !== 409 && res.status !== 422) throw new Error(res.status === 403 ? 'Token ohne Schreibrecht (Contents: Read and write)' : res.status === 401 ? 'Token ungültig oder abgelaufen' : `GitHub HTTP ${res.status}`);
   }
   throw new Error('Konflikt beim Speichern – bitte erneut versuchen');
+}
+async function saveAlerts(mutate) {
+  alertCfg = await saveRepoFile(ALERTS_PATH, 'FX-Alarme geändert', DEFAULT_ALERTS, mutate);
 }
 function alertMsg(text, ok) { const m = $('alMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
 function renderAlerts() {
@@ -384,6 +424,73 @@ $('alertsBtn').addEventListener('click', async () => {
   const dlg = $('alerts');
   dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
   await loadAlerts(); renderAlerts();
+});
+
+// ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
+function tmMsg(text, ok) { const m = $('tmMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
+function renderTimes() {
+  const dlg = $('times'), rw = !!ghToken();
+  const selected = new Set(HOURS);
+  let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
+    <p class="note">Volle Stunden Schweizer Zeit, die erfasst und in der Tabelle gezeigt werden. Sortiert, mindestens eine Stunde.</p>
+    <div class="hours" role="group" aria-label="Stunden">`;
+  for (let hr = 0; hr < 24; hr++) {
+    const locked = LOCKED_HOURS.includes(hr);
+    const on = selected.has(hr);
+    const why = locked ? ' title="Immer erfasst: Prognosen (08:00 → 16:00) und FX-Alarme (Vergleich mit 08:00)"' : '';
+    h += `<button type="button" class="hour${locked ? ' locked' : ''}" data-hour="${hr}" aria-pressed="${on ? 'true' : 'false'}"${why}${(rw && !locked) ? '' : ' disabled'}>${pad(hr)}:00</button>`;
+  }
+  h += `</div>
+    <p class="note">08:00 und 16:00 lassen sich nicht abwählen. Die Prognosen werden um 08:00 erstellt und zielen auf 16:00; die FX-Alarme vergleichen mit 08:00. Beide Zeitpunkte werden immer erfasst, auch wenn sie in der Datei fehlen.</p>
+    <p id="tmMsg" class="msg" hidden></p>`;
+  if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button><button id="tmTokOut" type="button" class="danger">Token entfernen</button></div>';
+  else h += `<p class="note">Nur lesbar. Zum Ändern denselben GitHub-Token wie bei den FX-Alarmen eintragen –
+    oder die Datei direkt auf GitHub bearbeiten: <a href="https://github.com/${REPO}/edit/main/${TIMES_PATH}" target="_blank" rel="noopener">${TIMES_PATH}</a>.</p>
+    <div class="row"><input id="tmTok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tmTokSave" type="button">Token speichern</button></div>
+    <p class="note">Der Token wird nur in diesem Browser gespeichert (localStorage) und nur an api.github.com gesendet.</p>`;
+  dlg.innerHTML = h;
+  dlg.querySelectorAll('.hour:not(:disabled)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const on = btn.getAttribute('aria-pressed') === 'true';
+      btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+    });
+  });
+  const sv = $('tmSave');
+  if (sv) sv.onclick = async () => {
+    const picked = [...dlg.querySelectorAll('.hour[aria-pressed="true"]')].map(b => Number(b.dataset.hour));
+    const hours = normalizeHours(picked);
+    if (!hours.length) return tmMsg('Mindestens eine ganze Stunde zwischen 00 und 23 wählen.');
+    sv.disabled = true; tmMsg('Speichere …', true);
+    try {
+      await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => { cur.version = 1; cur.hours = hours; });
+      HOURS = hours;
+      render({ keepScroll: true });
+      renderTimes();
+      tmMsg('Gespeichert. Gilt ab dem nächsten stündlichen Lauf; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
+    } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
+  };
+  const ts = $('tmTokSave');
+  if (ts) ts.onclick = async () => {
+    const t = $('tmTok').value.trim(); if (!t) return;
+    localStorage.setItem(LS_TOKEN, t);
+    try {
+      await ghGet(TIMES_PATH);
+      const data = await fetchTimes();
+      if (data && Array.isArray(data.hours)) HOURS = normalizeHours(data.hours);
+      render({ keepScroll: true });
+      renderTimes();
+      tmMsg('Token gespeichert – Bearbeiten ist aktiv.', true);
+    } catch (e) { localStorage.removeItem(LS_TOKEN); tmMsg(`Token abgelehnt: ${e.message}`); }
+  };
+  const to = $('tmTokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderTimes(); };
+}
+$('timesBtn').addEventListener('click', async () => {
+  const dlg = $('times');
+  dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
+  const data = await fetchTimes();
+  if (data && Array.isArray(data.hours)) HOURS = normalizeHours(data.hours);
+  render({ keepScroll: true });
+  renderTimes();
 });
 
 document.getElementById('grid').addEventListener('click', e => {
