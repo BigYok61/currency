@@ -18,7 +18,7 @@ let savedOrder;
 const BASE_HOUR = 8; // Veränderungspfeile, Prognose-Basis, FX-Alarme
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen
 const LOCKED_HOURS = [BASE_HOUR, CLOSE_HOUR];
-const INTERVALS = [1, 2, 3, 4];
+const INTERVALS = [1, 2, 3, 4, 8, 12, 24];
 const DEFAULT_SCHEDULE = { start: 6, end: 20, intervalHours: 2 };
 let schedule = { ...DEFAULT_SCHEDULE };
 let HOURS = [];
@@ -49,12 +49,17 @@ function expandSchedule(start, end, step) {
 function hoursFromSchedule(sch) {
   return normalizeHours(expandSchedule(sch.start, sch.end, sch.intervalHours));
 }
+function parseStep(v) {
+  if (typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d{1,2}$/.test(String(v).trim()) ? Number(String(v).trim()) : NaN);
+  return INTERVALS.includes(n) ? n : null;
+}
 function parseSchedule(data) {
   if (!data || typeof data !== 'object') return null;
   const start = parseHour(data.start);
   const end = parseHour(data.end);
-  const step = parseHour(data.intervalHours);
-  if (start == null || end == null || start >= end || !INTERVALS.includes(step)) return null;
+  const step = parseStep(data.intervalHours);
+  if (start == null || end == null || start >= end || step == null) return null;
   return { start, end, intervalHours: step };
 }
 function sameHours(a, b) {
@@ -493,14 +498,33 @@ function renderAlerts() {
   };
   const to = $('tokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderAlerts(); };
 }
-$('alertsBtn').addEventListener('click', async () => {
+async function openAlerts() {
   const dlg = $('alerts');
-  dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
-  await loadAlerts(); renderAlerts();
-});
+  dlg.innerHTML = '<p class="note">Lade …</p>';
+  dlg.showModal();
+  await loadAlerts();
+  renderAlerts();
+  const tok = $('tok');
+  if (tok) tok.focus();
+}
+$('alertsBtn').addEventListener('click', () => { openAlerts(); });
+$('alerts').addEventListener('close', () => { if ($('times').open) renderTimes(); });
 
 // ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
 function tmMsg(text, ok) { const m = $('tmMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
+function measurementCaption(n) {
+  return n === 1 ? '1 Messung pro Tag' : `${n} Messungen pro Tag`;
+}
+function previewPills(hours, pattern) {
+  const onGrid = new Set(pattern);
+  return hours.map(hr => {
+    const fixed = LOCKED_HOURS.includes(hr);
+    const cls = fixed ? 'pill fixed' : 'pill';
+    const dot = fixed ? '<i class="pill-dot" aria-hidden="true"></i>' : '';
+    const title = fixed && !onGrid.has(hr) ? ' title="Zusätzlich erfasst"' : (fixed ? ' title="Immer erfasst"' : '');
+    return `<span class="${cls}"${title}>${pad(hr)}${dot}</span>`;
+  }).join('');
+}
 function timeOptions(selected) {
   let html = '';
   for (let hr = 0; hr < 24; hr++) html += `<option value="${hr}"${hr === selected ? ' selected' : ''}>${pad(hr)}:00</option>`;
@@ -508,24 +532,20 @@ function timeOptions(selected) {
 }
 function renderTimes() {
   const dlg = $('times'), rw = !!ghToken();
-  const dis = rw ? '' : ' disabled';
   let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
-    <p class="note">Volle Stunden Schweizer Zeit, von–bis. Abstand 1, 2, 3 oder 4 Stunden.</p>
+    <p class="note">Volle Stunden Schweizer Zeit, von–bis.</p>
     <div class="tm">
-      <div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time"${dis}>${timeOptions(schedule.start)}</select></div>
-      <div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time"${dis}>${timeOptions(schedule.end)}</select></div>
+      <div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(schedule.start)}</select></div>
+      <div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(schedule.end)}</select></div>
       <div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span>
-        <div class="seg" role="group" aria-labelledby="tmIntLabel">${INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === schedule.intervalHours ? 'true' : 'false'}"${dis}>${n} h</button>`).join('')}</div>
+        <div class="seg" role="group" aria-labelledby="tmIntLabel">${INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === schedule.intervalHours ? 'true' : 'false'}">${n} h</button>`).join('')}</div>
       </div>
     </div>
-    <p id="tmPreview" class="tm-preview" aria-live="polite"></p>
+    <div class="tm-preview" aria-live="polite"><div id="tmPills" class="pills"></div><p id="tmCount" class="tm-count"></p></div>
     <p id="tmExtra" class="note" hidden></p>
     <p id="tmMsg" class="msg" hidden></p>`;
-  if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button><button id="tmTokOut" type="button" class="danger">Token entfernen</button></div>';
-  else h += `<p class="note">Nur lesbar. Zum Ändern denselben GitHub-Token wie bei den FX-Alarmen eintragen –
-    oder die Datei direkt auf GitHub bearbeiten: <a href="https://github.com/${REPO}/edit/main/${TIMES_PATH}" target="_blank" rel="noopener">${TIMES_PATH}</a>.</p>
-    <div class="row"><input id="tmTok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tmTokSave" type="button">Token speichern</button></div>
-    <p class="note">Der Token wird nur in diesem Browser gespeichert (localStorage) und nur an api.github.com gesendet.</p>`;
+  if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button></div>';
+  else h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern mit GitHub verbinden</button>';
   dlg.innerHTML = h;
   const readForm = () => ({
     start: Number($('tmStart').value),
@@ -535,16 +555,18 @@ function renderTimes() {
   const refresh = () => {
     const sch = readForm();
     const pattern = expandSchedule(sch.start, sch.end, sch.intervalHours);
-    const preview = $('tmPreview'), extra = $('tmExtra'), save = $('tmSave');
+    const pills = $('tmPills'), count = $('tmCount'), extra = $('tmExtra'), save = $('tmSave');
     const notes = [];
     if (!pattern.length) {
-      preview.textContent = 'Beginn muss vor dem Ende liegen.';
+      pills.innerHTML = '';
+      count.textContent = 'Beginn muss vor dem Ende liegen.';
       extra.hidden = true;
       if (save) save.disabled = true;
       return null;
     }
     const all = normalizeHours(pattern);
-    preview.textContent = all.map(hr => `${pad(hr)}:00`).join(' · ');
+    pills.innerHTML = previewPills(all, pattern);
+    count.textContent = measurementCaption(all.length);
     const outside = LOCKED_HOURS.filter(hr => !pattern.includes(hr));
     if (outside.length) {
       const label = outside.map(hr => `${pad(hr)}:00`).join(' und ');
@@ -556,7 +578,7 @@ function renderTimes() {
     if (save) save.disabled = false;
     return sch;
   };
-  dlg.querySelectorAll('.segbtn:not(:disabled)').forEach(btn => {
+  dlg.querySelectorAll('.segbtn').forEach(btn => {
     btn.addEventListener('click', () => {
       dlg.querySelectorAll('.segbtn').forEach(b => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
       refresh();
@@ -565,7 +587,7 @@ function renderTimes() {
   const seg = dlg.querySelector('.seg');
   if (seg) seg.addEventListener('keydown', e => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    const btns = [...dlg.querySelectorAll('.segbtn:not(:disabled)')];
+    const btns = [...dlg.querySelectorAll('.segbtn')];
     if (!btns.length) return;
     const i = Math.max(0, btns.findIndex(b => b.getAttribute('aria-pressed') === 'true'));
     const n = e.key === 'ArrowRight' ? Math.min(btns.length - 1, i + 1) : Math.max(0, i - 1);
@@ -596,20 +618,12 @@ function renderTimes() {
       tmMsg('Gespeichert. Gilt ab dem nächsten stündlichen Lauf; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
     } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };
-  const ts = $('tmTokSave');
-  if (ts) ts.onclick = async () => {
-    const t = $('tmTok').value.trim(); if (!t) return;
-    localStorage.setItem(LS_TOKEN, t);
-    try {
-      await ghGet(TIMES_PATH);
-      const data = await fetchTimes();
-      if (data) applyTimesConfig(data);
-      render({ keepScroll: true });
-      renderTimes();
-      tmMsg('Token gespeichert – Bearbeiten ist aktiv.', true);
-    } catch (e) { localStorage.removeItem(LS_TOKEN); tmMsg(`Token abgelehnt: ${e.message}`); }
+  const connect = $('tmConnect');
+  if (connect) connect.onclick = () => {
+    const sch = readForm();
+    schedule = sch;
+    openAlerts();
   };
-  const to = $('tmTokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderTimes(); };
 }
 $('timesBtn').addEventListener('click', async () => {
   const dlg = $('times');

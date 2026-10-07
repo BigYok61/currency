@@ -237,6 +237,9 @@ footer a { color: var(--accent); text-decoration: none; transition: opacity var(
   footer { padding: 12px 16px max(16px, env(safe-area-inset-bottom)); padding-left: max(16px, env(safe-area-inset-left)); }
 }
 dialog {
+  --seg-inset: 8px;
+  --seg-pad: 2px;
+  --seg-gap: 0px;
   border: .5px solid var(--line); border-radius: 16px; padding: 18px 20px 16px;
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   -webkit-backdrop-filter: saturate(160%) blur(40px);
@@ -272,16 +275,16 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn) {
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn):active { transform: scale(.98); }
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):active { transform: scale(.98); }
 dialog button.primary { background: var(--accent-fill); color: #fff; }
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
-  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):hover { background: var(--fill-hover); }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):not(.tm-link):hover { background: var(--fill-hover); }
 }
 dialog .tm {
   margin: 14px 0 8px; border-radius: 12px; overflow: hidden;
@@ -296,35 +299,58 @@ dialog .tm-row label, dialog .tm-interval > span {
   font-size: 15px; font-weight: 590; letter-spacing: -.015em;
 }
 dialog select.tm-time {
-  font: inherit; font-size: 15px; font-weight: 590; font-variant-numeric: tabular-nums;
+  font: inherit; font-size: 16px; font-weight: 590; font-variant-numeric: tabular-nums;
   color: var(--accent); background-color: var(--surface);
   border: .5px solid var(--line); border-radius: 8px;
-  min-height: 34px; padding: 4px 28px 4px 10px;
+  min-height: 36px; min-width: 7.5em; padding: 4px 28px 4px 10px;
   appearance: none; -webkit-appearance: none;
+  touch-action: manipulation; cursor: pointer; position: relative; z-index: 1;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.2 4.3 6 8.1l3.8-3.8' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat; background-position: right 8px center; background-size: 12px;
 }
-dialog select.tm-time:disabled { opacity: .72; }
-dialog .tm-interval { flex-direction: column; align-items: stretch; gap: 8px; padding-top: 10px; padding-bottom: 12px; }
-dialog .seg {
-  display: flex; padding: 2px; border-radius: 9px; background: var(--fill);
+dialog .tm-interval { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px var(--seg-inset) 12px; }
+dialog .seg,
+dialog .pills {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--seg-gap);
+  padding: var(--seg-pad);
+  box-sizing: border-box;
 }
+dialog .seg { border-radius: 9px; background: var(--fill); }
 dialog .seg button.segbtn {
-  flex: 1; min-height: 32px; margin: 0; padding: 6px 4px;
+  min-width: 0; min-height: 40px; margin: 0; padding: 6px 0;
   border: none; border-radius: 7px; background: transparent; color: var(--fg);
-  font: inherit; font-weight: 590; font-variant-numeric: tabular-nums;
-  cursor: pointer; touch-action: manipulation;
+  font: inherit; font-size: 12px; font-weight: 590; font-variant-numeric: tabular-nums;
+  letter-spacing: -.04em; white-space: nowrap;
+  cursor: pointer; touch-action: manipulation; position: relative; z-index: 1;
 }
 dialog .seg button.segbtn[aria-pressed="true"] {
   background: var(--surface); color: var(--fg);
   box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 0 0 .5px rgba(0,0,0,.06);
 }
-dialog .seg button.segbtn:disabled { cursor: default; }
-dialog .seg button.segbtn:not(:disabled):not([aria-pressed="true"]):active { opacity: .7; }
-dialog .tm-preview {
-  margin: 2px 2px 0; font-size: 13px; font-weight: 590; font-variant-numeric: tabular-nums;
-  letter-spacing: -.01em; line-height: 1.45;
+dialog .seg button.segbtn:not([aria-pressed="true"]):active { opacity: .7; }
+dialog button.tm-link {
+  display: block; margin: 12px 0 2px; padding: 4px 0; border: none; background: none;
+  color: var(--muted); font: inherit; font-size: 13px; font-weight: 450; letter-spacing: -.01em;
+  text-align: left; cursor: pointer; touch-action: manipulation;
 }
+dialog button.tm-link:active { color: var(--fg); }
+dialog .tm-preview { margin: 4px var(--seg-inset) 0; }
+dialog .pills { margin: 0; }
+dialog .pill {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 26px; padding: 0 2px; box-sizing: border-box;
+  border-radius: 999px; background: color-mix(in srgb, var(--fill) 80%, var(--surface));
+  color: var(--fg); font-size: 12px; font-weight: 590; font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em; line-height: 1;
+}
+dialog .pill.fixed { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+dialog .pill-dot {
+  position: absolute; top: 4px; right: 5px;
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+}
+dialog .tm-count { margin: 8px 0 0; font-size: 12px; font-weight: 450; color: var(--muted); letter-spacing: -.01em; }
 dialog button.danger { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 dialog a { color: var(--accent); }
 .msg { font-size: 13px; padding: 8px 10px; border-radius: 10px; margin: 8px 0; }

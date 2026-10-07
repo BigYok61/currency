@@ -31,8 +31,8 @@ Standard in `data/capture-times.json`: 06:00–20:00 alle 2 Stunden (Europe/Zuri
 ```json
 { "version": 2, "start": "06", "end": "20", "intervalHours": 2 }
 ```
-`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3 oder 4.
-Die letzte Messung ist die grösste Stunde `start + n × Intervall`, die noch ≤ `end` ist (06–20 alle 3 Stunden endet bei 18:00).
+`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3, 4, 8, 12 oder 24.
+Die Messungen sind `start + n × Intervall`, solange sie ≤ `end` sind (06–20 alle 3 Stunden endet bei 18:00; 24 Stunden ergibt eine Messung am Startzeitpunkt).
 Halbe Stunden gibt es nicht: biquote liefert Stundenkerzen, der Job läuft stündlich.
 **08:00 und 16:00 werden immer erfasst**, auch wenn sie nicht auf dem Raster liegen (Prognose um 08:00 mit Ziel 16:00, FX-Alarme vergleichen mit 08:00).
 Eine ältere Datei der Form `{ "version": 1, "hours": [6, 8, 10] }` bleibt gültig. Stehen Von/Bis/Intervall und `hours` zusammen in der Datei, gilt das Raster.
@@ -42,7 +42,7 @@ fällt in CET (UTC+1) und CEST (UTC+2) auf einen dieser Läufe. Welche Stunden g
 Fehlende Werte der letzten ca. 7 Tage trägt der biquote-Verlauf nach. Die Tabelle zeigt neue Stunden sofort, der Kurs erst nach dem nächsten Lauf («–» bis dahin).
 
 Änderungen gelten ab dem nächsten Lauf. Drei Wege:
-1. **Web-App:** Uhr-Symbol oben rechts → Von, Bis und Intervall → «Speichern» (braucht den GitHub-Token, siehe unten; ohne Token nur lesbar). Die Zeile unter den Reglern zeigt die resultierenden Zeiten.
+1. **Web-App:** Uhr-Symbol oben rechts → Von, Bis und Intervall. Die Vorschau darunter folgt sofort, auch ohne Token. «Speichern» schreibt die Datei, sobald der GitHub-Token hinterlegt ist (gleiche Eingabe wie bei den FX-Alarmen, 🔔). Ohne Token steht unter der Vorschau «Zum Speichern mit GitHub verbinden»; das öffnet die Token-Eingabe der FX-Alarme.
 2. **Direkt auf GitHub:** https://github.com/BigYok61/currency/edit/main/data/capture-times.json →
    `start`, `end`, `intervalHours` ändern → «Commit changes…». Ohne Token, nur mit dem GitHub-Login.
 3. Dieselbe Datei im Repository committen. `capture.py` schreibt sie nicht um.

@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub-Cron laeuft in UTC und kann sich verspaeten. Stuendlich um :05 (Mo–Fr) plus ein Nachlauf am Samstag.
     # Jede volle Stunde Europe/Zurich faellt in CET (UTC+1) und CEST (UTC+2) auf eine dieser Stunden,
-    # also auch 06:00 und 20:00. data/capture-times.json nennt Von, Bis und Abstand (1–4 Stunden);
+    # also auch 06:00 und 20:00. data/capture-times.json nennt Von, Bis und Abstand (1, 2, 3, 4, 8, 12 oder 24 Stunden);
     # 08 und 16 werden immer erfasst (Prognosen, FX-Alarme). Verpasste Punkte traegt das Skript
     # aus dem ca. 7-taegigen Verlauf von biquote.io nach.
     - cron: "5 * * * 1-5"
