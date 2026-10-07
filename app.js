@@ -18,19 +18,89 @@ let savedOrder;
 const BASE_HOUR = 8; // Veränderungspfeile, Prognose-Basis, FX-Alarme
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen
 const LOCKED_HOURS = [BASE_HOUR, CLOSE_HOUR];
-const DEFAULT_HOURS = [6, 8, 10, 12, 14, 16, 18, 20];
-let HOURS = DEFAULT_HOURS.slice();
+const INTERVALS = [1, 2, 3, 4];
+const DEFAULT_SCHEDULE = { start: 6, end: 20, intervalHours: 2 };
+let schedule = { ...DEFAULT_SCHEDULE };
+let HOURS = [];
+let timesFit = true;
+function parseHour(v) {
+  if (typeof v === 'boolean') return null;
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : NaN);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
+}
 /** Ganze Stunden 0–23, aufsteigend, 08 und 16 immer dabei (Prognosen und FX-Alarme). */
 function normalizeHours(list) {
   const out = new Set(LOCKED_HOURS);
-  const src = Array.isArray(list) && list.length ? list : DEFAULT_HOURS;
+  const src = Array.isArray(list) ? list : [];
   for (const h of src) {
-    if (typeof h === 'boolean') continue;
-    const n = typeof h === 'number' ? h : (typeof h === 'string' && /^\d{1,2}$/.test(h.trim()) ? Number(h.trim()) : NaN);
-    if (Number.isInteger(n) && n >= 0 && n <= 23) out.add(n);
+    const n = parseHour(h);
+    if (n != null) out.add(n);
   }
   return [...out].sort((a, b) => a - b);
 }
+/** start, start+step, … bis zur grössten Stunde ≤ end. Leer, wenn Beginn nicht vor Ende liegt. */
+function expandSchedule(start, end, step) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || !INTERVALS.includes(step)) return [];
+  if (start < 0 || end > 23 || start >= end) return [];
+  const out = [];
+  for (let h = start; h <= end; h += step) out.push(h);
+  return out;
+}
+function hoursFromSchedule(sch) {
+  return normalizeHours(expandSchedule(sch.start, sch.end, sch.intervalHours));
+}
+function parseSchedule(data) {
+  if (!data || typeof data !== 'object') return null;
+  const start = parseHour(data.start);
+  const end = parseHour(data.end);
+  const step = parseHour(data.intervalHours);
+  if (start == null || end == null || start >= end || !INTERVALS.includes(step)) return null;
+  return { start, end, intervalHours: step };
+}
+function sameHours(a, b) {
+  return a.length === b.length && a.every((h, i) => h === b[i]);
+}
+/** Version-1-Liste auf ein Von/Bis/Intervall abbilden, dessen Ergebnis dieselbe Menge ist. */
+function matchSchedule(hours) {
+  const set = new Set(hours);
+  let best = null;
+  let bestKey = null;
+  for (const step of INTERVALS) {
+    for (let start = 0; start <= 22; start++) {
+      for (let end = start + 1; end <= 23; end++) {
+        const pattern = expandSchedule(start, end, step);
+        const got = normalizeHours(pattern);
+        if (!sameHours(got, hours)) continue;
+        const extras = LOCKED_HOURS.filter(h => !pattern.includes(h)).length;
+        const last = pattern[pattern.length - 1];
+        // Engstes Ende (letzter Slot), dann weniger Zusatzstunden, dann kleinerer Abstand, dann grössere Spanne.
+        const key = (end - last) * 100000 + extras * 1000 + step * 10 - (last - start);
+        if (bestKey == null || key < bestKey) { bestKey = key; best = { start, end, intervalHours: step }; }
+      }
+    }
+  }
+  return best;
+}
+function applyTimesConfig(data) {
+  const sch = parseSchedule(data);
+  if (sch) {
+    schedule = sch;
+    HOURS = hoursFromSchedule(sch);
+    timesFit = true;
+    return;
+  }
+  if (data && Array.isArray(data.hours) && data.hours.length) {
+    HOURS = normalizeHours(data.hours);
+    const inferred = matchSchedule(HOURS);
+    if (inferred) { schedule = inferred; timesFit = true; }
+    else { schedule = { ...DEFAULT_SCHEDULE }; timesFit = false; }
+    return;
+  }
+  schedule = { ...DEFAULT_SCHEDULE };
+  HOURS = hoursFromSchedule(schedule);
+  timesFit = true;
+}
+applyTimesConfig(null);
 function hoursLabel() {
   const parts = HOURS.map(pad);
   if (parts.length <= 1) return parts[0] || pad(BASE_HOUR);
@@ -261,7 +331,7 @@ async function load() {
       .catch(e => e),
     fetchTimes(),
   ]);
-  if (times && Array.isArray(times.hours)) HOURS = normalizeHours(times.hours);
+  if (times) applyTimesConfig(times);
   if (rates instanceof Error) {
     showError(navigator.onLine === false ? 'Keine Internetverbindung. Es werden die zuletzt geladenen Kurse angezeigt.' : `Die Kurse konnten nicht geladen werden (${rates.message}).`);
   } else {
@@ -315,7 +385,7 @@ const REPO = 'BigYok61/currency';
 const ALERTS_PATH = 'data/fx-alerts.json';
 const TIMES_PATH = 'data/capture-times.json';
 const STATE_PATH = 'data/fx-alert-state.json';
-const DEFAULT_TIMES = { version: 1, hours: DEFAULT_HOURS.slice() };
+const DEFAULT_TIMES = { version: 2, start: '06', end: '20', intervalHours: 2 };
 const LS_TOKEN = 'wu.ghToken';
 const ALERT_CODES = ['USD', 'EUR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
@@ -339,11 +409,14 @@ async function publicGet(path) {
   }
   return null;
 }
+function timesConfigOk(data) {
+  return !!(data && (parseSchedule(data) || (Array.isArray(data.hours) && data.hours.some(h => parseHour(h) != null))));
+}
 async function fetchTimes() {
   try {
     if (ghToken()) {
       const { data } = await ghGet(TIMES_PATH);
-      if (data && Array.isArray(data.hours) && data.hours.length) return data;
+      if (timesConfigOk(data)) return data;
     }
   } catch { /* öffentlich weiter */ }
   return publicGet(TIMES_PATH);
@@ -428,20 +501,25 @@ $('alertsBtn').addEventListener('click', async () => {
 
 // ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
 function tmMsg(text, ok) { const m = $('tmMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
+function timeOptions(selected) {
+  let html = '';
+  for (let hr = 0; hr < 24; hr++) html += `<option value="${hr}"${hr === selected ? ' selected' : ''}>${pad(hr)}:00</option>`;
+  return html;
+}
 function renderTimes() {
   const dlg = $('times'), rw = !!ghToken();
-  const selected = new Set(HOURS);
+  const dis = rw ? '' : ' disabled';
   let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
-    <p class="note">Volle Stunden Schweizer Zeit, die erfasst und in der Tabelle gezeigt werden. Sortiert, mindestens eine Stunde.</p>
-    <div class="hours" role="group" aria-label="Stunden">`;
-  for (let hr = 0; hr < 24; hr++) {
-    const locked = LOCKED_HOURS.includes(hr);
-    const on = selected.has(hr);
-    const why = locked ? ' title="Immer erfasst: Prognosen (08:00 → 16:00) und FX-Alarme (Vergleich mit 08:00)"' : '';
-    h += `<button type="button" class="hour${locked ? ' locked' : ''}" data-hour="${hr}" aria-pressed="${on ? 'true' : 'false'}"${why}${(rw && !locked) ? '' : ' disabled'}>${pad(hr)}:00</button>`;
-  }
-  h += `</div>
-    <p class="note">08:00 und 16:00 lassen sich nicht abwählen. Die Prognosen werden um 08:00 erstellt und zielen auf 16:00; die FX-Alarme vergleichen mit 08:00. Beide Zeitpunkte werden immer erfasst, auch wenn sie in der Datei fehlen.</p>
+    <p class="note">Volle Stunden Schweizer Zeit, von–bis. Abstand 1, 2, 3 oder 4 Stunden.</p>
+    <div class="tm">
+      <div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time"${dis}>${timeOptions(schedule.start)}</select></div>
+      <div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time"${dis}>${timeOptions(schedule.end)}</select></div>
+      <div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span>
+        <div class="seg" role="group" aria-labelledby="tmIntLabel">${INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === schedule.intervalHours ? 'true' : 'false'}"${dis}>${n} h</button>`).join('')}</div>
+      </div>
+    </div>
+    <p id="tmPreview" class="tm-preview" aria-live="polite"></p>
+    <p id="tmExtra" class="note" hidden></p>
     <p id="tmMsg" class="msg" hidden></p>`;
   if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button><button id="tmTokOut" type="button" class="danger">Token entfernen</button></div>';
   else h += `<p class="note">Nur lesbar. Zum Ändern denselben GitHub-Token wie bei den FX-Alarmen eintragen –
@@ -449,21 +527,70 @@ function renderTimes() {
     <div class="row"><input id="tmTok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tmTokSave" type="button">Token speichern</button></div>
     <p class="note">Der Token wird nur in diesem Browser gespeichert (localStorage) und nur an api.github.com gesendet.</p>`;
   dlg.innerHTML = h;
-  dlg.querySelectorAll('.hour:not(:disabled)').forEach(btn => {
+  const readForm = () => ({
+    start: Number($('tmStart').value),
+    end: Number($('tmEnd').value),
+    intervalHours: Number(dlg.querySelector('.segbtn[aria-pressed="true"]')?.dataset.step || schedule.intervalHours),
+  });
+  const refresh = () => {
+    const sch = readForm();
+    const pattern = expandSchedule(sch.start, sch.end, sch.intervalHours);
+    const preview = $('tmPreview'), extra = $('tmExtra'), save = $('tmSave');
+    const notes = [];
+    if (!pattern.length) {
+      preview.textContent = 'Beginn muss vor dem Ende liegen.';
+      extra.hidden = true;
+      if (save) save.disabled = true;
+      return null;
+    }
+    const all = normalizeHours(pattern);
+    preview.textContent = all.map(hr => `${pad(hr)}:00`).join(' · ');
+    const outside = LOCKED_HOURS.filter(hr => !pattern.includes(hr));
+    if (outside.length) {
+      const label = outside.map(hr => `${pad(hr)}:00`).join(' und ');
+      notes.push(`${label} ${outside.length > 1 ? 'liegen' : 'liegt'} ausserhalb dieses Rasters und ${outside.length > 1 ? 'werden' : 'wird'} zusätzlich erfasst (Prognose und FX-Alarm).`);
+    }
+    if (!timesFit) notes.push('Die gespeicherte Liste folgt keinem Von/Bis-Raster und gilt bis zum Speichern.');
+    extra.hidden = notes.length === 0;
+    extra.textContent = notes.join(' ');
+    if (save) save.disabled = false;
+    return sch;
+  };
+  dlg.querySelectorAll('.segbtn:not(:disabled)').forEach(btn => {
     btn.addEventListener('click', () => {
-      const on = btn.getAttribute('aria-pressed') === 'true';
-      btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+      dlg.querySelectorAll('.segbtn').forEach(b => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+      refresh();
     });
   });
+  const seg = dlg.querySelector('.seg');
+  if (seg) seg.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const btns = [...dlg.querySelectorAll('.segbtn:not(:disabled)')];
+    if (!btns.length) return;
+    const i = Math.max(0, btns.findIndex(b => b.getAttribute('aria-pressed') === 'true'));
+    const n = e.key === 'ArrowRight' ? Math.min(btns.length - 1, i + 1) : Math.max(0, i - 1);
+    if (btns[n] !== btns[i]) { btns[n].click(); btns[n].focus(); }
+    e.preventDefault();
+  });
+  $('tmStart').addEventListener('change', refresh);
+  $('tmEnd').addEventListener('change', refresh);
+  refresh();
   const sv = $('tmSave');
   if (sv) sv.onclick = async () => {
-    const picked = [...dlg.querySelectorAll('.hour[aria-pressed="true"]')].map(b => Number(b.dataset.hour));
-    const hours = normalizeHours(picked);
-    if (!hours.length) return tmMsg('Mindestens eine ganze Stunde zwischen 00 und 23 wählen.');
+    const sch = readForm();
+    if (!expandSchedule(sch.start, sch.end, sch.intervalHours).length) return tmMsg('Beginn muss vor dem Ende liegen.');
     sv.disabled = true; tmMsg('Speichere …', true);
     try {
-      await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => { cur.version = 1; cur.hours = hours; });
-      HOURS = hours;
+      await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
+        cur.version = 2;
+        cur.start = pad(sch.start);
+        cur.end = pad(sch.end);
+        cur.intervalHours = sch.intervalHours;
+        delete cur.hours;
+      });
+      schedule = sch;
+      HOURS = hoursFromSchedule(sch);
+      timesFit = true;
       render({ keepScroll: true });
       renderTimes();
       tmMsg('Gespeichert. Gilt ab dem nächsten stündlichen Lauf; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
@@ -476,7 +603,7 @@ function renderTimes() {
     try {
       await ghGet(TIMES_PATH);
       const data = await fetchTimes();
-      if (data && Array.isArray(data.hours)) HOURS = normalizeHours(data.hours);
+      if (data) applyTimesConfig(data);
       render({ keepScroll: true });
       renderTimes();
       tmMsg('Token gespeichert – Bearbeiten ist aktiv.', true);
@@ -488,7 +615,7 @@ $('timesBtn').addEventListener('click', async () => {
   const dlg = $('times');
   dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
   const data = await fetchTimes();
-  if (data && Array.isArray(data.hours)) HOURS = normalizeHours(data.hours);
+  if (data) applyTimesConfig(data);
   render({ keepScroll: true });
   renderTimes();
 });

@@ -27,21 +27,24 @@ Das 7-Tage-Modell nutzt die 16:00-Kurse von biquote (ca. 7 Tage Verlauf) und erg
 Die macOS-App liest dieselben `slots`; unbekannte Schlüssel wie `"06"` und `"20"` sind zusätzliche Einträge und ändern das Format nicht.
 
 ## Erfassungszeiten
-Standard in `data/capture-times.json`: 06, 08, 10, 12, 14, 16, 18 und 20 Uhr (Europe/Zurich).
+Standard in `data/capture-times.json`: 06:00–20:00 alle 2 Stunden (Europe/Zurich), also 06, 08, 10, 12, 14, 16, 18, 20.
 ```json
-{ "version": 1, "hours": [6, 8, 10, 12, 14, 16, 18, 20] }
+{ "version": 2, "start": "06", "end": "20", "intervalHours": 2 }
 ```
-`hours` sind ganze Stunden 0–23, aufsteigend, mindestens eine. **08 und 16 lassen sich nicht entfernen:**
-die Prognosen werden um 08:00 erstellt und zielen auf 16:00, die FX-Alarme vergleichen mit 08:00.
-Web-App und `capture.py` nehmen beide Stunden immer dazu, auch wenn sie in der Datei fehlen.
+`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3 oder 4.
+Die letzte Messung ist die grösste Stunde `start + n × Intervall`, die noch ≤ `end` ist (06–20 alle 3 Stunden endet bei 18:00).
+Halbe Stunden gibt es nicht: biquote liefert Stundenkerzen, der Job läuft stündlich.
+**08:00 und 16:00 werden immer erfasst**, auch wenn sie nicht auf dem Raster liegen (Prognose um 08:00 mit Ziel 16:00, FX-Alarme vergleichen mit 08:00).
+Eine ältere Datei der Form `{ "version": 1, "hours": [6, 8, 10] }` bleibt gültig. Stehen Von/Bis/Intervall und `hours` zusammen in der Datei, gilt das Raster.
+
 Der Cron bleibt stündlich (`5 * * * 1-5` plus Samstag 06:05 UTC): jede Zürcher Stunde, inklusive 06:00 und 20:00,
 fällt in CET (UTC+1) und CEST (UTC+2) auf einen dieser Läufe. Welche Stunden gespeichert werden, filtert das Skript.
 Fehlende Werte der letzten ca. 7 Tage trägt der biquote-Verlauf nach. Die Tabelle zeigt neue Stunden sofort, der Kurs erst nach dem nächsten Lauf («–» bis dahin).
 
 Änderungen gelten ab dem nächsten Lauf. Drei Wege:
-1. **Web-App:** Uhr-Symbol oben rechts → Stunden antippen → «Speichern» (braucht den GitHub-Token, siehe unten; ohne Token nur lesbar).
+1. **Web-App:** Uhr-Symbol oben rechts → Von, Bis und Intervall → «Speichern» (braucht den GitHub-Token, siehe unten; ohne Token nur lesbar). Die Zeile unter den Reglern zeigt die resultierenden Zeiten.
 2. **Direkt auf GitHub:** https://github.com/BigYok61/currency/edit/main/data/capture-times.json →
-   `hours` ändern → «Commit changes…». Ohne Token, nur mit dem GitHub-Login.
+   `start`, `end`, `intervalHours` ändern → «Commit changes…». Ohne Token, nur mit dem GitHub-Login.
 3. Dieselbe Datei im Repository committen. `capture.py` schreibt sie nicht um.
 
 ## Zeile «Aktuell» (Live-Kurs)
