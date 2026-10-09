@@ -908,19 +908,29 @@ function changeHtml(v, basis) {
   const abs = `${d > EPS ? '+' : ''}${r(d)}`;
   return `<span class="chg ${tone}">${abs} (${pctFmt.format((v / basis - 1) * 100)} %)</span>`;
 }
+/** 1 Berichtswährung = x Fremdwährung, zum angezeigten Kurs. */
+function inverseText(code, value) {
+  if (!code || code === baseCurrency || value == null || !(Math.abs(value) > EPS)) return '';
+  return `1 ${baseCurrency} = ${r(1 / value)} ${code}`;
+}
+function chartTip(code, value, when) {
+  return [when, value == null ? '' : `${r(value)} ${baseCurrency}`, inverseText(code, value)].filter(Boolean).join(' · ');
+}
 function chartSvg(code, plotted, tone) {
-  const label = `${ccyName({ code })} ${CHART_RANGES.find(r => r.id === chartRange)?.aria || ''}`.trim();
+  const range = CHART_RANGES.find(r => r.id === chartRange);
+  const label = `${ccyName({ code })} ${range?.aria || ''}`.trim();
   const color = tone === 'down' ? 'var(--down)' : tone === 'up' ? 'var(--up)' : 'var(--muted)';
+  const last = plotted[plotted.length - 1];
+  const tip = last ? esc(chartTip(code, last.v, range?.aria || '')) : '';
   if (plotted.length < 2) {
     const p = plotted[0];
     if (!p) return '';
-    return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="4" fill="currentColor"/></svg>`;
+    return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><title>${tip}</title><circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="4" fill="currentColor"/></svg>`;
   }
   const line = smoothPath(plotted);
-  const last = plotted[plotted.length - 1];
   const area = `${line} L ${last.x.toFixed(2)} 158 L ${plotted[0].x.toFixed(2)} 158 Z`;
   const id = `g${code}`;
-  return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="currentColor" stop-opacity="0.32"/><stop offset="100%" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><path class="area" d="${area}" fill="url(#${id})"/><path class="line" d="${line}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle class="end-dot" cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="3.5" fill="currentColor"/><line class="scrub-line" y1="12" y2="156" stroke="currentColor" stroke-opacity="0.45" stroke-width="1" visibility="hidden"/><circle class="scrub-dot" r="5" fill="var(--surface)" stroke="currentColor" stroke-width="2.25" visibility="hidden"/></svg>`;
+  return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><title>${tip}</title><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="currentColor" stop-opacity="0.32"/><stop offset="100%" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><path class="area" d="${area}" fill="url(#${id})"/><path class="line" d="${line}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle class="end-dot" cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="3.5" fill="currentColor"/><line class="scrub-line" y1="12" y2="156" stroke="currentColor" stroke-opacity="0.45" stroke-width="1" visibility="hidden"/><circle class="scrub-dot" r="5" fill="var(--surface)" stroke="currentColor" stroke-width="2.25" visibility="hidden"/></svg>`;
 }
 function rangeBarHtml() {
   const buttons = CHART_RANGES.map(r => `<button type="button" data-range="${r.id}" aria-pressed="${r.id === chartRange ? 'true' : 'false'}" aria-label="${esc(r.aria)}">${r.label}</button>`).join('');
@@ -1036,7 +1046,8 @@ function renderCharts(rows, today) {
       const last = plotted[plotted.length - 1];
       const tone = plotted.length > 1 ? toneOf(last.v, first.v) : 'flat';
       const chg = plotted.length > 1 ? changeHtml(last.v, first.v) : '';
-      body = `<p class="quote-rate ${tone}">${r(last.v)}</p><p class="quote-meta">${chg}<span class="when">${chg ? ' · ' : ''}${esc(rangeName)}</span></p>${chartSvg(c.code, plotted, tone)}`;
+      const inv = inverseText(c.code, last.v);
+      body = `<p class="quote-rate ${tone}">${r(last.v)}</p><p class="quote-inv"${inv ? '' : ' hidden'}>${esc(inv)}</p><p class="quote-meta">${chg}<span class="when">${chg ? ' · ' : ''}${esc(rangeName)}</span></p>${chartSvg(c.code, plotted, tone)}`;
     }
     bits.push(`<article class="quote-card ccy chart-card" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div>${body}${built.status === 'ready' ? forecastQuoteHtml(c, today) : ''}</article>`);
   }
@@ -1052,9 +1063,15 @@ function paintChart(card, point, idle) {
   const tone = several ? toneOf(shownPoint.v, first.v) : 'flat';
   const rate = card.querySelector('.quote-rate');
   const meta = card.querySelector('.quote-meta');
+  const invText = inverseText(card.dataset.code, shownPoint.v);
   if (rate) {
     rate.className = `quote-rate ${tone}`;
     rate.textContent = r(shownPoint.v);
+  }
+  const inv = card.querySelector('.quote-inv');
+  if (inv) {
+    inv.textContent = invText;
+    inv.hidden = !invText;
   }
   if (meta) {
     const when = idle || !several ? rec.rangeName : shownPoint.label;
@@ -1063,6 +1080,11 @@ function paintChart(card, point, idle) {
   }
   const svg = card.querySelector('.plot');
   if (!svg) return;
+  const tip = svg.querySelector('title');
+  if (tip) {
+    const when = idle || !several ? rec.rangeName : shownPoint.label;
+    tip.textContent = chartTip(card.dataset.code, shownPoint.v, when);
+  }
   svg.style.color = tone === 'down' ? 'var(--down)' : tone === 'up' ? 'var(--up)' : 'var(--muted)';
   const line = svg.querySelector('.scrub-line');
   const dot = svg.querySelector('.scrub-dot');
@@ -1194,6 +1216,7 @@ function renderCompact(rows, today) {
     } else if (q.hour != null) when = `${pad(q.hour)}:00`;
     const since = q.basisHour != null ? `seit ${pad(q.basisHour)}:00` : '';
     const meta = [since, delta.text, when].filter(Boolean).join(' · ');
+    const inv = inverseText(c.code, q.v);
     const closeHit = latestOn(c, today, day => shown(c, day, CLOSE_HOUR));
     const ecbHit = latestOn(c, today, day => shownEcb(c, day));
     const closeV = closeHit && closeHit.v;
@@ -1204,7 +1227,8 @@ function renderCompact(rows, today) {
     if (closeV != null) extra += `<p class="quote-sub"><span>${esc(closeLabel)}</span><span>${r(closeV)}</span></p>`;
     if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
     extra += forecastQuoteHtml(c, today);
-    bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${delta.title ? ` title="${esc(delta.title)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p><p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
+    const rateTitle = [delta.title, inv].filter(Boolean).join('\n');
+    bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${rateTitle ? ` title="${esc(rateTitle)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p>${inv ? `<p class="quote-inv">${esc(inv)}</p>` : ''}<p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
   }
   const more = extraCurrenciesCard();
   if (more) bits.push(more);
@@ -1219,8 +1243,9 @@ function fitDayColumns(sc, dayCount) {
   const edge = cssPx(document.body, '--edge');
   const labelVar = cssPx(document.body, '--label-w');
   const apply = (labelW) => {
-    const viewW = Math.max(88, sc.clientWidth - labelW - edge * 2);
-    const columns = Math.max(1, Math.floor(viewW / 88));
+    const minDay = sc.clientWidth <= 700 ? 72 : 88;
+    const viewW = Math.max(minDay, sc.clientWidth - labelW - edge * 2);
+    const columns = Math.max(1, Math.floor(viewW / minDay));
     const dayW = viewW / columns;
     const cardW = Math.max(0, sc.clientWidth - edge * 2);
     const rootStyle = document.documentElement.style;
@@ -2157,16 +2182,32 @@ function renderTimes() {
     openAlerts();
   };
 }
+const SET_EYE = '<svg class="sym" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.2 12S6.2 6.4 12 6.4 21.8 12 21.8 12 17.8 17.6 12 17.6 2.2 12 2.2 12z" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="#fff" stroke-width="1.8"/></svg>';
+const SET_CLOCK = '<svg class="sym" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.4" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M12 8.1V12l2.7 1.7" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SET_BELL = '<svg class="sym" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 16.2h12c-.7-1.1-.9-2.5-.9-4.4 0-3.1-1.7-5.1-4.3-5.5V5.5a.8.8 0 0 0-1.6 0v.8c-2.6.4-4.3 2.4-4.3 5.5 0 1.9-.2 3.3-.9 4.4z" fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 16.5a2 2 0 0 0 4 0" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg>';
+const SET_NOTE = '<svg class="sym" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.2" y="6.2" width="17.6" height="11.6" rx="2" fill="none" stroke="#fff" stroke-width="1.7"/><circle cx="12" cy="12" r="2.15" fill="none" stroke="#fff" stroke-width="1.7"/></svg>';
+function viewModeName() {
+  if (viewMode === 'chart') return 'Grafik';
+  if (viewMode === 'compact') return 'Nur aktuell';
+  return 'Intervalle';
+}
+function timesSummary() {
+  if (!schedule || schedule.start == null || schedule.end == null || schedule.intervalHours == null) return '';
+  return `${pad(schedule.start)}–${pad(schedule.end)} · ${schedule.intervalHours} h`;
+}
 function renderSettings() {
   const off = viewMode !== 'intervals';
-  $('settings').innerHTML = `<form method="dialog" class="dlghead"><h2>Einstellungen</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
+  const row = (go, kind, glyph, title, value, disabled) =>
+    `<button type="button" class="set-row" data-go="${go}"${disabled ? ' disabled' : ''}><span class="set-ico set-ico-${kind}" aria-hidden="true">${glyph}</span><span class="set-title">${title}</span>${value ? `<span class="set-value">${esc(value)}</span>` : ''}<span class="chev">${CHEV}</span></button>`;
+  $('settings').innerHTML = `<form method="dialog" class="dlghead"><h2>Einstellungen</h2><button class="done" value="close">Fertig</button></form>
     <div class="set-list">
-      <button type="button" class="set-row" data-go="view"><span>Ansicht</span><span class="chev">${CHEV}</span></button>
-      <button type="button" class="set-row" data-go="times"${off ? ' disabled' : ''}><span>Erfassungszeiten</span><span class="chev">${CHEV}</span></button>
-      <button type="button" class="set-row" data-go="alerts"><span>Alarme</span><span class="chev">${CHEV}</span></button>
+      ${row('view', 'view', SET_EYE, 'Ansicht', viewModeName())}
+      ${row('times', 'time', SET_CLOCK, 'Erfassungszeiten', timesSummary(), off)}
+      ${row('alerts', 'bell', SET_BELL, 'Alarme', '')}
+      ${row('base', 'base', SET_NOTE, 'Berichtswährung', baseCurrency)}
     </div>
     <p class="note"${off ? '' : ' hidden'}>Ohne Intervalle gibt es kein Stundenraster.</p>
-    <p class="app-version">${appVersionLabel()}</p>`;
+    <p class="app-version">Währungen · ${appVersionLabel()}</p>`;
 }
 function renderView() {
   const sw = (id, on, label) => `<div class="tm-row"><span id="${id}Label">${label}</span><button type="button" class="switch" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-labelledby="${id}Label"></button></div>`;
@@ -2247,8 +2288,12 @@ $('settings').addEventListener('click', e => {
   const go = e.target.closest('[data-go]');
   if (!go || go.disabled) return;
   $('settings').close();
-  if (go.dataset.go === 'view') { renderView(); $('viewDlg').showModal(); }
-  else if (go.dataset.go === 'times') openTimes();
+  if (go.dataset.go === 'view') {
+    renderView();
+    $('viewDlg').showModal();
+    if (e.detail > 0 && document.activeElement && document.activeElement.classList.contains('back')) document.activeElement.blur();
+  } else if (go.dataset.go === 'times') openTimes();
+  else if (go.dataset.go === 'base') { renderBase(); $('baseDlg').showModal(); }
   else runtimePromise.then(() => openAlerts());
 });
 

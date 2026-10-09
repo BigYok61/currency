@@ -379,9 +379,13 @@ body.dragging { user-select: none; -webkit-user-select: none; }
   45% { transform: scale(1.045); }
   100% { transform: scale(1.02); }
 }
+button:focus:not(:focus-visible),
+.set-row:focus:not(:focus-visible),
+.back:focus:not(:focus-visible) { outline: none; }
 #editBtn:focus-visible, #baseBtn:focus-visible, .ccy-hide:focus-visible, .ccy-drag:focus-visible,
 .more-btn:focus-visible, .ccy-add:focus-visible,
-#reload:focus-visible, #settingsBtn:focus-visible, .switch:focus-visible, .set-row:focus-visible, .back:focus-visible {
+#reload:focus-visible, #settingsBtn:focus-visible, .switch:focus-visible, .set-row:focus-visible, .back:focus-visible,
+.done:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 .more-btn, .ccy-add {
@@ -463,8 +467,8 @@ footer a { color: var(--accent); text-decoration: none; transition: opacity var(
 }
 body.editing { --label-w: 268px; }
 @media (max-width: 700px) {
-  :root { --label-w: 214px; --edge: 16px; --card-radius: 16px; }
-  body.editing { --label-w: 240px; }
+  :root { --label-w: 172px; --edge: 16px; --card-radius: 16px; }
+  body.editing { --label-w: 200px; }
   header {
     padding: max(8px, env(safe-area-inset-top)) 16px 8px;
     padding-left: max(16px, env(safe-area-inset-left));
@@ -474,7 +478,8 @@ body.editing { --label-w: 268px; }
   #editBtn { font-size: 1rem; }
   .tools { gap: 8px; }
   main { margin: 8px var(--edge) 8px; min-width: calc(100% - 2 * var(--edge)); }
-  #grid th, #grid td { padding: 0 8px; }
+  #grid th, #grid td { padding: 0 6px; }
+  #grid thead th:not(.lab), #grid td { font-size: 0.75rem; }
   #grid tr.group td, #grid tr.group th { height: 64px; }
   #grid .lab { padding-left: max(12px, env(safe-area-inset-left)); }
   #grid thead .lab,
@@ -488,6 +493,11 @@ body.editing { --label-w: 268px; }
   .more-label { font-size: 1rem; }
   .ccy-hide, .ccy-drag { width: 32px; height: 44px; }
   tbody .lab { font-size: 0.75rem; }
+  #grid .lab .fc-stack { max-width: 100%; min-width: 0; }
+  #grid .lab .fc-name, #grid .lab .fc-sub {
+    display: block; min-width: 0; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis;
+  }
 }
 @media (min-width: 900px) {
   :root { --edge: 24px; --label-w: 268px; }
@@ -506,13 +516,11 @@ dialog {
   --seg-pad: 2px;
   --seg-gap: 0px;
   border: .5px solid var(--line); border-radius: 16px; padding: 18px 20px 16px;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  -webkit-backdrop-filter: saturate(160%) blur(40px);
-  backdrop-filter: saturate(160%) blur(40px);
+  background: var(--canvas);
   color: var(--fg); width: min(640px, calc(100vw - 32px)); max-height: min(90vh, 720px); overflow: auto;
-  box-shadow: 0 24px 80px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.12) inset;
+  box-shadow: 0 24px 80px rgba(0,0,0,.28);
 }
-dialog::backdrop { background: rgba(0,0,0,.28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+dialog::backdrop { background: rgba(0,0,0,.4); }
 .dlghead { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 8px; }
 .dlghead.nav { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
 .dlghead.nav h2 { text-align: center; }
@@ -525,36 +533,58 @@ dialog::backdrop { background: rgba(0,0,0,.28); -webkit-backdrop-filter: blur(8p
 }
 .set-list {
   margin-top: 8px; border-radius: 12px; overflow: hidden;
-  background: color-mix(in srgb, var(--fill) 65%, var(--surface));
+  background: var(--surface);
 }
 .set-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; min-height: 48px; padding: 8px 14px; border: none;
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 48px; padding: 7px 14px; border: none;
   background: transparent; color: var(--fg); cursor: pointer;
-  font: inherit; font-size: 1rem; font-weight: 450; letter-spacing: -.015em; text-align: left;
+  font: inherit; font-size: 1.0625rem; font-weight: 400; letter-spacing: -.02em; text-align: left;
   touch-action: manipulation;
 }
-.set-row + .set-row { box-shadow: inset 0 .5px 0 var(--line); }
+.set-ico {
+  width: 28px; height: 28px; border-radius: 7px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+}
+.set-ico .sym { width: 16px; height: 16px; display: block; }
+.set-ico-view { background: #007aff; }
+.set-ico-time { background: #ff9500; }
+.set-ico-bell { background: #ff3b30; }
+.set-ico-base { background: #34c759; }
+.set-title { flex: 1; min-width: 0; }
+.set-value {
+  color: var(--muted); font-size: 1.0625rem; font-weight: 400; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.set-row + .set-row::before {
+  content: ""; position: absolute; left: 54px; right: 0; top: 0; height: .5px;
+  background: var(--line);
+}
 .set-row:disabled { color: var(--faint); cursor: default; }
-.set-row .chev { color: var(--faint); display: inline-flex; }
+.set-row:disabled .set-ico { opacity: .45; }
+.set-row .chev { color: #c7c7cc; display: inline-flex; flex: none; }
+@media (prefers-color-scheme: dark) {
+  .set-row .chev { color: #5c5c60; }
+}
 .app-version {
   margin: 28px 0 2px; text-align: center;
   font-size: 12px; font-weight: 450; letter-spacing: -.01em; color: var(--faint);
 }
 .switch {
-  width: 51px; height: 31px; padding: 0; border: none; border-radius: 16px; flex: none;
-  background: #8e8e93; position: relative; cursor: pointer;
+  width: 51px; height: 31px; min-height: 31px; padding: 0; border: none; border-radius: 16px; flex: none;
+  background: #e9e9eb; position: relative; cursor: pointer;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .switch::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
-  background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.22);
+  background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.06);
   transition: transform var(--ease);
 }
-.switch[aria-checked="true"] { background: #248a3d; }
+.switch[aria-checked="true"] { background: #34c759; }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
 @media (prefers-color-scheme: dark) {
-  .switch { background: #636366; }
+  .switch { background: #39393d; }
   .switch[aria-checked="true"] { background: #30d158; }
 }
 @media (prefers-reduced-motion: reduce) { .switch::after { transition: none; } }
@@ -573,6 +603,11 @@ body.compact #grid { display: none; }
 .quote-rate .arr { font-size: 0.9rem; margin-right: 6px; vertical-align: 4px; }
 .quote-rate.up, .quote-meta .chg.up { color: var(--up); }
 .quote-rate.down, .quote-meta .chg.down { color: var(--down); }
+.quote-inv {
+  margin: 2px 0 0; color: var(--muted); font-size: 0.8125rem; font-weight: 450;
+  letter-spacing: -.011em; font-variant-numeric: tabular-nums;
+}
+.quote-inv[hidden] { display: none; }
 .quote-meta { margin: 4px 0 0; color: var(--muted); font-size: 0.8125rem; }
 .quote-meta .chg { font-weight: 590; font-variant-numeric: tabular-nums; }
 .rangebar {
@@ -619,7 +654,13 @@ body.compact #grid { display: none; }
   transition: none;
 }
 .dlghead h2 { font-size: 17px; font-weight: 650; letter-spacing: -.02em; margin: 0; }
-.dlghead button:not(.back) {
+.dlghead button.done {
+  width: auto; height: auto; min-height: 32px; padding: 4px 0; border: none; border-radius: 8px;
+  background: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 1.0625rem; font-weight: 590; letter-spacing: -.02em;
+  touch-action: manipulation;
+}
+.dlghead button:not(.back):not(.done) {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%;
   background: var(--fill); color: var(--muted); cursor: pointer;
@@ -645,12 +686,12 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary) {
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary):not(.switch):not(.set-row):not(.done) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary):active { transform: scale(.98); }
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary):not(.switch):not(.set-row):not(.done):active { transform: scale(.98); }
 dialog button.primary {
   font: inherit; font-weight: 590; min-height: 44px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--accent-fill); color: #fff; cursor: pointer;
@@ -682,12 +723,29 @@ dialog button.base-apply { width: 100%; }
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
   dialog button.primary:disabled:hover { filter: none; }
-  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):hover { background: var(--fill-hover); }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.switch):not(.set-row):not(.done):hover { background: var(--fill-hover); }
+  dialog button.set-row:hover:not(:disabled) { background: var(--hover); }
   .base-row:hover { background: var(--hover); }
 }
 dialog .tm {
   margin: 14px 0 8px; border-radius: 12px; overflow: hidden;
-  background: color-mix(in srgb, var(--fill) 65%, var(--surface));
+  background: var(--surface);
+}
+dialog button.switch {
+  width: 51px; height: 31px; min-height: 31px; padding: 0; border-radius: 16px;
+  background: #e9e9eb; color: inherit; font-weight: 400;
+}
+dialog button.switch[aria-checked="true"] { background: #34c759; }
+dialog button.switch[aria-checked="true"]::after { transform: translateX(20px); }
+@media (prefers-color-scheme: dark) {
+  dialog button.switch { background: #39393d; }
+  dialog button.switch[aria-checked="true"] { background: #30d158; }
+}
+dialog button.set-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 48px; padding: 7px 14px; border-radius: 0;
+  background: transparent; color: var(--fg);
+  font-weight: 400; font-size: 1.0625rem; letter-spacing: -.02em; text-align: left;
 }
 dialog .tm-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
