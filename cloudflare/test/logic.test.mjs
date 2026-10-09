@@ -427,10 +427,18 @@ test('ECB history becomes CHF per unit and serves a downsampled range', async ()
   assert.equal(formatPoint(0.835281), '0.835281');
   assert.match(historyBody('USD', points.USD), /^\{\"version\":1,\"code\":\"USD\",\"points\":\[/);
   assert.match(ecbHistoryUrl('2015-01-01'), /detail=dataonly/);
-  assert.equal(shouldRefreshHistory('*/15 5-21 * * 1-5', new Date('2026-10-09T15:05:00Z')), false);
-  assert.equal(shouldRefreshHistory('5 6 * * 6', new Date('2026-10-10T04:05:00Z')), true);
-  assert.equal(shouldRefreshHistory('5 * * * 1-5', new Date('2026-10-09T15:05:00Z')), true);
-  assert.equal(shouldRefreshHistory('5 * * * 1-5', new Date('2026-10-09T14:05:00Z')), false);
+  assert.equal(shouldRefreshHistory('*/15 5-21 * * MON-FRI', new Date('2026-10-09T15:05:00Z')), false);
+  assert.equal(shouldRefreshHistory('5 6 * * SAT', new Date('2026-10-10T04:05:00Z')), true);
+  assert.equal(shouldRefreshHistory('5 * * * MON-FRI', new Date('2026-10-09T15:05:00Z')), true);
+  assert.equal(shouldRefreshHistory('5 * * * MON-FRI', new Date('2026-10-09T14:05:00Z')), false);
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const block = toml.match(/crons = \[([\s\S]*?)\]/);
+  assert.ok(block);
+  assert.deepEqual([...block[1].matchAll(/"([^"]+)"/g)].map(m => m[1]), [
+    '5 * * * MON-FRI',
+    '5 6 * * SAT',
+    '*/15 5-21 * * MON-FRI',
+  ]);
 
   const map = new Map();
   const env = {

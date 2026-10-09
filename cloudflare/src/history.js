@@ -167,7 +167,7 @@ function pointList(points) {
   return bits.join(',');
 }
 
-/** Werktags um 17 Uhr Zürich und am Samstags-Cron. Der 15-Minuten-Alarm bleibt aussen vor. */
+/** Werktags um 17 Uhr Zürich (5 * * * MON-FRI) und am Samstag (5 6 * * SAT). Der 15-Minuten-Cron bleibt aussen vor. */
 export function shouldRefreshHistory(cron, date = new Date()) {
   const text = String(cron || '');
   if (text.startsWith('*/15')) return false;
