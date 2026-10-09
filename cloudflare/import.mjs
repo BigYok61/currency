@@ -20,19 +20,21 @@ function sqlString(value) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-const statements = ['BEGIN TRANSACTION;'];
+// Ein einziges INSERT. Remote `wrangler d1 execute --file` lädt die Datei über die
+// D1-Import-API, die selbst eine Transaktion öffnet und SQL-BEGIN/COMMIT ablehnt
+// («use state.storage.transaction() instead of BEGIN TRANSACTION»). Lokal führt
+// wrangler die Datei als db.batch() aus, ebenfalls ohne explizites BEGIN.
+const rows = [];
 for (const [key, rel] of files) {
   const body = readFileSync(join(root, rel), 'utf8');
   JSON.parse(body);
-  statements.push(
-    `INSERT INTO documents (key, body) VALUES (${sqlString(key)}, ${sqlString(body)}) ON CONFLICT(key) DO UPDATE SET body = excluded.body;`,
-  );
+  rows.push(`  (${sqlString(key)}, ${sqlString(body)})`);
 }
-statements.push('COMMIT;');
+const sql = `INSERT INTO documents (key, body) VALUES\n${rows.join(',\n')}\nON CONFLICT(key) DO UPDATE SET body = excluded.body;\n`;
 
 const dir = mkdtempSync(join(tmpdir(), 'waehrungen-import-'));
 const file = join(dir, 'import.sql');
-writeFileSync(file, statements.join('\n'));
+writeFileSync(file, sql);
 const args = ['wrangler', 'd1', 'execute', 'waehrungen', local ? '--local' : '--remote', `--file=${file}`];
 const result = spawnSync('npx', args, { cwd: here, stdio: 'inherit', env: process.env });
 rmSync(dir, { recursive: true, force: true });

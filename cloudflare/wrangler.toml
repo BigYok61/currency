@@ -1,6 +1,6 @@
 # Währungen – ein Worker, statische PWA, D1, zwei Cron-Gruppen.
 # GitHub Actions / GitHub Pages bleiben unverändert parallel dazu.
-# database_id nach `npx wrangler d1 create waehrungen` einsetzen.
+# database_id der bestehenden D1-Datenbank «waehrungen».
 name = "waehrungen"
 main = "src/index.js"
 compatibility_date = "2026-10-09"
@@ -16,7 +16,7 @@ run_worker_first = ["/data/*", "/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "waehrungen"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "89ef4623-822f-425e-b016-fe0bb43b946f"
 migrations_dir = "migrations"
 
 [triggers]
@@ -27,7 +27,5 @@ crons = [
 ]
 
 [vars]
-# Nach dem ersten Deploy auf die echte URL setzen (workers.dev oder eigene Domain).
-# Leer = ntfy-Meldungen ohne Klick-Link. Beispiel:
-# APP_URL = "https://waehrungen.<subdomain>.workers.dev/"
-APP_URL = ""
+# Klickziel der ntfy-Meldungen. Leer lassen, wenn die Meldungen ohne Link raus sollen.
+APP_URL = "https://waehrungen.bigyok61.workers.dev/"
