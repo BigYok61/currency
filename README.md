@@ -92,3 +92,60 @@ Permissions → Repository permissions → **Contents: Read and write**, alles a
 Web-App: 🔔 → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
 «Token entfernen» löscht ihn). Mac-App: Einstellungen → FX-Alarme → Token (Schlüsselbund).
 Ohne Token sind die Schwellen in den Apps nur lesbar.
+
+## Cloudflare (parallel zu GitHub Pages)
+
+Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Plan). GitHub bleibt das Code-Repository. Actions und Pages bleiben unverändert und laufen weiter, bis sie absichtlich abgeschaltet werden. Der Worker liest zur Laufzeit nichts von GitHub.
+
+- Statische PWA plus `GET /data/rates.json`, `/data/capture-times.json`, `/data/fx-alerts.json`, `/data/fx-alert-state.json` in derselben Form wie die Dateien im Repo.
+- Cron `5 * * * 1-5` und `5 6 * * 6`: Erfassung wie `scripts/capture.py` (Zürich, Raster, 16:00 immer, Nachtrag, Prognosen, EZB).
+- Cron `*/15 5-21 * * 1-5`: FX-Alarme wie `scripts/fx_alerts.py`. Topic ist das Worker-Secret `NTFY_TOPIC`.
+- Speicher ist eine D1-Datenbank mit einer Zeile pro Dokument (nicht KV: Schreiben und direkt folgendes Lesen sollen denselben Stand sehen).
+- Speichern in der App: nur wenn die Seite vom Worker kommt (`GET /api/runtime`). Dann gibt es kein GitHub-Token-Feld, sondern ein App-Passwort (Secret `APP_PASSWORD`, einmal eingeben, `localStorage`). Auf GitHub Pages bleibt der Token-Dialog.
+
+Die macOS-App liest weiter dasselbe JSON. Neue URL, sobald der Worker live ist:
+
+`https://waehrungen.<subdomain>.workers.dev/data/rates.json`
+
+`<subdomain>` ist die workers.dev-Subdomain des Cloudflare-Accounts (Dashboard → Workers & Pages). Sie folgt nicht aus der Account-ID.
+
+Deploy von einem Linux-Rechner mit Node, im Verzeichnis `cloudflare/`. Der API-Token braucht Account-Rechte Workers Scripts, D1, Workers KV Storage und Cloudflare Pages (Edit). Nicht committen.
+
+```bash
+cd cloudflare
+export CLOUDFLARE_API_TOKEN='…'
+export CLOUDFLARE_ACCOUNT_ID='7990e79f1ae37e88673013377e1e75f0'
+
+npx wrangler d1 create waehrungen
+```
+
+`database_id` aus der Ausgabe in `wrangler.toml` einsetzen (ersetzt `00000000-0000-0000-0000-000000000000`). Danach:
+
+```bash
+npx wrangler d1 migrations apply waehrungen --remote
+node import.mjs
+printf '%s' 'HIER-APP-PASSWORT' | npx wrangler secret put APP_PASSWORD
+node prepare-assets.mjs
+npx wrangler deploy
+```
+
+`node import.mjs` kopiert `data/rates.json`, `data/capture-times.json`, `data/fx-alerts.json` und `data/fx-alert-state.json` nach D1, inklusive des ganzen bisherigen Verlaufs. Ein zweites Ausführen ersetzt diese vier Dokumente wieder durch die Dateien im Repo; Zwischenergebnisse des Workers gehen dabei verloren. Import vor dem Deploy, sonst kann der erste Cron einen kurzen Verlauf ohne die älteren Tage schreiben.
+
+Nach dem Deploy die ausgegebene `https://waehrungen.<subdomain>.workers.dev/` in `wrangler.toml` als `APP_URL` eintragen (Klickziel der ntfy-Meldung) und noch einmal `npx wrangler deploy`. Solange `APP_URL` leer ist, gehen die Meldungen ohne Link raus.
+
+`NTFY_TOPIC` erst setzen, wenn der GitHub-Workflow «FX-Push-Alarme (ntfy)» aus ist. Sonst prüft der Worker parallel und schickt dieselbe Meldung ein zweites Mal.
+
+```bash
+printf '%s' 'TOPIC-WIE-IM-GITHUB-SECRET' | npx wrangler secret put NTFY_TOPIC
+```
+
+Ohne dieses Secret überspringt der Alarm-Cron die Prüfung und gilt nicht als Fehler. Test-Push statt `gh workflow run … -f test=true`: in der App das Passwort speichern ist nicht nötig; von aussen:
+
+```bash
+curl -X POST -H "Authorization: Bearer HIER-APP-PASSWORT" \
+  https://waehrungen.<subdomain>.workers.dev/api/fx-alerts/test
+```
+
+Lokal, ohne Token: `node --test cloudflare/test/logic.test.mjs` vergleicht Erfassung, Prognose, Raster und Alarme mit den Python-Skripten. `node prepare-assets.mjs`, `npx wrangler d1 migrations apply waehrungen --local`, `node import.mjs --local`, dann `npx wrangler dev` (Passwort in `cloudflare/.dev.vars`, Vorlage `.dev.vars.example`).
+
+Was festzulegen ist, bevor der Mac und die Pushes umgezogen werden: das App-Passwort, der Wortlaut der workers.dev-Subdomain, `APP_URL`, und der Zeitpunkt, an dem `NTFY_TOPIC` gesetzt und die beiden GitHub-Workflows abgeschaltet werden. Bis dahin kann Pages unter https://bigyok61.github.io/currency/ bleiben.

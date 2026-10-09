@@ -1,0 +1,6 @@
+# Kopie nach .dev.vars für `npx wrangler dev`. .dev.vars wird nicht committed.
+APP_PASSWORD=change-me
+# Leer lassen, solange der GitHub-Workflow dieselben ntfy-Meldungen schickt.
+NTFY_TOPIC=
+# 1 = nichts an ntfy senden (lokaler Test).
+FX_DRY=1

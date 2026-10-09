@@ -3,3 +3,7 @@ __pycache__/
 *.tmp
 screenshot*.png
 .DS_Store
+.wrangler/
+node_modules/
+cloudflare/.dev.vars
+cloudflare/public/

@@ -429,6 +429,12 @@ const TIMES_FRESH_MS = 10 * 60 * 1000;
 const ALERT_CODES = ['USD', 'EUR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
 const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
+const LS_PASSWORD = 'wu.appPassword';
+/** 'github' auf Pages und lokal, 'cloudflare' wenn /api/runtime vom Worker kommt. */
+let runtime = 'github';
+let runtimePromise;
+const appPassword = () => localStorage.getItem(LS_PASSWORD) || '';
+const canWrite = () => runtime === 'cloudflare' ? !!appPassword() : !!ghToken();
 const b64e = str => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 const b64d = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, '')), ch => ch.charCodeAt(0)));
 let alertCfg = null, alertState = null;
@@ -489,7 +495,21 @@ function pickTimes({ api, raw, pages, saved }) {
   if (timesConfigOk(pages)) return pages;
   return null;
 }
+async function detectRuntime() {
+  try {
+    const res = await fetch(`api/runtime?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return 'github';
+    const j = await res.json();
+    if (j && j.runtime === 'cloudflare') return 'cloudflare';
+  } catch { /* GitHub Pages oder lokale Datei */ }
+  return 'github';
+}
 async function fetchTimes() {
+  if (runtime === 'cloudflare') {
+    const saved = rememberedTimes();
+    const local = await fetchJson(`${TIMES_PATH}?t=${Date.now()}`);
+    return pickTimes({ api: local, raw: null, pages: null, saved });
+  }
   let api = null;
   if (ghToken()) {
     try {
@@ -506,9 +526,35 @@ async function fetchTimes() {
   return pickTimes({ api: null, raw, pages, saved });
 }
 async function loadAlerts() {
+  if (runtime === 'cloudflare') {
+    alertCfg = await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`);
+    alertCfg ||= structuredClone(DEFAULT_ALERTS);
+    alertState = await fetchJson(`${STATE_PATH}?t=${Date.now()}`);
+    return;
+  }
   try { alertCfg = ghToken() ? (await ghGet(ALERTS_PATH)).data : await publicGet(ALERTS_PATH); } catch (e) { alertCfg = await publicGet(ALERTS_PATH); }
   alertCfg ||= structuredClone(DEFAULT_ALERTS);
   alertState = await publicGet(STATE_PATH);
+}
+async function saveCloud(path, body) {
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${appPassword()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (res.status === 401) throw new Error('Passwort ungültig');
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch { /* Antwort ohne JSON */ }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+async function checkPassword(pw) {
+  const res = await fetch('api/auth', { headers: { Authorization: `Bearer ${pw}` }, cache: 'no-store' });
+  if (res.status === 401) throw new Error('Passwort ungültig');
+  if (!res.ok) throw new Error(res.status === 503 ? 'App-Passwort ist auf dem Server nicht gesetzt' : `Passwortprüfung HTTP ${res.status}`);
 }
 /** Änderung auf den aktuellen Stand im Repo anwenden und committen (bei Konflikt erneut) */
 async function saveRepoFile(path, message, fallback, mutate) {
@@ -525,11 +571,17 @@ async function saveRepoFile(path, message, fallback, mutate) {
   throw new Error('Konflikt beim Speichern – bitte erneut versuchen');
 }
 async function saveAlerts(mutate) {
+  if (runtime === 'cloudflare') {
+    const cur = (await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`)) || structuredClone(DEFAULT_ALERTS);
+    mutate(cur);
+    alertCfg = await saveCloud('api/fx-alerts', cur);
+    return;
+  }
   alertCfg = await saveRepoFile(ALERTS_PATH, 'FX-Alarme geändert', DEFAULT_ALERTS, mutate);
 }
 function alertMsg(text, ok) { const m = $('alMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
 function renderAlerts() {
-  const dlg = $('alerts'), rw = !!ghToken();
+  const dlg = $('alerts'), rw = canWrite();
   const todayKey = zurichToday();
   const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
   let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme (Push via ntfy)</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
@@ -544,7 +596,10 @@ function renderAlerts() {
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${s}</td></tr>`;
   }
   h += '</tbody></table><p id="alMsg" class="msg" hidden></p>';
-  if (rw) h += '<div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="tokOut" type="button" class="danger">Token entfernen</button></div>';
+  if (rw) h += `<div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="tokOut" type="button" class="danger">${runtime === 'cloudflare' ? 'Passwort entfernen' : 'Token entfernen'}</button></div>`;
+  else if (runtime === 'cloudflare') h += `<p class="note">Nur lesbar. Zum Ändern einmalig das App-Passwort eintragen.</p>
+    <div class="row"><input id="tok" type="password" placeholder="App-Passwort" autocomplete="current-password"><button id="tokSave" type="button">Passwort speichern</button></div>
+    <p class="note">Das Passwort bleibt nur in diesem Browser (localStorage) und wird nur an diese Website gesendet.</p>`;
   else h += `<p class="note">Nur lesbar. Zum Ändern einmalig einen GitHub-Token (Fine-grained, nur Repository ${REPO}, Contents: Read and write) eintragen –
     oder die Datei direkt auf GitHub bearbeiten: <a href="https://github.com/${REPO}/edit/main/${ALERTS_PATH}" target="_blank" rel="noopener">${ALERTS_PATH}</a>.</p>
     <div class="row"><input id="tok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tokSave" type="button">Token speichern</button></div>
@@ -571,11 +626,28 @@ function renderAlerts() {
   const ts = $('tokSave');
   if (ts) ts.onclick = async () => {
     const t = $('tok').value.trim(); if (!t) return;
+    if (runtime === 'cloudflare') {
+      try {
+        await checkPassword(t);
+        localStorage.setItem(LS_PASSWORD, t);
+        alertCfg = (await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`)) || alertCfg;
+        renderAlerts();
+        alertMsg('Passwort gespeichert – Bearbeiten ist aktiv.', true);
+      } catch (e) {
+        localStorage.removeItem(LS_PASSWORD);
+        alertMsg(`Passwort abgelehnt: ${e.message}`);
+      }
+      return;
+    }
     localStorage.setItem(LS_TOKEN, t);
     try { alertCfg = (await ghGet(ALERTS_PATH)).data || alertCfg; renderAlerts(); alertMsg('Token gespeichert – Bearbeiten ist aktiv.', true); }
     catch (e) { localStorage.removeItem(LS_TOKEN); alertMsg(`Token abgelehnt: ${e.message}`); }
   };
-  const to = $('tokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderAlerts(); };
+  const to = $('tokOut'); if (to) to.onclick = () => {
+    if (runtime === 'cloudflare') localStorage.removeItem(LS_PASSWORD);
+    else localStorage.removeItem(LS_TOKEN);
+    renderAlerts();
+  };
 }
 async function openAlerts() {
   const dlg = $('alerts');
@@ -587,7 +659,7 @@ async function openAlerts() {
   if (tok) tok.focus();
 }
 if (typeof document !== 'undefined') {
-$('alertsBtn').addEventListener('click', () => { openAlerts(); });
+$('alertsBtn').addEventListener('click', () => { runtimePromise.then(() => openAlerts()); });
 $('alerts').addEventListener('close', () => { if ($('times').open) renderTimes(); });
 }
 // ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
@@ -604,7 +676,7 @@ function timeOptions(selected) {
   return html;
 }
 function renderTimes() {
-  const dlg = $('times'), rw = !!ghToken();
+  const dlg = $('times'), rw = canWrite();
   let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
     <p class="note">Volle Stunden Schweizer Zeit, von–bis.</p>
     <div class="tm">
@@ -618,6 +690,7 @@ function renderTimes() {
     <p id="tmExtra" class="note" hidden></p>
     <p id="tmMsg" class="msg" hidden></p>`;
   if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button></div>';
+  else if (runtime === 'cloudflare') h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern Passwort eingeben</button>';
   else h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern mit GitHub verbinden</button>';
   dlg.innerHTML = h;
   const readForm = () => ({
@@ -671,20 +744,24 @@ function renderTimes() {
     if (!expandSchedule(sch.start, sch.end, sch.intervalHours).length) return tmMsg('Beginn muss vor dem Ende liegen.');
     sv.disabled = true; tmMsg('Speichere …', true);
     try {
-      const saved = await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
-        cur.version = 2;
-        cur.start = pad(sch.start);
-        cur.end = pad(sch.end);
-        cur.intervalHours = sch.intervalHours;
-        delete cur.hours;
-      });
+      const saved = runtime === 'cloudflare'
+        ? await saveCloud('api/capture-times', { version: 2, start: pad(sch.start), end: pad(sch.end), intervalHours: sch.intervalHours })
+        : await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
+          cur.version = 2;
+          cur.start = pad(sch.start);
+          cur.end = pad(sch.end);
+          cur.intervalHours = sch.intervalHours;
+          delete cur.hours;
+        });
       rememberTimes(saved);
       schedule = sch;
       HOURS = hoursFromSchedule(sch);
       timesFit = true;
       render({ keepScroll: true });
       renderTimes();
-      tmMsg('Gespeichert. Erfassung und Seitenveröffentlichung laufen jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
+      tmMsg(runtime === 'cloudflare'
+        ? 'Gespeichert. Die Erfassung läuft jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.'
+        : 'Gespeichert. Erfassung und Seitenveröffentlichung laufen jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
     } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };
   const connect = $('tmConnect');
@@ -695,7 +772,9 @@ function renderTimes() {
   };
 }
 if (typeof document !== 'undefined') {
+runtimePromise = detectRuntime().then(mode => { runtime = mode; });
 $('timesBtn').addEventListener('click', async () => {
+  await runtimePromise;
   const dlg = $('times');
   dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
   const data = await fetchTimes();
@@ -723,5 +802,5 @@ document.getElementById('csv').addEventListener('click', e => {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 setInterval(load, 10 * 60 * 1000);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
-load();
+runtimePromise.then(() => load());
 }
