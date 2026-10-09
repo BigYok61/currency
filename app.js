@@ -55,7 +55,9 @@ const TZ_REGION = {
 const LANG_REGION = { sv: 'SE', nb: 'NO', nn: 'NO', da: 'DK', pl: 'PL', ja: 'JP', tr: 'TR' };
 let baseCurrency = 'CHF';
 let showForecasts = true;
-let showIntervals = true;
+/** intervals | chart | compact. intervals bleibt im Speicher, damit ältere Stände «Nur aktuell» noch verstehen. */
+let viewMode = 'intervals';
+let chartRange = '1T';
 let baseHint = null;
 /** Tag → CHF je 1 Basiseinheit, aus der EZB-Reihe, solange die Stunde noch nicht erfasst ist. */
 let baseDaily = {};
@@ -568,17 +570,40 @@ function cancelDrag() {
     el.style.removeProperty('--move');
   }
 }
+const CHART_RANGES = [
+  { id: '1T', label: '1T', aria: 'Tag', days: 1 },
+  { id: '1W', label: '1W', aria: 'Woche', days: 7 },
+  { id: '1M', label: '1M', aria: 'Monat' },
+  { id: '1J', label: '1J', aria: '360 Tage' },
+  { id: '5J', label: '5J', aria: '5 Jahre' },
+  { id: '10J', label: '10J', aria: '10 Jahre' },
+];
+const HISTORY_ORIGIN = 'https://waehrungen.bigyok61.workers.dev';
+/** CHF je 1 Einheit, Schlüssel code|range. Eine Basisumstellung rechnet daraus, ohne neu zu laden. */
+const historyCache = new Map();
+const historyFlight = new Map();
+const seriesByCode = new Map();
+let chartGen = 0;
 function readViewOptions() {
   try {
     const raw = localStorage.getItem(LS_VIEW_OPTS);
     if (!raw) return;
     const data = JSON.parse(raw);
     if (data && typeof data.forecasts === 'boolean') showForecasts = data.forecasts;
-    if (data && typeof data.intervals === 'boolean') showIntervals = data.intervals;
-  } catch { /* Standard: beides an */ }
+    if (data && (data.mode === 'intervals' || data.mode === 'chart' || data.mode === 'compact')) viewMode = data.mode;
+    else if (data && data.intervals === false) viewMode = 'compact';
+    if (data && CHART_RANGES.some(r => r.id === data.range)) chartRange = data.range;
+  } catch { /* Standard: Intervalle und Prognosen */ }
 }
 function writeViewOptions() {
-  try { localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({ forecasts: showForecasts, intervals: showIntervals })); } catch { /* gilt für diese Sitzung */ }
+  try {
+    localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({
+      forecasts: showForecasts,
+      intervals: viewMode === 'intervals',
+      mode: viewMode,
+      range: chartRange,
+    }));
+  } catch { /* gilt für diese Sitzung */ }
 }
 function latestOn(c, today, read) {
   let day = today;
@@ -609,6 +634,341 @@ function deltaBits(v, basis, basisHour) {
   const text = `${d > EPS ? '+' : ''}${r(d)} (${pctFmt.format((v / basis - 1) * 100)} %)`;
   return { arrow, text, title: `Veränderung seit ${pad(basisHour)}:00: ${r(d)}` };
 }
+function historyUrl(code, range) {
+  const path = `data/history/${code}.json?range=${encodeURIComponent(range)}`;
+  return runtime === 'cloudflare' ? path : `${HISTORY_ORIGIN}/${path}`;
+}
+function ensureHistory(code, range) {
+  const key = `${code}|${range}`;
+  if (Array.isArray(historyCache.get(key))) return Promise.resolve(historyCache.get(key));
+  if (historyFlight.has(key)) return historyFlight.get(key);
+  const job = fetch(historyUrl(code, range)).then(async res => {
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data || !Array.isArray(data.points)) return [];
+    return data.points.filter(row => Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]));
+  }).catch(() => []).then(points => {
+    historyCache.set(key, points);
+    historyFlight.delete(key);
+    return points;
+  });
+  historyFlight.set(key, job);
+  return job;
+}
+function cachedHistory(code, range) {
+  const hit = historyCache.get(`${code}|${range}`);
+  return Array.isArray(hit) ? hit : null;
+}
+function zurichHourOf(date) {
+  const text = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hourCycle: 'h23' }).format(date);
+  const n = Number(text);
+  return Number.isInteger(n) ? n : null;
+}
+function longDate(day) {
+  const d = new Date(day + 'T12:00:00Z');
+  return `${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`;
+}
+function hourlySeries(code, daysBack, today) {
+  const from = addDays(today, -(daysBack - 1));
+  const pts = [];
+  let day = from;
+  while (day <= today) {
+    const slots = history.days[day]?.slots || {};
+    const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null).sort((a, b) => a - b);
+    for (const hr of hours) {
+      const v = shown({ code }, day, hr);
+      if (v == null) continue;
+      const label = daysBack === 1 ? `${pad(hr)}:00` : `${header(day)} ${pad(hr)}:00`;
+      pts.push({ day, hour: hr, v, label });
+    }
+    day = addDays(day, 1);
+  }
+  const liveV = shownLive({ code });
+  const L = code === 'CHF' ? live[baseCurrency] : live[code];
+  if (liveV != null && L) {
+    const at = new Date(L.quoteAt || L.at);
+    const qh = zurichHourOf(at);
+    const last = pts[pts.length - 1];
+    const older = last && last.day === today && last.hour != null && qh != null && qh <= last.hour;
+    if (!older) pts.push({ day: today, hour: null, v: liveV, label: hmFmt.format(at), live: true });
+  }
+  return pts;
+}
+function dailyInBase(code, own, basePts) {
+  if (code === 'CHF') {
+    return (basePts || []).filter(row => row[1] > 0).map(([day, den]) => ({ day, v: 1 / den, label: dayLabel(day) }));
+  }
+  if (baseCurrency === 'CHF') return (own || []).map(([day, v]) => ({ day, v, label: dayLabel(day) }));
+  const denoms = new Map(basePts || []);
+  const out = [];
+  for (const [day, v] of own || []) {
+    const den = denoms.get(day);
+    if (den > 0) out.push({ day, v: v / den, label: dayLabel(day) });
+  }
+  return out;
+}
+function dayLabel(day) {
+  return chartRange === '1M' ? header(day) : longDate(day);
+}
+function buildSeries(code, today) {
+  const range = chartRange;
+  if (range === '1T' || range === '1W') {
+    const points = hourlySeries(code, range === '1T' ? 1 : 7, today);
+    return { status: points.length ? 'ready' : 'empty', points };
+  }
+  const own = code === 'CHF' ? [] : cachedHistory(code, range);
+  const basePts = baseCurrency === 'CHF' ? [] : cachedHistory(baseCurrency, range);
+  if ((code !== 'CHF' && own == null) || (baseCurrency !== 'CHF' && basePts == null)) return { status: 'loading', points: [] };
+  const points = dailyInBase(code, own || [], basePts || []);
+  return { status: points.length ? 'ready' : 'empty', points };
+}
+function neededHistory(rows) {
+  if (chartRange === '1T' || chartRange === '1W') return [];
+  const codes = new Set();
+  for (const c of rows) {
+    if (c.code !== 'CHF' && cachedHistory(c.code, chartRange) == null) codes.add(c.code);
+  }
+  if (baseCurrency !== 'CHF' && cachedHistory(baseCurrency, chartRange) == null) codes.add(baseCurrency);
+  return [...codes];
+}
+function smoothPath(pts) {
+  const n = pts.length;
+  if (n === 1) return `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  const yOf = y => Math.max(8, Math.min(160, y));
+  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(n - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = yOf(p1.y + (p2.y - p0.y) / 6);
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = yOf(p2.y - (p3.y - p1.y) / 6);
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+function plotSeries(points) {
+  const vals = points.map(p => p.v);
+  let min = Math.min(...vals);
+  let max = Math.max(...vals);
+  if (!(max - min > 1e-12)) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.14;
+  min -= pad;
+  max += pad;
+  const left = 4;
+  const width = 312;
+  const top = 16;
+  const height = 136;
+  return points.map((p, i) => ({
+    ...p,
+    x: points.length === 1 ? left + width / 2 : left + (i / (points.length - 1)) * width,
+    y: top + (1 - (p.v - min) / (max - min)) * height,
+  }));
+}
+function toneOf(v, basis) {
+  if (v == null || basis == null) return 'flat';
+  const d = v - basis;
+  return d > EPS ? 'up' : d < -EPS ? 'down' : 'flat';
+}
+function changeHtml(v, basis) {
+  if (v == null || basis == null || basis === 0) return '';
+  const d = v - basis;
+  const tone = toneOf(v, basis);
+  const abs = `${d > EPS ? '+' : ''}${r(d)}`;
+  return `<span class="chg ${tone}">${abs} (${pctFmt.format((v / basis - 1) * 100)} %)</span>`;
+}
+function chartSvg(code, plotted, tone) {
+  const label = `${ccyName({ code })} ${CHART_RANGES.find(r => r.id === chartRange)?.aria || ''}`.trim();
+  const color = tone === 'down' ? 'var(--down)' : tone === 'up' ? 'var(--up)' : 'var(--muted)';
+  if (plotted.length < 2) {
+    const p = plotted[0];
+    if (!p) return '';
+    return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="4" fill="currentColor"/></svg>`;
+  }
+  const line = smoothPath(plotted);
+  const last = plotted[plotted.length - 1];
+  const area = `${line} L ${last.x.toFixed(2)} 158 L ${plotted[0].x.toFixed(2)} 158 Z`;
+  const id = `g${code}`;
+  return `<svg class="plot" style="color:${color}" viewBox="0 0 320 168" role="img" aria-label="${esc(label)}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="currentColor" stop-opacity="0.32"/><stop offset="100%" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><path class="area" d="${area}" fill="url(#${id})"/><path class="line" d="${line}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle class="end-dot" cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="3.5" fill="currentColor"/><line class="scrub-line" y1="12" y2="156" stroke="currentColor" stroke-opacity="0.45" stroke-width="1" visibility="hidden"/><circle class="scrub-dot" r="5" fill="var(--surface)" stroke="currentColor" stroke-width="2.25" visibility="hidden"/></svg>`;
+}
+function rangeBarHtml() {
+  const buttons = CHART_RANGES.map(r => `<button type="button" data-range="${r.id}" aria-pressed="${r.id === chartRange ? 'true' : 'false'}" aria-label="${esc(r.aria)}">${r.label}</button>`).join('');
+  return `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>`;
+}
+function forecastQuoteHtml(c, today) {
+  if (!showForecasts) return '';
+  const dayFc = shownForecast(c, today, 'day');
+  const weekFc = shownForecast(c, today, '7');
+  const todayClose = shown(c, today, CLOSE_HOUR);
+  const dayDev = dayFc.value != null && todayClose != null ? todayClose - dayFc.value : null;
+  const weekActual = shownActual7(c, today);
+  const weekDev = weekFc.value != null && weekActual ? weekActual.v - weekFc.value : null;
+  return `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose Tagesende *</span><span>${dayFc.value == null ? '–' : r(dayFc.value)}${dayDev == null ? '' : ` <span class="quote-dev">${dayDev >= 0 ? '+' : ''}${r(dayDev)}</span>`}</span></p>`
+    + `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose 7 Tage *</span><span>${weekFc.value == null ? '–' : r(weekFc.value)}${weekDev == null ? '' : ` <span class="quote-dev">${weekDev >= 0 ? '+' : ''}${r(weekDev)}</span>`}</span></p>`;
+}
+function renderCharts(rows, today) {
+  const rangeName = CHART_RANGES.find(r => r.id === chartRange)?.aria || '';
+  seriesByCode.clear();
+  const bits = [rangeBarHtml()];
+  for (const c of rows) {
+    const name = ccyName(c);
+    const hideBtn = editing ? `<button type="button" class="ccy-hide" data-code="${esc(c.code)}" aria-label="${esc(name)} ausblenden">${ICON_MINUS}</button>` : '';
+    const dragBtn = editing ? `<button type="button" class="ccy-drag" data-code="${esc(c.code)}" aria-label="${esc(name)} verschieben. Pfeiltasten ändern die Position." aria-keyshortcuts="ArrowUp ArrowDown">${ICON_DRAG}</button>` : '';
+    const built = buildSeries(c.code, today);
+    let body = '';
+    if (built.status === 'loading') body = '<p class="quote-rate">–</p><p class="quote-meta">Lade Kursverlauf …</p>';
+    else if (built.status === 'empty') {
+      const empty = chartRange === '1T' || chartRange === '1W' ? 'Keine erfassten Kurse in diesem Zeitraum.' : 'Keine Tageskurse für diesen Zeitraum.';
+      body = `<p class="quote-rate">–</p><p class="quote-meta">${empty}</p>`;
+    } else {
+      const plotted = plotSeries(built.points);
+      seriesByCode.set(c.code, { points: plotted, rangeName });
+      const first = plotted[0];
+      const last = plotted[plotted.length - 1];
+      const tone = plotted.length > 1 ? toneOf(last.v, first.v) : 'flat';
+      const chg = plotted.length > 1 ? changeHtml(last.v, first.v) : '';
+      body = `<p class="quote-rate ${tone}">${r(last.v)}</p><p class="quote-meta">${chg}<span class="when">${chg ? ' · ' : ''}${esc(rangeName)}</span></p>${chartSvg(c.code, plotted, tone)}`;
+    }
+    bits.push(`<article class="quote-card ccy chart-card" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div>${body}${built.status === 'ready' ? forecastQuoteHtml(c, today) : ''}</article>`);
+  }
+  if (editing) bits.push(extraCurrenciesCard());
+  return bits.join('');
+}
+function paintChart(card, point, idle) {
+  const rec = seriesByCode.get(card.dataset.code);
+  if (!rec || !rec.points.length) return;
+  const first = rec.points[0];
+  const shownPoint = point || rec.points[rec.points.length - 1];
+  const several = rec.points.length > 1;
+  const tone = several ? toneOf(shownPoint.v, first.v) : 'flat';
+  const rate = card.querySelector('.quote-rate');
+  const meta = card.querySelector('.quote-meta');
+  if (rate) {
+    rate.className = `quote-rate ${tone}`;
+    rate.textContent = r(shownPoint.v);
+  }
+  if (meta) {
+    const when = idle || !several ? rec.rangeName : shownPoint.label;
+    const chg = several ? changeHtml(shownPoint.v, first.v) : '';
+    meta.innerHTML = `${chg}<span class="when">${chg ? ' · ' : ''}${esc(when)}</span>`;
+  }
+  const svg = card.querySelector('.plot');
+  if (!svg) return;
+  svg.style.color = tone === 'down' ? 'var(--down)' : tone === 'up' ? 'var(--up)' : 'var(--muted)';
+  const line = svg.querySelector('.scrub-line');
+  const dot = svg.querySelector('.scrub-dot');
+  const end = svg.querySelector('.end-dot');
+  if (!line || !dot) return;
+  if (idle || !several) {
+    line.setAttribute('visibility', 'hidden');
+    dot.setAttribute('visibility', 'hidden');
+    if (end) end.setAttribute('visibility', 'visible');
+    return;
+  }
+  line.setAttribute('x1', shownPoint.x.toFixed(2));
+  line.setAttribute('x2', shownPoint.x.toFixed(2));
+  line.setAttribute('visibility', 'visible');
+  dot.setAttribute('cx', shownPoint.x.toFixed(2));
+  dot.setAttribute('cy', shownPoint.y.toFixed(2));
+  dot.setAttribute('visibility', 'visible');
+  if (end) end.setAttribute('visibility', 'hidden');
+}
+function nearestChartPoint(svg, clientX) {
+  const card = svg.closest('.ccy');
+  const rec = card && seriesByCode.get(card.dataset.code);
+  if (!rec || !rec.points.length) return null;
+  const rect = svg.getBoundingClientRect();
+  if (rect.width <= 0) return null;
+  const x = ((clientX - rect.left) / rect.width) * 320;
+  let best = rec.points[0];
+  let dist = Math.abs(best.x - x);
+  for (const p of rec.points) {
+    const d = Math.abs(p.x - x);
+    if (d < dist) { best = p; dist = d; }
+  }
+  return { card, point: best };
+}
+function bindChartScrub() {
+  const root = document.getElementById('compact');
+  if (!root || root.dataset.scrub) return;
+  root.dataset.scrub = '1';
+  let gesture = null;
+  const show = (svg, clientX) => {
+    const hit = nearestChartPoint(svg, clientX);
+    if (!hit) return;
+    root.querySelectorAll('.chart-card').forEach(card => {
+      if (card !== hit.card) paintChart(card, null, true);
+    });
+    paintChart(hit.card, hit.point, false);
+  };
+  root.addEventListener('pointerdown', e => {
+    const svg = e.target.closest?.('.plot');
+    if (!svg || !root.contains(svg)) return;
+    gesture = { id: e.pointerId, svg, x: e.clientX, y: e.clientY, scrub: e.pointerType === 'mouse' };
+    if (gesture.scrub) show(svg, e.clientX);
+  });
+  root.addEventListener('pointermove', e => {
+    if (gesture && gesture.id === e.pointerId) {
+      if (!gesture.scrub) {
+        const dx = e.clientX - gesture.x;
+        const dy = e.clientY - gesture.y;
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        if (Math.abs(dy) > Math.abs(dx)) { gesture = null; return; }
+        gesture.scrub = true;
+        try { gesture.svg.setPointerCapture(e.pointerId); } catch { /* der Zeiger kann schon weg sein */ }
+      }
+      show(gesture.svg, e.clientX);
+      return;
+    }
+    if (e.pointerType !== 'mouse' || gesture) return;
+    const svg = e.target.closest?.('.plot');
+    if (svg && root.contains(svg)) show(svg, e.clientX);
+  });
+  const end = e => {
+    if (!gesture || (e && gesture.id !== e.pointerId)) return;
+    const card = gesture.svg.closest('.ccy');
+    gesture = null;
+    if (card) paintChart(card, null, true);
+  };
+  root.addEventListener('pointerup', end);
+  root.addEventListener('pointercancel', end);
+  root.addEventListener('pointerleave', () => {
+    if (gesture) return;
+    root.querySelectorAll('.chart-card').forEach(card => paintChart(card, null, true));
+  });
+}
+function wireChartRange(compact) {
+  compact.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.range === chartRange) return;
+      chartRange = btn.dataset.range;
+      writeViewOptions();
+      render({ keepScroll: true });
+    });
+  });
+  const bar = compact.querySelector('.rangebar');
+  if (!bar) return;
+  bar.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const buttons = [...bar.querySelectorAll('[data-range]')];
+    const i = Math.max(0, buttons.findIndex(b => b.getAttribute('aria-pressed') === 'true'));
+    const n = e.key === 'ArrowRight' ? Math.min(buttons.length - 1, i + 1) : Math.max(0, i - 1);
+    if (buttons[n] && buttons[n] !== buttons[i]) buttons[n].click();
+    e.preventDefault();
+  });
+}
+function extraCurrenciesCard() {
+  if (!editing) return '';
+  const hidden = currenciesInOrder().filter(c => hiddenSet().has(c.code));
+  const disabled = hidden.length === 0;
+  let more = `<button type="button" class="more-btn" aria-expanded="${moreOpen && !disabled ? 'true' : 'false'}"${disabled ? ' disabled' : ''}><span class="plus">${ICON_PLUS}</span><span class="more-label">Weitere Währungen…</span></button>`;
+  if (moreOpen && !disabled) {
+    more += hidden.map(c => `<button type="button" class="ccy-add" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} einblenden"><span class="plus">${ICON_PLUS}</span>${ccyIdentity(c, '')}</button>`).join('');
+  }
+  return `<div class="quote-card more-card">${more}</div>`;
+}
 function renderCompact(rows, today) {
   const bits = [];
   for (const c of rows) {
@@ -629,32 +989,16 @@ function renderCompact(rows, today) {
     const ecbHit = latestOn(c, today, day => shownEcb(c, day));
     const closeV = closeHit && closeHit.v;
     const ecbV = ecbHit && ecbHit.v;
-    const todayClose = shown(c, today, CLOSE_HOUR);
     const closeLabel = closeHit && closeHit.day === today ? 'Tagesendkurs' : `Tagesendkurs ${closeHit ? header(closeHit.day) : ''}`;
     const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenz' : `EZB ${ecbHit ? header(ecbHit.day) : ''}`;
     let extra = '';
     if (closeV != null) extra += `<p class="quote-sub"><span>${esc(closeLabel)}</span><span>${r(closeV)}</span></p>`;
     if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
-    if (showForecasts) {
-      const dayFc = shownForecast(c, today, 'day');
-      const weekFc = shownForecast(c, today, '7');
-      const dayDev = dayFc.value != null && todayClose != null ? todayClose - dayFc.value : null;
-      const weekActual = shownActual7(c, today);
-      const weekDev = weekFc.value != null && weekActual ? weekActual.v - weekFc.value : null;
-      extra += `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose Tagesende *</span><span>${dayFc.value == null ? '–' : r(dayFc.value)}${dayDev == null ? '' : ` <span class="quote-dev">${dayDev >= 0 ? '+' : ''}${r(dayDev)}</span>`}</span></p>`;
-      extra += `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose 7 Tage *</span><span>${weekFc.value == null ? '–' : r(weekFc.value)}${weekDev == null ? '' : ` <span class="quote-dev">${weekDev >= 0 ? '+' : ''}${r(weekDev)}</span>`}</span></p>`;
-    }
+    extra += forecastQuoteHtml(c, today);
     bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${delta.title ? ` title="${esc(delta.title)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p><p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
   }
-  if (editing) {
-    const hidden = currenciesInOrder().filter(c => hiddenSet().has(c.code));
-    const disabled = hidden.length === 0;
-    let more = `<button type="button" class="more-btn" aria-expanded="${moreOpen && !disabled ? 'true' : 'false'}"${disabled ? ' disabled' : ''}><span class="plus">${ICON_PLUS}</span><span class="more-label">Weitere Währungen…</span></button>`;
-    if (moreOpen && !disabled) {
-      more += hidden.map(c => `<button type="button" class="ccy-add" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} einblenden"><span class="plus">${ICON_PLUS}</span>${ccyIdentity(c, '')}</button>`).join('');
-    }
-    bits.push(`<div class="quote-card more-card">${more}</div>`);
-  }
+  const more = extraCurrenciesCard();
+  if (more) bits.push(more);
   return bits.join('');
 }
 function render(opts = {}) {
@@ -666,8 +1010,12 @@ function render(opts = {}) {
   const today = zurichToday();
   const days = weekdayKeys(START, today < START ? START : today);
   const rows = visibleCurrencies();
-  if (typeof document !== 'undefined') document.body.classList.toggle('compact', !showIntervals);
-  if (!showIntervals && typeof document !== 'undefined') {
+  if (typeof document !== 'undefined') {
+    document.body.classList.toggle('compact', viewMode !== 'intervals');
+    document.body.classList.toggle('charting', viewMode === 'chart');
+  }
+  if (viewMode !== 'intervals' && typeof document !== 'undefined') {
+    const gen = ++chartGen;
     const sc = document.getElementById('scroller');
     const top = sc.scrollTop;
     const grid = document.getElementById('grid');
@@ -676,8 +1024,17 @@ function render(opts = {}) {
     grid.hidden = true;
     grid.style.minWidth = '';
     compact.hidden = false;
-    compact.innerHTML = renderCompact(rows, today);
+    const pending = viewMode === 'chart' ? neededHistory(rows) : [];
+    compact.innerHTML = viewMode === 'chart' ? renderCharts(rows, today) : renderCompact(rows, today);
+    if (viewMode === 'chart') wireChartRange(compact);
     grid.closest('main').style.minWidth = '';
+    if (pending.length) {
+      const range = chartRange;
+      Promise.all(pending.map(code => ensureHistory(code, range))).then(() => {
+        if (gen !== chartGen || viewMode !== 'chart' || chartRange !== range) return;
+        render({ keepScroll: true });
+      });
+    }
     if (opts.focusMore) {
       const moreBtn = compact.querySelector('.more-btn');
       if (moreBtn) moreBtn.focus({ preventScroll: true });
@@ -1437,30 +1794,48 @@ function renderTimes() {
   };
 }
 function renderSettings() {
-  const off = !showIntervals;
+  const off = viewMode !== 'intervals';
   $('settings').innerHTML = `<form method="dialog" class="dlghead"><h2>Einstellungen</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
     <div class="set-list">
       <button type="button" class="set-row" data-go="view"><span>Ansicht</span><span class="chev">${CHEV}</span></button>
       <button type="button" class="set-row" data-go="times"${off ? ' disabled' : ''}><span>Erfassungszeiten</span><span class="chev">${CHEV}</span></button>
       <button type="button" class="set-row" data-go="alerts"><span>Alarme</span><span class="chev">${CHEV}</span></button>
     </div>
-    <p class="note"${off ? '' : ' hidden'}>Ohne Kursverlauf gibt es kein Stundenraster.</p>`;
+    <p class="note"${off ? '' : ' hidden'}>Ohne Intervalle gibt es kein Stundenraster.</p>`;
 }
 function renderView() {
   const sw = (id, on, label) => `<div class="tm-row"><span id="${id}Label">${label}</span><button type="button" class="switch" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-labelledby="${id}Label"></button></div>`;
+  const modes = [['intervals', 'Intervalle'], ['chart', 'Grafik'], ['compact', 'Nur aktuell']];
+  const seg = modes.map(([id, label]) => `<button type="button" class="segbtn" role="radio" data-mode="${id}" aria-checked="${viewMode === id ? 'true' : 'false'}">${label}</button>`).join('');
   $('viewDlg').innerHTML = `<div class="dlghead nav"><button type="button" id="viewBack" class="back">Einstellungen</button><h2>Ansicht</h2><button type="button" id="viewClose" aria-label="Schliessen">${XMARK}</button></div>
-    <div class="tm">${sw('swForecast', showForecasts, 'Prognosen anzeigen')}${sw('swIntervals', showIntervals, 'Kursverlauf (Intervalle) anzeigen')}</div>
+    <div class="tm">
+      <div class="tm-row tm-interval"><span id="viewModeLabel">Darstellung</span><div class="seg view-seg" role="radiogroup" aria-labelledby="viewModeLabel">${seg}</div></div>
+      ${sw('swForecast', showForecasts, 'Prognosen anzeigen')}
+    </div>
     <p class="note">Gilt nur für dieses Gerät.</p>`;
-  const flip = (id, get, set) => {
-    $('viewDlg').querySelector('#' + id).onclick = () => {
-      set(!get());
-      writeViewOptions();
-      $('viewDlg').querySelector('#' + id).setAttribute('aria-checked', get() ? 'true' : 'false');
-      render({ keepScroll: true });
-    };
+  $('viewDlg').querySelector('#swForecast').onclick = () => {
+    showForecasts = !showForecasts;
+    writeViewOptions();
+    $('viewDlg').querySelector('#swForecast').setAttribute('aria-checked', showForecasts ? 'true' : 'false');
+    render({ keepScroll: true });
   };
-  flip('swForecast', () => showForecasts, v => { showForecasts = v; });
-  flip('swIntervals', () => showIntervals, v => { showIntervals = v; });
+  const group = $('viewDlg').querySelector('.view-seg');
+  const pick = mode => {
+    if (mode !== 'intervals' && mode !== 'chart' && mode !== 'compact') return;
+    viewMode = mode;
+    writeViewOptions();
+    group.querySelectorAll('[data-mode]').forEach(btn => btn.setAttribute('aria-checked', btn.dataset.mode === viewMode ? 'true' : 'false'));
+    render({ keepScroll: true });
+  };
+  group.querySelectorAll('[data-mode]').forEach(btn => { btn.onclick = () => pick(btn.dataset.mode); });
+  group.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const buttons = [...group.querySelectorAll('[data-mode]')];
+    const i = Math.max(0, buttons.findIndex(b => b.getAttribute('aria-checked') === 'true'));
+    const n = e.key === 'ArrowRight' ? Math.min(buttons.length - 1, i + 1) : Math.max(0, i - 1);
+    if (buttons[n] && buttons[n] !== buttons[i]) { pick(buttons[n].dataset.mode); buttons[n].focus(); }
+    e.preventDefault();
+  });
   $('viewBack').onclick = () => { $('viewDlg').close(); renderSettings(); $('settings').showModal(); };
   $('viewClose').onclick = () => $('viewDlg').close();
 }
@@ -1478,6 +1853,7 @@ if (typeof document !== 'undefined') {
 initBase();
 readViewOptions();
 syncBaseButton();
+bindChartScrub();
 runtimePromise = detectRuntime().then(mode => { runtime = mode; });
 $('baseBtn').addEventListener('click', () => {
   renderBase();

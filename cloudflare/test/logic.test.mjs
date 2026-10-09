@@ -9,7 +9,10 @@ import { forecast7Days, forecastEndOfDay, resolveBasisHour } from '../src/foreca
 import { canonicalJson, formatPyFloat, roundHalfEven } from '../src/json.js';
 import { loadTimes } from '../src/schedule.js';
 import { addDays, isWeekday, slotUtcMs } from '../src/time.js';
-import { normalizeAlerts, normalizeSubscription } from '../src/index.js';
+import {
+  downsample, ecbHistoryUrl, formatPoint, historyBody, mergePoints, parseEcbRates, selectRange, shouldRefreshHistory, toChfPoints, updateRecentHistory,
+} from '../src/history.js';
+import { handleHistory, normalizeAlerts, normalizeSubscription } from '../src/index.js';
 
 const ROOT = new URL('../../', import.meta.url);
 const ROOT_PATH = fileURLToPath(ROOT);
@@ -388,4 +391,79 @@ test('forecast helpers stay null without enough history', () => {
   assert.equal(forecastEndOfDay([], '2026-10-09', 6), null);
   assert.equal(forecast7Days([], { '2026-10-08': 1 }, '2026-10-09', 6), null);
   assert.equal(testLines(new Date('2026-10-09T10:00:00Z'), { start: '06' }, { USD: {}, EUR: {} }, { USD: [], EUR: [] }).includes('TEST'), true);
+});
+
+const ECB_CSV = [
+  'KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE',
+  'EXR.D.CHF.EUR.SP00.A,D,CHF,EUR,SP00,A,2026-10-01,0.9437',
+  'EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-10-01,1.1298',
+  'EXR.D.CHF.EUR.SP00.A,D,CHF,EUR,SP00,A,2026-10-02,0.9279',
+  'EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-10-02,1.1225',
+  'EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-10-03,1.1000',
+].join('\n');
+
+test('ECB history becomes CHF per unit and serves a downsampled range', async () => {
+  const rates = parseEcbRates(ECB_CSV);
+  assert.equal(rates.CHF['2026-10-01'], 0.9437);
+  assert.equal(rates.USD['2026-10-03'], 1.1);
+  const points = toChfPoints(rates);
+  assert.equal(points.EUR.length, 2);
+  assert.deepEqual(points.EUR[0], ['2026-10-01', 0.9437]);
+  assert.equal(points.USD.length, 2);
+  assert.equal(points.USD[0][0], '2026-10-01');
+  assert.equal(points.USD[0][1], roundHalfEven(0.9437 / 1.1298, 6));
+  assert.equal(points.USD[0][1], 0.835281);
+  const merged = mergePoints(points.USD, [['2026-10-02', 0.82], ['2026-09-30', 0.84]]);
+  assert.deepEqual(merged.map(row => row[0]), ['2026-09-30', '2026-10-01', '2026-10-02']);
+  assert.equal(merged[2][1], 0.82);
+  const dense = Array.from({ length: 10 }, (_, i) => [`2026-10-${String(i + 1).padStart(2, '0')}`, i + 1]);
+  const thin = downsample(dense, 4);
+  assert.equal(thin[0][1], 1);
+  assert.equal(thin[thin.length - 1][1], 10);
+  assert.ok(thin.length <= 4);
+  const month = selectRange(points.USD, '1M', '2026-10-09');
+  assert.deepEqual(month.map(row => row[0]), ['2026-10-01', '2026-10-02']);
+  assert.equal(selectRange(points.USD, '1T', '2026-10-09'), null);
+  assert.equal(formatPoint(0.835281), '0.835281');
+  assert.match(historyBody('USD', points.USD), /^\{\"version\":1,\"code\":\"USD\",\"points\":\[/);
+  assert.match(ecbHistoryUrl('2015-01-01'), /detail=dataonly/);
+  assert.equal(shouldRefreshHistory('*/15 5-21 * * 1-5', new Date('2026-10-09T15:05:00Z')), false);
+  assert.equal(shouldRefreshHistory('5 6 * * 6', new Date('2026-10-10T04:05:00Z')), true);
+  assert.equal(shouldRefreshHistory('5 * * * 1-5', new Date('2026-10-09T15:05:00Z')), true);
+  assert.equal(shouldRefreshHistory('5 * * * 1-5', new Date('2026-10-09T14:05:00Z')), false);
+
+  const map = new Map();
+  const env = {
+    DB: {
+      prepare(sql) {
+        const select = /^\s*SELECT/i.test(sql);
+        const insert = /^\s*INSERT/i.test(sql);
+        return {
+          bind(...args) {
+            return {
+              async first() {
+                if (!select) return null;
+                const body = map.get(args[0]);
+                return body == null ? null : { body };
+              },
+              async run() { if (insert) map.set(args[0], args[1]); },
+            };
+          },
+        };
+      },
+    },
+  };
+  const fetchImpl = async () => ({ ok: true, async text() { return ECB_CSV; } });
+  await updateRecentHistory(env, fetchImpl, new Date('2026-10-09T15:05:00Z'));
+  assert.match(map.get('history-USD'), /2026-10-01/);
+  const res = await handleHistory(env, 'USD', '10J', new Date('2026-10-09T15:05:00Z'));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('access-control-allow-origin'), '*');
+  const payload = JSON.parse(await res.text());
+  assert.equal(payload.unit, 'CHF');
+  assert.equal(payload.points[0][1], 0.835281);
+  const missing = await handleHistory(env, 'CHF', '1M', new Date('2026-10-09T15:05:00Z'));
+  assert.equal(missing.status, 404);
+  const bad = await handleHistory(env, 'USD', '1T', new Date('2026-10-09T15:05:00Z'));
+  assert.equal(bad.status, 400);
 });

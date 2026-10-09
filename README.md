@@ -100,7 +100,7 @@ Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Pl
 - `GET /data/rates.json` bleibt im bisherigen Format (die macOS-App liest diese URL). Der Cron erfasst werktags jede volle Stunde 00–23 (Zürich), mit demselben Nachtrag, derselben Quelle und derselben EZB-Logik. Die im JSON gespeicherte Prognose bleibt die zur Stunde 06:00. Weicht die Anzeige davon ab, rechnet die Seite die Prognose aus den gespeicherten Kursen.
 - Die Uhr (Erfassungszeiten) ist nur die Anzeige auf diesem Gerät (`localStorage`, Standard 06:00–20:00 alle 2 Stunden). Speichern braucht kein Netz. Die Tabelle zeigt dieses Raster, dazu immer die Zeile Tagesendkurs 16:00.
 - Basiswährung: auf einem neuen Gerät aus Sprache und Zeitzone. Schweiz bleibt Franken, Euro, Dollar, Pfund. Andere Basen, die die Quelle führt, werden per `POST /api/currencies` zusätzlich erfasst (höchstens zwölf). Bis die Stunde vorliegt, gilt der EZB-Tageskurs. Umschalten im Blatt «Basiswährung».
-- Ansicht liegt auf dem Gerät (`localStorage`, ohne Passwort). Standard: Prognosen und Kursverlauf an. Ohne Prognosen entfallen die Prognose- und Abweichungszeilen. Ohne Kursverlauf zeigt jede Währung den aktuellen Kurs, die Veränderung seit Beginn und die Uhrzeit; Tagesendkurs und EZB bleiben als kurze Zeile, das Stundenraster entfällt, und die Erfassungszeiten sind deaktiviert.
+- Ansicht liegt auf dem Gerät (`localStorage`, ohne Passwort). Standard: Prognosen an und Darstellung «Intervalle» (die Tabelle mit den Uhrzeiten). «Grafik» ersetzt die Uhrzeiten durch eine Linie je Währung, mit Zeitraum Tag, Woche, Monat, 360 Tage, 5 Jahre und 10 Jahre. Tag und Woche nutzen die erfassten Stunden. Die längeren Zeiträume kommen von `GET /data/history/<CCY>.json?range=1M|1J|5J|10J` (CHF je 1 Einheit, ausgedünnt). «Nur aktuell» zeigt den letzten Kurs, die Veränderung seit Beginn und die Uhrzeit; Tagesendkurs und EZB bleiben dort als kurze Zeile. Prognosen sind in allen drei Darstellungen unabhängig schaltbar. Ohne Intervalle entfällt das Stundenraster, und die Erfassungszeiten sind deaktiviert. GitHub Pages hat keine eigene Verlaufsdatenbank: die Grafik für Monat bis 10 Jahre lädt denselben Endpunkt vom Worker `https://waehrungen.bigyok61.workers.dev`. Fehlt der Verlauf, bleibt die Grafik mit einem kurzen Hinweis stehen. Tag und Woche funktionieren auch dort aus `rates.json`.
 - FX-Alarme: jedes Gerät erzeugt eine eigene Kennung und ein eigenes ntfy-Thema `wae-…`. Schwellen gehen an `POST /api/alerts/<kennung>` ohne Passwort; die Kennung ist der Zugriff. Der 15-Minuten-Cron prüft jedes Abo und schickt höchstens eine Meldung je Währung und Richtung und Tag. Abos ohne Änderung seit 90 Tagen werden gelöscht. Unter Einstellungen → Alarme stehen die Schritte zum Abonnieren, ein Link auf `https://ntfy.sh/<thema>`, «Test-Push senden» und «Abo löschen».
 - `GET /data/capture-times.json`, `/data/fx-alerts.json` und `/data/fx-alert-state.json` bleiben die importierten Dateien. Daraus wird kein persönliches Abo.
 
@@ -119,11 +119,14 @@ export CLOUDFLARE_ACCOUNT_ID='7990e79f1ae37e88673013377e1e75f0'
 
 npx wrangler d1 migrations apply waehrungen --remote
 node import.mjs
+node history-backfill.mjs --remote
 node prepare-assets.mjs
 npx wrangler deploy
 ```
 
 `node import.mjs` kopiert `data/rates.json`, `data/capture-times.json`, `data/fx-alerts.json` und `data/fx-alert-state.json` nach D1, inklusive des ganzen bisherigen Verlaufs, als ein einziges `INSERT`. Ohne `BEGIN`/`COMMIT`: die Remote-Import-API von D1 führt die Datei selbst als eine Einheit aus. Ein zweites Ausführen ersetzt diese vier Dokumente wieder durch die Dateien im Repo. Persönliche Abos in `subscriptions` bleiben dabei stehen. Der Import legt keine Abos an; die bestehenden GitHub-Schwellen werden nicht übernommen.
+
+`node history-backfill.mjs --remote` holt einmal die EZB-Referenzkurse ab 2015-01-01 (SDMX, `detail=dataonly`) und speichert je Währung `history-USD`, `history-EUR` und so weiter: CHF je 1 Einheit, für Euro die CHF-Reihe, sonst CHF je Euro geteilt durch die Fremdwährung je Euro. Das deckt mehr als zehn Jahre ab. Danach hält der Cron den Verlauf aktuell: werktags um 17 Uhr Zürich und mit dem Samstagslauf, jeweils die letzten Wochen. Ein Fehler dabei bricht die Kurserfassung nicht ab. `node import.mjs` nicht erneut ausführen, nur weil der Verlauf nachgezogen wurde.
 
 Lokal, ohne Token: `node --test cloudflare/test/logic.test.mjs`. `node prepare-assets.mjs`, `npx wrangler d1 migrations apply waehrungen --local`, `node import.mjs --local`, dann `npx wrangler dev` (`FX_DRY=1` in `cloudflare/.dev.vars`, Vorlage `.dev.vars.example`).
 

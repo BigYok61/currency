@@ -5,6 +5,10 @@ import { canonicalJson } from './json.js';
 import { parseHour } from './schedule.js';
 import { currenciesFor, mergeCurrencyRequests } from './currencies.js';
 import {
+  historyKey, historyResponseBody, isHistoryCode, readHistoryDocument, selectRange, shouldRefreshHistory, updateRecentHistory,
+  RANGES,
+} from './history.js';
+import {
   bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, updateSubscription, writeRaw,
 } from './storage.js';
 import { zurichDateString } from './time.js';
@@ -159,6 +163,29 @@ async function handleAlerts(request, env, id, test) {
   return jsonResponse({ error: 'nicht gefunden' }, 404);
 }
 
+const HISTORY_HEADERS = {
+  'content-type': 'application/json; charset=utf-8',
+  'access-control-allow-origin': '*',
+};
+
+function historyHttp(body, status = 200) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const headers = {
+    ...HISTORY_HEADERS,
+    'cache-control': status === 200 ? 'public, max-age=3600' : 'no-store',
+  };
+  return new Response(text.endsWith('\n') ? text : `${text}\n`, { status, headers });
+}
+
+export async function handleHistory(env, code, range, now = new Date()) {
+  if (!Object.prototype.hasOwnProperty.call(RANGES, range)) return historyHttp({ error: 'Zeitraum ungültig' }, 400);
+  if (!isHistoryCode(code)) return historyHttp({ error: 'nicht vorhanden' }, 404);
+  const doc = readHistoryDocument(await readJson(env, historyKey(code)));
+  if (!doc) return historyHttp({ error: 'nicht vorhanden' }, 404);
+  const points = selectRange(doc.points, range, zurichDateString(now)) || [];
+  return historyHttp(historyResponseBody(code, range, points));
+}
+
 async function handleCurrencies(request, env) {
   const method = request.method.toUpperCase();
   const doc = await readJson(env, 'currency-requests');
@@ -191,6 +218,11 @@ async function handle(request, env) {
 
   if (path === '/api/currencies') return handleCurrencies(request, env);
 
+  const historyMatch = path.match(/^\/data\/history\/([A-Za-z]{3})\.json$/);
+  if (historyMatch && method === 'GET') {
+    return handleHistory(env, historyMatch[1].toUpperCase(), url.searchParams.get('range') || '');
+  }
+
   const docKey = DOCS[path];
   if (method === 'GET' && docKey) {
     const body = await readRaw(env, docKey);
@@ -206,7 +238,16 @@ export default {
   fetch: handle,
   async scheduled(event, env) {
     const cron = String(event.cron || '');
-    if (cron.startsWith('*/15')) await runFxAlerts(env);
-    else await runCapture(env);
+    if (cron.startsWith('*/15')) {
+      await runFxAlerts(env);
+      return;
+    }
+    await runCapture(env);
+    if (!shouldRefreshHistory(cron, new Date())) return;
+    try {
+      await updateRecentHistory(env);
+    } catch (err) {
+      console.error('ECB-Verlauf', err && err.message ? err.message : err);
+    }
   },
 };
