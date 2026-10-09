@@ -9,12 +9,21 @@ const CURRENCIES = [
 /** Standardreihenfolge: EUR, USD, GBP, danach übrige Währungen in der Reihenfolge von CURRENCIES. */
 const DEFAULT_LEAD = ['EUR', 'USD', 'GBP'];
 const LS_ORDER = 'wu.currencyOrder';
+const LS_HIDDEN = 'wu.currencyHidden';
 const CCY_NAMES = { EUR: 'Euro', USD: 'US-Dollar', GBP: 'Britisches Pfund' };
-const CHEVRON_UP = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 10.35 8 5.65 12.75 10.35" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const CHEVRON_DOWN = '<svg class="chev" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M3.25 5.65 8 10.35 12.75 5.65" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_DRAG = '<svg class="sym" viewBox="0 0 20 14" width="18" height="12" aria-hidden="true" focusable="false"><path d="M1 1.6h18M1 7h18M1 12.4h18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+const ICON_MINUS = '<svg class="sym" viewBox="0 0 22 22" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="10" fill="currentColor"/><path d="M6.1 11h9.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const ICON_PLUS = '<svg class="sym" viewBox="0 0 22 22" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="10" fill="currentColor"/><path d="M11 6.1v9.8M6.1 11h9.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const XMARK = '<svg class="sym" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path d="M3.6 3.6 12.4 12.4M12.4 3.6 3.6 12.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 /** null = nichts gespeichert (Standard). Array = vom Nutzer gewählte Codes. undefined = noch nicht gelesen. */
 let savedOrder;
+/** undefined = noch nicht gelesen. Set = ausgeblendete Codes. */
+let savedHidden;
+/** Bearbeiten-Modus und die aufgeklappte Liste «Weitere Währungen…». Nur diese Sitzung. */
+let editing = false;
+let moreOpen = false;
+/** Laufende Ziehgeste, damit ein Neutrendern sie abbricht statt die Zeilen zu verwischen. */
+let drag = null;
 const LEGACY_BASIS = 8; // ältere Tage und ältere Prognosen ohne gespeicherte Basisstunde
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen, immer erfasst, nur auf dem Raster als Uhrzeit sichtbar
 const INTERVALS = [1, 2, 3, 4, 8, 12, 24];
@@ -283,40 +292,157 @@ function persistOrder(list) {
   savedOrder = list.map(c => c.code);
   try { localStorage.setItem(LS_ORDER, JSON.stringify(savedOrder)); } catch { /* Anzeige gilt trotzdem für diese Sitzung */ }
 }
-function moveButtons(c, index, total) {
-  const name = CCY_NAMES[c.code] || c.label;
-  const btn = (dir, icon, disabled) =>
-    `<button type="button" class="ccy-move" data-move="${dir}" data-code="${esc(c.code)}" aria-label="${esc(name)} nach ${dir === 'up' ? 'oben' : 'unten'}"${disabled ? ' disabled' : ''}>${icon}</button>`;
-  return `<span class="ccy-moves">${btn('up', CHEVRON_UP, index === 0)}${btn('down', CHEVRON_DOWN, index === total - 1)}</span>`;
+function readSavedHidden() {
+  try {
+    const raw = localStorage.getItem(LS_HIDDEN);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    const known = new Set(CURRENCIES.map(c => c.code));
+    return new Set(arr.filter(code => typeof code === 'string' && known.has(code)));
+  } catch { return new Set(); }
+}
+function hiddenSet() {
+  if (savedHidden === undefined) savedHidden = readSavedHidden();
+  return savedHidden;
+}
+function persistHidden(set) {
+  savedHidden = set;
+  try { localStorage.setItem(LS_HIDDEN, JSON.stringify([...set])); } catch { /* Anzeige gilt trotzdem für diese Sitzung */ }
+}
+function visibleCurrencies() {
+  const hidden = hiddenSet();
+  return currenciesInOrder().filter(c => !hidden.has(c.code));
+}
+/** Sichtbare Reihenfolge in die Gesamtliste schreiben; ausgeblendete Codes bleiben an ihrem Platz. */
+function applyVisibleOrder(visible) {
+  const hidden = hiddenSet();
+  const queue = visible.slice();
+  const next = [];
+  for (const c of currenciesInOrder()) {
+    if (hidden.has(c.code)) next.push(c);
+    else if (queue.length) next.push(queue.shift());
+  }
+  while (queue.length) next.push(queue.shift());
+  persistOrder(next);
+}
+function ccyName(c) { return CCY_NAMES[c.code] || c.label; }
+function announce(text) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('ccyLive');
+  if (!el) return;
+  el.textContent = '';
+  queueMicrotask(() => { el.textContent = text; });
+}
+function starPoints(cx, cy, r) {
+  const pts = [];
+  for (let i = 0; i < 5; i++) {
+    const outer = (i * 72 - 90) * Math.PI / 180;
+    pts.push(`${(cx + Math.cos(outer) * r).toFixed(2)},${(cy + Math.sin(outer) * r).toFixed(2)}`);
+    const inner = outer + 36 * Math.PI / 180;
+    const ir = r * 0.4;
+    pts.push(`${(cx + Math.cos(inner) * ir).toFixed(2)},${(cy + Math.sin(inner) * ir).toFixed(2)}`);
+  }
+  return pts.join(' ');
+}
+const flagCache = {};
+/** Runde Flagge als SVG, damit sie auf Retina scharf bleibt (Emoji-Flaggen fehlen auf manchen Systemen). */
+function flagSvg(code) {
+  if (flagCache[code]) return flagCache[code];
+  let svg = '';
+  if (code === 'EUR') {
+    let stars = '';
+    for (let i = 0; i < 12; i++) {
+      const a = (i * 30 - 90) * Math.PI / 180;
+      stars += `<polygon fill="#FC0" points="${starPoints(16 + Math.cos(a) * 9.15, 16 + Math.sin(a) * 9.15, 1.45)}"/>`;
+    }
+    svg = `<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="16" fill="#003399"/>${stars}</svg>`;
+  } else if (code === 'USD') {
+    const h = 32 / 13;
+    let stripes = '';
+    for (let i = 1; i < 13; i += 2) stripes += `<rect y="${(i * h).toFixed(3)}" width="32" height="${h.toFixed(3)}" fill="#fff"/>`;
+    svg = `<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><defs><clipPath id="fUSD"><circle cx="16" cy="16" r="16"/></clipPath></defs><g clip-path="url(#fUSD)"><rect width="32" height="32" fill="#bf0a30"/>${stripes}<rect width="14" height="${(7 * h).toFixed(3)}" fill="#002868"/></g></svg>`;
+  } else if (code === 'GBP') {
+    svg = '<svg viewBox="0 0 60 60" width="32" height="32" aria-hidden="true" focusable="false"><defs><clipPath id="fGBP"><circle cx="30" cy="30" r="30"/></clipPath></defs><g clip-path="url(#fGBP)"><rect width="60" height="60" fill="#012169"/><path d="M0 0 L60 60 M60 0 L0 60" stroke="#fff" stroke-width="14"/><path d="M0 0 L60 60 M60 0 L0 60" stroke="#C8102E" stroke-width="8"/><path d="M30 0 V60 M0 30 H60" stroke="#fff" stroke-width="22"/><path d="M30 0 V60 M0 30 H60" stroke="#C8102E" stroke-width="12"/></g></svg>';
+  } else {
+    const c = CURRENCIES.find(x => x.code === code);
+    svg = `<span class="flag-emoji">${c ? c.flag : ''}</span>`;
+  }
+  flagCache[code] = svg;
+  return svg;
+}
+function ccyIdentity(c, liveHtml) {
+  return `<span class="flag">${flagSvg(c.code)}</span><span class="ccy-name"><span class="ccy-line"><span class="ccy-code">${esc(c.label)}</span>${liveHtml}</span><span class="ccy-sub">${esc(ccyName(c))}</span></span>`;
 }
 function moveCurrency(code, dir, opts = {}) {
-  const list = currenciesInOrder();
+  const list = visibleCurrencies();
   const i = list.findIndex(c => c.code === code);
   const j = dir === 'up' ? i - 1 : i + 1;
   if (i < 0 || j < 0 || j >= list.length) return;
   const next = list.slice();
   const [item] = next.splice(i, 1);
   next.splice(j, 0, item);
-  persistOrder(next);
-  render({ keepScroll: true });
-  if (!opts.focus) return;
-  const pick = d => document.querySelector(`.ccy-move[data-code="${CSS.escape(code)}"][data-move="${d}"]:not(:disabled)`);
-  const btn = pick(dir) || pick(dir === 'up' ? 'down' : 'up');
-  if (btn) btn.focus({ preventScroll: true });
+  applyVisibleOrder(next);
+  announce(`${ccyName(item)}, Position ${j + 1} von ${next.length}`);
+  render({ keepScroll: true, focusDrag: opts.focus ? code : null });
+}
+function hideCurrency(code) {
+  const list = visibleCurrencies();
+  const i = list.findIndex(c => c.code === code);
+  if (i < 0) return;
+  const neighbor = list[i + 1] || list[i - 1];
+  const hidden = new Set(hiddenSet());
+  hidden.add(code);
+  persistHidden(hidden);
+  if (!visibleCurrencies().length) moreOpen = true;
+  announce(`${ccyName(list[i])} ausgeblendet`);
+  render({ keepScroll: true, focusDrag: neighbor && editing ? neighbor.code : null, focusMore: !neighbor });
+}
+function showCurrency(code) {
+  const hidden = new Set(hiddenSet());
+  if (!hidden.has(code)) return;
+  hidden.delete(code);
+  persistHidden(hidden);
+  const item = CURRENCIES.find(c => c.code === code);
+  const rest = currenciesInOrder().filter(c => c.code !== code);
+  if (item) rest.push(item);
+  persistOrder(rest);
+  announce(`${ccyName(item || { code, label: code })} eingeblendet`);
+  render({ keepScroll: true, focusDrag: editing ? code : null });
+  if (!live[code]) loadLive();
 }
 
+function cancelDrag() {
+  if (!drag || typeof document === 'undefined') return;
+  const { list } = drag;
+  drag = null;
+  document.body.classList.remove('dragging');
+  for (const el of list) {
+    el.classList.remove('lift', 'shift');
+    el.style.removeProperty('--move');
+  }
+}
 function render(opts = {}) {
+  if (drag) cancelDrag();
+  const keepDrag = opts.focusDrag
+    || (!opts.focusMore && typeof document !== 'undefined' && document.activeElement && document.activeElement.classList
+      && document.activeElement.classList.contains('ccy-drag')
+      ? document.activeElement.dataset.code : null);
   const today = zurichToday();
   const days = weekdayKeys(START, today < START ? START : today);
-  const shown = currenciesInOrder();
+  const shown = visibleCurrencies();
   const td = (k, html, cls = '', title = '') =>
     `<td class="${k === today ? 'today ' : ''}${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
+  const blanks = days.map(k => td(k, '')).join('');
   let h = `<colgroup><col class="c-lab">${days.map(() => '<col class="c-day">').join('')}</colgroup><thead><tr><th class="lab">Zeit (CH)</th>` +
-    days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead><tbody>';
-  for (const [i, c] of shown.entries()) {
+    days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead>';
+  for (const c of shown) {
     // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
     const lv = live[c.code] && !days.includes(today) ? `<span class="live" title="Letzter Mittelkurs (Markt geschlossen)">${r(live[c.code].v)}</span>` : '';
-    h += `<tr class="group"><th class="lab"><div class="ccy-head"><span class="ccy-name"><span class="ccy-title">${c.flag} ${c.label}</span>${lv}</span>${moveButtons(c, i, shown.length)}</div></th>${days.map(k => td(k, '')).join('')}</tr>`;
+    const name = ccyName(c);
+    const hideBtn = editing ? `<button type="button" class="ccy-hide" data-code="${esc(c.code)}" aria-label="${esc(name)} ausblenden">${ICON_MINUS}</button>` : '';
+    const dragBtn = editing ? `<button type="button" class="ccy-drag" data-code="${esc(c.code)}" aria-label="${esc(name)} verschieben. Pfeiltasten ändern die Position." aria-keyshortcuts="ArrowUp ArrowDown">${ICON_DRAG}</button>` : '';
+    h += `<tbody class="ccy" data-code="${esc(c.code)}"><tr class="group"><th class="lab" scope="rowgroup"><div class="ccy-head">${hideBtn}${ccyIdentity(c, lv)}${dragBtn}</div></th>${blanks}</tr>`;
     const move = (v, basisHour, basisVal) => {
       if (v == null || basisVal == null || basisHour == null) return { arrow: '', title: '' };
       const d = v - basisVal;
@@ -396,13 +522,31 @@ function render(opts = {}) {
       h += td(k, arrow + r(L.v), L.closed ? 'stale' : '', title);
     }
     h += '</tr>';
-    h += `<tr class="ecb"><th class="lab">EZB-Referenz</th>${days.map(k => { const v = ecb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr>`;
+    h += `<tr class="ecb"><th class="lab">EZB-Referenz</th>${days.map(k => { const v = ecb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr></tbody>`;
+  }
+  if (editing) {
+    const hidden = currenciesInOrder().filter(c => hiddenSet().has(c.code));
+    const disabled = hidden.length === 0;
+    h += `<tbody class="more"><tr class="more"><th class="lab"><button type="button" class="more-btn" aria-expanded="${moreOpen && !disabled ? 'true' : 'false'}"${disabled ? ' disabled' : ''}><span class="plus">${ICON_PLUS}</span><span class="more-label">Weitere Währungen…</span></button></th>${blanks}</tr>`;
+    if (moreOpen && !disabled) {
+      for (const c of hidden) {
+        h += `<tr class="add"><th class="lab"><button type="button" class="ccy-add" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} einblenden"><span class="plus">${ICON_PLUS}</span>${ccyIdentity(c, '')}</button></th>${blanks}</tr>`;
+      }
+    }
+    h += '</tbody>';
   }
   const sc = document.getElementById('scroller');
   const left = sc.scrollLeft;
   const top = sc.scrollTop;
   const grid = document.getElementById('grid');
-  grid.innerHTML = h + '</tbody>';
+  grid.innerHTML = h;
+  if (opts.focusMore) {
+    const moreBtn = grid.querySelector('.more-btn');
+    if (moreBtn) moreBtn.focus({ preventScroll: true });
+  } else if (keepDrag) {
+    const btn = grid.querySelector(`.ccy-drag[data-code="${CSS.escape(keepDrag)}"]`);
+    if (btn) btn.focus({ preventScroll: true });
+  }
   const tableMin = `calc(var(--label-w) + ${days.length} * 108px)`;
   grid.style.minWidth = tableMin;
   // Karte so breit wie die Tabelle, damit Hintergrund und Ecken alle Spalten umfassen.
@@ -435,7 +579,7 @@ async function load() {
 
 async function loadLive() {
   // Aktueller Mittelkurs direkt von biquote.io (gleiche Quelle wie die Zeitpunkte; nur Anzeige, wird nicht gespeichert)
-  await Promise.all(currenciesInOrder().map(async c => {
+  await Promise.all(visibleCurrencies().map(async c => {
     try {
       const res = await fetch(`https://biquote.io/api/${c.symbol}?t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) return;
@@ -455,7 +599,7 @@ function csv() {
   const num = v => (v == null ? '' : v.toFixed(6));
   const dmy = k => `${k.slice(8, 10)}.${k.slice(5, 7)}.${k.slice(0, 4)}`;
   const lines = [['Währung', 'Zeit', ...days.map(dmy)].join(';')];
-  for (const c of currenciesInOrder()) {
+  for (const c of visibleCurrencies()) {
     const L = `${c.label} in CHF`;
     lines.push([L, 'Prognose 16:00 (Schätzung)', ...days.map(k => num(displayForecast(c, k, 'day').value))].join(';'));
     lines.push([L, 'Prognose 7 Tage (Schätzung, Ziel +7 Tage 16:00)', ...days.map(k => num(displayForecast(c, k, '7').value))].join(';'));
@@ -945,10 +1089,146 @@ $('timesBtn').addEventListener('click', async () => {
   renderTimes();
 });
 
+function placeDrag(dy) {
+  const mid = drag.rects[drag.from].top + drag.height / 2 + dy;
+  let index = 0;
+  for (let i = 0; i < drag.rects.length; i++) {
+    const m = drag.rects[i].top + drag.rects[i].height / 2;
+    if (mid >= m) index = i;
+  }
+  drag.index = index;
+  const { list, from, height } = drag;
+  list.forEach((el, i) => {
+    if (i === from) {
+      el.style.setProperty('--move', `${dy}px`);
+      return;
+    }
+    let shift = 0;
+    if (index > from && i > from && i <= index) shift = -height;
+    else if (index < from && i < from && i >= index) shift = height;
+    if (shift === 0) {
+      el.classList.remove('shift');
+      el.style.removeProperty('--move');
+    } else {
+      el.classList.add('shift');
+      el.style.setProperty('--move', `${shift}px`);
+    }
+  });
+}
+function startDrag(e) {
+  if (!editing || drag) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const handle = e.target.closest('.ccy-drag');
+  if (!handle || !handle.closest('#grid')) return;
+  const tbody = handle.closest('tbody.ccy');
+  if (!tbody) return;
+  e.preventDefault();
+  const list = [...document.querySelectorAll('#grid tbody.ccy')];
+  const rects = list.map(el => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, height: r.height };
+  });
+  const from = list.indexOf(tbody);
+  drag = {
+    code: handle.dataset.code,
+    pointerId: e.pointerId,
+    startY: e.clientY,
+    from,
+    index: from,
+    list,
+    rects,
+    height: rects[from].height,
+  };
+  try { handle.setPointerCapture(e.pointerId); } catch { /* Zeiger schon weg */ }
+  tbody.classList.add('lift');
+  document.body.classList.add('dragging');
+  placeDrag(0);
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    try { navigator.vibrate(8); } catch { /* Gerät ohne Vibration */ }
+  }
+}
+function moveDrag(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  e.preventDefault();
+  placeDrag(e.clientY - drag.startY);
+}
+function endDrag(e, commit) {
+  if (!drag || (e && e.pointerId !== drag.pointerId)) return;
+  const state = drag;
+  if (commit && state.index !== state.from) {
+    cancelDrag();
+    const visible = visibleCurrencies();
+    const next = visible.slice();
+    const [item] = next.splice(state.from, 1);
+    next.splice(state.index, 0, item);
+    applyVisibleOrder(next);
+    announce(`${ccyName(item)}, Position ${state.index + 1} von ${next.length}`);
+    render({ keepScroll: true, focusDrag: state.code });
+    return;
+  }
+  const el = state.list[state.from];
+  drag = null;
+  document.body.classList.remove('dragging');
+  for (const other of state.list) {
+    if (other === el) continue;
+    other.classList.remove('shift');
+    other.style.removeProperty('--move');
+  }
+  if (el) {
+    el.classList.remove('lift');
+    el.classList.add('shift');
+    el.style.setProperty('--move', '0px');
+    const done = () => {
+      el.classList.remove('shift');
+      el.style.removeProperty('--move');
+    };
+    el.addEventListener('transitionend', done, { once: true });
+    setTimeout(done, 320);
+  }
+  const btn = document.querySelector(`#grid .ccy-drag[data-code="${CSS.escape(state.code)}"]`);
+  if (btn) btn.focus({ preventScroll: true });
+}
+function syncEditButton() {
+  const btn = document.getElementById('editBtn');
+  document.body.classList.toggle('editing', editing);
+  btn.setAttribute('aria-pressed', editing ? 'true' : 'false');
+  btn.setAttribute('aria-label', editing ? 'Fertig' : 'Bearbeiten');
+}
+
+document.getElementById('editBtn').addEventListener('click', () => {
+  editing = !editing;
+  if (!editing) moreOpen = false;
+  syncEditButton();
+  render({ keepScroll: true });
+});
 document.getElementById('grid').addEventListener('click', e => {
-  const btn = e.target.closest('.ccy-move');
-  if (!btn || btn.disabled) return;
-  moveCurrency(btn.dataset.code, btn.dataset.move, { focus: e.detail === 0 });
+  const hide = e.target.closest('.ccy-hide');
+  if (hide) { hideCurrency(hide.dataset.code); return; }
+  const add = e.target.closest('.ccy-add');
+  if (add) { showCurrency(add.dataset.code); return; }
+  const more = e.target.closest('.more-btn');
+  if (more && !more.disabled) {
+    moreOpen = !moreOpen;
+    render({ keepScroll: true, focusMore: true });
+  }
+});
+document.getElementById('grid').addEventListener('keydown', e => {
+  const handle = e.target.closest('.ccy-drag');
+  if (!handle) return;
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  moveCurrency(handle.dataset.code, e.key === 'ArrowUp' ? 'up' : 'down', { focus: true });
+});
+document.getElementById('grid').addEventListener('pointerdown', startDrag);
+document.addEventListener('pointermove', moveDrag, { passive: false });
+document.addEventListener('pointerup', e => endDrag(e, true));
+document.addEventListener('pointercancel', e => endDrag(e, false));
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !drag) return;
+  e.preventDefault();
+  const code = drag.code;
+  cancelDrag();
+  render({ keepScroll: true, focusDrag: code });
 });
 document.getElementById('reload').addEventListener('click', e => {
   const b = e.currentTarget;
