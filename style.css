@@ -554,16 +554,45 @@ dialog .row input {
 }
 dialog input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent) 28%, transparent); }
 dialog input[type=checkbox] { accent-color: var(--accent-fill); width: 16px; height: 16px; }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link) {
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary) {
   font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
   border: none; background: var(--fill); color: var(--accent); cursor: pointer;
   touch-action: manipulation; transition: background-color var(--ease), transform .15s ease, filter var(--ease);
 }
-dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):active { transform: scale(.98); }
-dialog button.primary { background: var(--accent-fill); color: #fff; }
+dialog button:not(.dlghead button):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):not(.primary):active { transform: scale(.98); }
+dialog button.primary {
+  font: inherit; font-weight: 590; min-height: 44px; padding: 6px 14px; border-radius: 8px;
+  border: none; background: var(--accent-fill); color: #fff; cursor: pointer;
+  touch-action: manipulation;
+}
+dialog button.primary:disabled { opacity: .38; cursor: default; }
+dialog button.base-apply { width: 100%; }
+.base-list {
+  margin: 12px 0 8px; border-radius: 12px; overflow: auto;
+  max-height: min(52vh, 420px);
+  background: color-mix(in srgb, var(--fill) 65%, var(--surface));
+}
+.base-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px;
+  padding: 8px 14px; border: none; background: transparent; color: var(--fg);
+  font: inherit; text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.base-row + .base-row { box-shadow: inset 0 .5px 0 var(--line); }
+.base-row[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.base-row .ccy-code { font-size: 1.0625rem; font-weight: 590; }
+.base-row.is-default .ccy-code { font-weight: 750; }
+.base-row.is-default .ccy-sub { color: var(--fg); font-weight: 600; }
+.base-row .flag { width: 28px; height: 28px; }
+.base-row .flag svg { width: 28px; height: 28px; }
+.base-sym {
+  margin-left: auto; color: var(--muted); font-weight: 590; font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
 @media (hover: hover) {
   dialog button.primary:hover { filter: brightness(1.06); }
-  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):not(.tm-link):hover { background: var(--fill-hover); }
+  dialog button.primary:disabled:hover { filter: none; }
+  dialog button:not(.dlghead button):not(.primary):not(.hour):not(.segbtn):not(.tm-link):not(.base-row):hover { background: var(--fill-hover); }
+  .base-row:hover { background: var(--hover); }
 }
 dialog .tm {
   margin: 14px 0 8px; border-radius: 12px; overflow: hidden;

@@ -13,13 +13,6 @@ const LS_HIDDEN = 'wu.currencyHidden';
 const LS_BASE = 'wu.baseCurrency';
 const LS_VIEW_OPTS = 'wu.viewOptions';
 const CHEV = '<svg class="sym" viewBox="0 0 12 20" width="8" height="14" aria-hidden="true" focusable="false"><path d="M2.2 2.4 9.2 10l-7 7.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const CCY_NAMES = {
-  CHF: 'Schweizer Franken', EUR: 'Euro', USD: 'US-Dollar', GBP: 'Britisches Pfund',
-  SEK: 'Schwedische Krone', JPY: 'Japanischer Yen', NOK: 'Norwegische Krone', DKK: 'Dänische Krone',
-  PLN: 'Polnischer Złoty', HUF: 'Ungarischer Forint', TRY: 'Türkische Lira',
-  AUD: 'Australischer Dollar', CAD: 'Kanadischer Dollar', NZD: 'Neuseeland-Dollar',
-  SGD: 'Singapur-Dollar', MXN: 'Mexikanischer Peso', ZAR: 'Südafrikanischer Rand',
-};
 /** Gleiche Paare wie cloudflare/src/currencies.js. inv: Kehrwert, damit der Wert CHF je 1 Einheit ist. */
 const PAIRS = {
   USD: { symbol: 'USDCHF', inv: false }, EUR: { symbol: 'EURCHF', inv: false }, GBP: { symbol: 'GBPCHF', inv: false },
@@ -30,29 +23,49 @@ const PAIRS = {
   ZAR: { symbol: 'CHFZAR', inv: true },
 };
 const CHF_CCY = { code: 'CHF', label: '1 CHF', flag: '🇨🇭', symbol: null };
-/** Land → Währung, nur wo wir die Währung auch als Basis führen können. */
+/** Eindeutige Symbole. Danach das Symbol der Locale, danach der ISO-Code. */
+const CURRENCY_SYMBOLS = {
+  CHF: 'CHF', USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: 'CN¥',
+  INR: '₹', KRW: '₩', ILS: '₪', TRY: '₺',
+  CAD: 'C$', AUD: 'A$', NZD: 'NZ$', SGD: 'S$', HKD: 'HK$', MXN: 'MX$', TWD: 'NT$',
+  SEK: 'kr', NOK: 'kr', DKK: 'kr', ISK: 'kr',
+  BRL: 'R$', ZAR: 'R', PLN: 'zł', HUF: 'Ft', CZK: 'Kč', THB: '฿', PHP: '₱', RUB: '₽',
+};
+const FLAG_EMOJI = {
+  SEK: '🇸🇪', NOK: '🇳🇴', DKK: '🇩🇰', ISK: '🇮🇸', JPY: '🇯🇵', CAD: '🇨🇦', AUD: '🇦🇺', NZD: '🇳🇿',
+  PLN: '🇵🇱', HUF: '🇭🇺', TRY: '🇹🇷', SGD: '🇸🇬', MXN: '🇲🇽', ZAR: '🇿🇦', BRL: '🇧🇷',
+  INR: '🇮🇳', CNY: '🇨🇳', KRW: '🇰🇷', ILS: '🇮🇱', HKD: '🇭🇰', CZK: '🇨🇿', RON: '🇷🇴', THB: '🇹🇭',
+};
+/** Region → Währung. Fehlende Regionen fallen auf CHF zurück. */
 const REGION_CURRENCY = {
   CH: 'CHF', LI: 'CHF',
-  DE: 'EUR', AT: 'EUR', BE: 'EUR', CY: 'EUR', EE: 'EUR', ES: 'EUR', FI: 'EUR', FR: 'EUR', GR: 'EUR',
-  IE: 'EUR', IT: 'EUR', LT: 'EUR', LU: 'EUR', LV: 'EUR', MT: 'EUR', NL: 'EUR', PT: 'EUR', SI: 'EUR',
-  SK: 'EUR', HR: 'EUR',
-  US: 'USD', GB: 'GBP', SE: 'SEK', JP: 'JPY', NO: 'NOK', DK: 'DKK', PL: 'PLN', HU: 'HUF', TR: 'TRY',
-  SG: 'SGD', MX: 'MXN', ZA: 'ZAR', AU: 'AUD', CA: 'CAD', NZ: 'NZD',
+  AD: 'EUR', AT: 'EUR', BE: 'EUR', CY: 'EUR', DE: 'EUR', EE: 'EUR', ES: 'EUR', FI: 'EUR', FR: 'EUR',
+  GR: 'EUR', HR: 'EUR', IE: 'EUR', IT: 'EUR', LT: 'EUR', LU: 'EUR', LV: 'EUR', MC: 'EUR', MT: 'EUR',
+  NL: 'EUR', PT: 'EUR', SI: 'EUR', SK: 'EUR', SM: 'EUR', VA: 'EUR', ME: 'EUR', XK: 'EUR',
+  GB: 'GBP', SE: 'SEK', NO: 'NOK', DK: 'DKK', PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON',
+  BG: 'BGN', IS: 'ISK', RS: 'RSD', UA: 'UAH', RU: 'RUB', BY: 'BYN', MD: 'MDL', BA: 'BAM',
+  MK: 'MKD', AL: 'ALL', TR: 'TRY',
+  US: 'USD', CA: 'CAD', MX: 'MXN', BR: 'BRL', AR: 'ARS', CL: 'CLP', CO: 'COP', PE: 'PEN',
+  UY: 'UYU', PY: 'PYG', BO: 'BOB', VE: 'VES', EC: 'USD', PA: 'USD', SV: 'USD', PR: 'USD',
+  GT: 'GTQ', HN: 'HNL', NI: 'NIO', CR: 'CRC', DO: 'DOP', CU: 'CUP', HT: 'HTG', JM: 'JMD',
+  TT: 'TTD', BS: 'BSD', BB: 'BBD', GY: 'GYD', SR: 'SRD', BZ: 'BZD',
+  JP: 'JPY', CN: 'CNY', AU: 'AUD', NZ: 'NZD', IN: 'INR', KR: 'KRW', SG: 'SGD', HK: 'HKD',
+  TW: 'TWD', TH: 'THB', ZA: 'ZAR', IL: 'ILS', AE: 'AED', SA: 'SAR', PH: 'PHP', MY: 'MYR',
+  ID: 'IDR', VN: 'VND',
 };
-const TZ_REGION = {
-  'Europe/Zurich': 'CH', 'Europe/Vaduz': 'CH',
-  'Europe/Berlin': 'DE', 'Europe/Vienna': 'AT', 'Europe/Paris': 'FR', 'Europe/Rome': 'IT',
-  'Europe/Madrid': 'ES', 'Europe/Amsterdam': 'NL', 'Europe/Brussels': 'BE', 'Europe/Lisbon': 'PT',
-  'Europe/Dublin': 'IE', 'Europe/Helsinki': 'FI', 'Europe/Athens': 'GR', 'Europe/Ljubljana': 'SI',
-  'Europe/Bratislava': 'SK', 'Europe/Zagreb': 'HR', 'Europe/Luxembourg': 'LU', 'Europe/Malta': 'MT',
-  'Europe/Tallinn': 'EE', 'Europe/Vilnius': 'LT', 'Europe/Riga': 'LV', 'Europe/Nicosia': 'CY',
-  'Europe/Stockholm': 'SE', 'Europe/Oslo': 'NO', 'Europe/Copenhagen': 'DK', 'Europe/Warsaw': 'PL',
-  'Europe/Budapest': 'HU', 'Europe/Istanbul': 'TR', 'Europe/London': 'GB', 'Asia/Tokyo': 'JP',
-  'Asia/Singapore': 'SG', 'America/New_York': 'US', 'America/Chicago': 'US', 'America/Denver': 'US',
-  'America/Los_Angeles': 'US', 'America/Mexico_City': 'MX', 'America/Toronto': 'CA',
-  'Australia/Sydney': 'AU', 'Pacific/Auckland': 'NZ', 'Africa/Johannesburg': 'ZA',
-};
-const LANG_REGION = { sv: 'SE', nb: 'NO', nn: 'NO', da: 'DK', pl: 'PL', ja: 'JP', tr: 'TR' };
+const EUROPE = new Set([
+  'AD', 'AL', 'AT', 'AX', 'BA', 'BE', 'BG', 'BY', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FO',
+  'FR', 'GB', 'GG', 'GI', 'GR', 'HR', 'HU', 'IE', 'IM', 'IS', 'IT', 'JE', 'LT', 'LU', 'LV', 'MC',
+  'MD', 'ME', 'MK', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'RS', 'RU', 'SE', 'SI', 'SJ', 'SK', 'SM',
+  'TR', 'UA', 'VA', 'XK',
+]);
+const AMERICAS = new Set([
+  'AG', 'AI', 'AR', 'AW', 'BB', 'BL', 'BM', 'BO', 'BQ', 'BR', 'BS', 'BZ', 'CA', 'CL', 'CO', 'CR',
+  'CU', 'CW', 'DM', 'DO', 'EC', 'FK', 'GD', 'GF', 'GL', 'GP', 'GT', 'GY', 'HN', 'HT', 'JM', 'KN',
+  'KY', 'LC', 'MF', 'MQ', 'MS', 'MX', 'NI', 'PA', 'PE', 'PM', 'PR', 'PY', 'SR', 'SV', 'SX', 'TC',
+  'TT', 'US', 'UY', 'VC', 'VE', 'VG', 'VI',
+]);
+const EXTRA_CURRENCIES = [];
 let baseCurrency = 'CHF';
 let showFcDay = true;
 let showDevDay = true;
@@ -203,7 +216,7 @@ function baseDenom(day, hour) {
   if (baseDaily[day] != null) return baseDaily[day];
   return day === zurichToday() ? baseHint : null;
 }
-/** Angezeigter Kurs in der Basiswährung. Bei Basis CHF der gespeicherte CHF-Kurs, unverändert. */
+/** Angezeigter Kurs in der Berichtswährung. Bei Berichtswährung CHF der gespeicherte CHF-Kurs, unverändert. */
 function shown(c, day, hour) {
   const raw = c.code === 'CHF' ? 1 : val(c, day, hour);
   if (baseCurrency === 'CHF') return c.code === 'CHF' ? null : raw;
@@ -364,6 +377,19 @@ function defaultCurrencies() {
   const lead = new Set(DEFAULT_LEAD);
   return [...head, ...CURRENCIES.filter(c => !lead.has(c.code))];
 }
+function currencyRecord(code) {
+  if (code === 'CHF') return CHF_CCY;
+  const builtin = CURRENCIES.find(c => c.code === code);
+  if (builtin) return builtin;
+  let extra = EXTRA_CURRENCIES.find(c => c.code === code);
+  if (extra) return extra;
+  extra = { code, label: `1 ${code}`, flag: FLAG_EMOJI[code] || '', symbol: PAIRS[code] ? PAIRS[code].symbol : null };
+  EXTRA_CURRENCIES.push(extra);
+  return extra;
+}
+function ensureCurrency(code) {
+  if (code) currencyRecord(code);
+}
 function readSavedOrder() {
   try {
     const raw = localStorage.getItem(LS_ORDER);
@@ -379,48 +405,129 @@ function orderCodes() {
   return savedOrder;
 }
 /** Angezeigte Reihenfolge: gespeicherte Codes, unbekannte ignorieren, neue Währungen hinten in Standardreihenfolge. */
-function isSelectableBase(code) {
-  return code === 'CHF' || Object.prototype.hasOwnProperty.call(PAIRS, code);
-}
-function regionFromTag(tag) {
-  if (!tag || typeof tag !== 'string') return null;
+let deCurrencyNames;
+function deCurrencyDisplayName(code) {
   try {
-    const loc = new Intl.Locale(tag);
-    if (loc.region && /^[A-Z]{2}$/.test(loc.region)) return loc.region;
-  } catch { /* unlesbares Tag */ }
-  const m = tag.match(/[-_]([A-Za-z]{2})$/);
-  return m ? m[1].toUpperCase() : null;
+    if (!deCurrencyNames) deCurrencyNames = new Intl.DisplayNames('de-CH', { type: 'currency' });
+    return deCurrencyNames.of(code);
+  } catch { return null; }
 }
-function detectRegion(languages, timeZone) {
+function swissSpelling(text) {
+  return String(text).replace(/ß/g, 'ss');
+}
+/** Drei Grossbuchstaben, kein X-Code (XXX, XAU, XTS, …), und ein echter ISO-Name. */
+function normalizeCurrency(code) {
+  if (typeof code !== 'string') return null;
+  const up = code.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(up) || up[0] === 'X') return null;
+  const name = deCurrencyDisplayName(up);
+  if (!name || name.toUpperCase() === up) return null;
+  return up;
+}
+function germanCurrencyName(code) {
+  const name = deCurrencyDisplayName(code);
+  if (!name || name.toUpperCase() === String(code).toUpperCase()) return code;
+  return swissSpelling(name);
+}
+function currencySymbol(code) {
+  const up = String(code || '').toUpperCase();
+  if (CURRENCY_SYMBOLS[up]) return CURRENCY_SYMBOLS[up];
+  try {
+    const parts = new Intl.NumberFormat('de-CH', { style: 'currency', currency: up, currencyDisplay: 'narrowSymbol' }).formatToParts(1);
+    const sym = parts.find(p => p.type === 'currency')?.value;
+    if (sym && sym.toUpperCase() !== up) return sym;
+  } catch { /* ISO-Code */ }
+  return up;
+}
+function isSelectableBase(code) {
+  return !!normalizeCurrency(code);
+}
+function currencyExtension(tag) {
+  const u = String(tag || '').match(/-u-([a-z0-9-]+)$/i);
+  if (!u) return null;
+  const parts = u[1].split('-');
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i].toLowerCase() === 'cu') return parts[i + 1];
+  }
+  return null;
+}
+function localeRegion(tag) {
+  try {
+    const region = new Intl.Locale(tag).region;
+    return region && /^[A-Z]{2}$/.test(region) ? region : null;
+  } catch { return null; }
+}
+/** ch, eu, am, other. Ohne Region gilt dieselbe Folge wie in Amerika. */
+function regionGroup(region) {
+  if (region === 'CH' || region === 'LI') return 'ch';
+  if (region && EUROPE.has(region)) return 'eu';
+  if (region && AMERICAS.has(region)) return 'am';
+  return 'other';
+}
+function defaultOrder(base, region) {
+  const group = regionGroup(region);
+  const tail = group === 'ch'
+    ? ['CHF', 'EUR', 'USD', 'GBP']
+    : group === 'eu'
+      ? ['EUR', 'USD', 'GBP', 'CHF']
+      : ['USD', 'EUR', 'GBP', 'CHF'];
+  const out = [];
+  const push = code => { if (code && !out.includes(code)) out.push(code); };
+  push(base);
+  for (const code of tail) push(code);
+  return out;
+}
+function readLocaleCurrency(tag) {
+  const region = localeRegion(tag);
+  const explicit = normalizeCurrency(currencyExtension(tag));
+  if (explicit) return { currency: explicit, region };
+  if (!region) return null;
+  const mapped = normalizeCurrency(REGION_CURRENCY[region] || '');
+  return { currency: mapped || 'CHF', region };
+}
+/**
+ * Ersteinrichtung nur aus der Locale, ohne Nachfrage.
+ * Währung: (a) gültiger ISO-Code der Locale, nicht mit X, (b) Währung der Region, (c) CHF.
+ * Liste: die Berichtswährung zuerst, dann je nach Region. CH/LI: CHF, EUR, USD, GBP.
+ * Europa: lokal, EUR, USD, GBP, CHF. Amerika und alle übrigen Regionen: lokal, USD, EUR, GBP, CHF.
+ */
+function firstInstallChoice(languages) {
   const list = Array.isArray(languages) ? languages : [];
+  let picked = null;
   for (const tag of list) {
-    const region = regionFromTag(tag);
-    if (region && REGION_CURRENCY[region]) return region;
+    const got = readLocaleCurrency(tag);
+    if (got) { picked = got; break; }
   }
-  if (timeZone && TZ_REGION[timeZone]) return TZ_REGION[timeZone];
-  for (const tag of list) {
-    const lang = String(tag).toLowerCase().split(/[-_]/)[0];
-    if (LANG_REGION[lang]) return LANG_REGION[lang];
-  }
-  return 'CH';
-}
-function currencyForRegion(region) {
-  const code = REGION_CURRENCY[region];
-  return code && isSelectableBase(code) ? code : 'CHF';
-}
-/** Ersteinrichtung: CH bleibt Basis CHF und EUR, USD, GBP. Sonst wird die Landeswährung zur Basis. */
-function firstInstallChoice(languages, timeZone) {
-  const base = currencyForRegion(detectRegion(languages, timeZone));
-  if (base === 'CHF') return { base: 'CHF', order: null };
-  return { base, order: ['CHF', 'EUR', 'USD', 'GBP'].filter(code => code !== base) };
+  if (!picked) picked = { currency: 'CHF', region: null };
+  return { base: picked.currency, order: defaultOrder(picked.currency, picked.region) };
 }
 function baseChoices() {
-  const rest = Object.keys(PAIRS).filter(code => code !== 'EUR' && code !== 'USD' && code !== 'GBP').sort();
-  return ['CHF', 'EUR', 'USD', 'GBP', ...rest];
+  const codes = [];
+  const push = code => {
+    const n = normalizeCurrency(code);
+    if (n && !codes.includes(n)) codes.push(n);
+  };
+  push(baseCurrency);
+  for (const c of currenciesInOrder()) push(c.code);
+  push('CHF');
+  push('EUR');
+  push('USD');
+  push('GBP');
+  for (const code of Object.keys(PAIRS)) push(code);
+  for (const c of EXTRA_CURRENCIES) push(c.code);
+  return codes;
 }
 function catalogEntries() {
-  if (baseCurrency === 'CHF') return defaultCurrencies();
-  return [CHF_CCY, ...defaultCurrencies().filter(c => c.code !== baseCurrency)];
+  const codes = [];
+  const add = code => {
+    if (!code || code === baseCurrency || codes.includes(code)) return;
+    codes.push(code);
+  };
+  const saved = orderCodes();
+  if (saved) for (const code of saved) add(code);
+  if (baseCurrency !== 'CHF') add('CHF');
+  for (const c of defaultCurrencies()) add(c.code);
+  return codes.map(currencyRecord);
 }
 function currenciesInOrder() {
   const catalog = catalogEntries();
@@ -447,8 +554,7 @@ function readSavedHidden() {
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return new Set();
-    const known = new Set(CURRENCIES.map(c => c.code));
-    return new Set(arr.filter(code => typeof code === 'string' && known.has(code)));
+    return new Set(arr.filter(code => typeof code === 'string' && isSelectableBase(code)));
   } catch { return new Set(); }
 }
 function hiddenSet() {
@@ -475,7 +581,10 @@ function applyVisibleOrder(visible) {
   while (queue.length) next.push(queue.shift());
   persistOrder(next);
 }
-function ccyName(c) { return CCY_NAMES[c.code] || c.label; }
+function ccyName(c) {
+  const code = c && c.code ? c.code : c;
+  return germanCurrencyName(code);
+}
 function announce(text) {
   if (typeof document === 'undefined') return;
   const el = document.getElementById('ccyLive');
@@ -516,8 +625,11 @@ function flagSvg(code) {
   } else if (code === 'CHF') {
     svg = '<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="16" fill="#d52b1e"/><rect x="13.2" y="6.2" width="5.6" height="19.6" fill="#fff"/><rect x="6.2" y="13.2" width="19.6" height="5.6" fill="#fff"/></svg>';
   } else {
-    const c = CURRENCIES.find(x => x.code === code);
-    svg = `<span class="flag-emoji">${c ? c.flag : ''}</span>`;
+    const known = code === 'CHF' ? CHF_CCY : (CURRENCIES.find(c => c.code === code) || EXTRA_CURRENCIES.find(c => c.code === code));
+    const emoji = (known && known.flag) || FLAG_EMOJI[code] || '';
+    svg = emoji
+      ? `<span class="flag-emoji">${emoji}</span>`
+      : `<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="16" fill="#8e8e93"/><text x="16" y="20.5" text-anchor="middle" fill="#fff" font-size="11" font-family="sans-serif">${esc(String(code).slice(0, 3))}</text></svg>`;
   }
   flagCache[code] = svg;
   return svg;
@@ -554,7 +666,7 @@ function showCurrency(code) {
   if (!hidden.has(code)) return;
   hidden.delete(code);
   persistHidden(hidden);
-  const item = CURRENCIES.find(c => c.code === code);
+  const item = currencyRecord(code);
   const rest = currenciesInOrder().filter(c => c.code !== code);
   if (item) rest.push(item);
   persistOrder(rest);
@@ -1446,7 +1558,11 @@ function registerCurrency(code) {
 function initBase() {
   let saved = null;
   try { saved = localStorage.getItem(LS_BASE); } catch { saved = null; }
-  if (saved && isSelectableBase(saved)) { baseCurrency = saved; return; }
+  if (saved && isSelectableBase(saved)) {
+    baseCurrency = normalizeCurrency(saved);
+    ensureCurrency(baseCurrency);
+    return;
+  }
   let existing = false;
   try { existing = !!(localStorage.getItem(LS_ORDER) || localStorage.getItem(LS_HIDDEN)); } catch { existing = false; }
   if (existing) {
@@ -1454,48 +1570,61 @@ function initBase() {
     try { localStorage.setItem(LS_BASE, 'CHF'); } catch { /* diese Sitzung bleibt bei CHF */ }
     return;
   }
-  const zone = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
-  const choice = firstInstallChoice(typeof navigator !== 'undefined' ? navigator.languages : [], zone);
+  const languages = typeof navigator !== 'undefined' && navigator.languages ? [...navigator.languages] : [];
+  const choice = firstInstallChoice(languages);
   baseCurrency = choice.base;
+  for (const code of choice.order) ensureCurrency(code);
   try { localStorage.setItem(LS_BASE, choice.base); } catch { /* Anzeige gilt für diese Sitzung */ }
-  if (choice.order) persistOrder(choice.order.map(code => ({ code })));
+  persistOrder(choice.order.filter(code => code !== choice.base).map(code => ({ code })));
 }
 function setBaseCurrency(code) {
-  if (!isSelectableBase(code) || code === baseCurrency) return;
+  const next = normalizeCurrency(code);
+  if (!next || next === baseCurrency) return;
+  ensureCurrency(next);
   const prev = baseCurrency;
+  ensureCurrency(prev);
   const pool = currenciesInOrder().map(c => c.code);
-  if ((prev === 'CHF' || prev === 'EUR' || prev === 'USD' || prev === 'GBP') && !pool.includes(prev)) pool.unshift(prev);
-  if (code !== 'CHF' && !pool.includes('CHF')) pool.unshift('CHF');
-  baseCurrency = code;
-  try { localStorage.setItem(LS_BASE, code); } catch { /* Anzeige gilt für diese Sitzung */ }
-  persistOrder(pool.filter(c => c !== code).map(c => ({ code: c })));
+  if (!pool.includes(prev)) pool.unshift(prev);
+  baseCurrency = next;
+  try { localStorage.setItem(LS_BASE, next); } catch { /* Anzeige gilt für diese Sitzung */ }
+  persistOrder(pool.filter(c => c !== next).map(c => ({ code: c })));
 }
 function syncBaseButton() {
   const btn = document.getElementById('baseBtn');
   if (!btn) return;
-  const name = CCY_NAMES[baseCurrency] || baseCurrency;
+  const name = ccyName({ code: baseCurrency });
   btn.textContent = `in ${baseCurrency}`;
-  btn.setAttribute('aria-label', `Basiswährung ${name}`);
+  btn.setAttribute('aria-label', `Berichtswährung ${name}`);
 }
 function renderBase() {
   const dlg = document.getElementById('baseDlg');
-  const options = baseChoices().map(code => {
-    const name = CCY_NAMES[code] || code;
-    return `<option value="${esc(code)}"${code === baseCurrency ? ' selected' : ''}>${esc(name)} (${esc(code)})</option>`;
-  }).join('');
-  dlg.innerHTML = `<form method="dialog" class="dlghead"><h2>Basiswährung</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
-    <p class="note">Alle Kurse auf diesem Gerät in dieser Währung. Schweizer Voreinstellung: Franken, Euro, Dollar, Pfund.</p>
-    <div class="tm"><div class="tm-row"><label for="baseSel">Basis</label><select id="baseSel" class="tm-time">${options}</select></div></div>
-    <div class="row end"><button id="baseSave" type="button" class="primary">Speichern</button></div>`;
-  dlg.querySelector('#baseSave').onclick = async () => {
-    const code = dlg.querySelector('#baseSel').value;
-    setBaseCurrency(code);
-    dlg.close();
-    await loadBaseHint();
-    render({ keepScroll: true });
-    loadLive();
-    registerCurrency(code);
+  let picked = baseCurrency;
+  const draw = () => {
+    const rows = baseChoices().map(code => {
+      const current = code === baseCurrency;
+      const selected = code === picked;
+      const sub = current ? 'Berichtswährung' : code;
+      return `<button type="button" class="base-row${current ? ' is-default' : ''}" role="option" data-code="${esc(code)}" aria-selected="${selected ? 'true' : 'false'}"><span class="flag">${flagSvg(code)}</span><span class="ccy-name"><span class="ccy-code">${esc(ccyName({ code }))}</span><span class="ccy-sub">${esc(sub)}</span></span><span class="base-sym">${esc(currencySymbol(code))}</span></button>`;
+    }).join('');
+    dlg.innerHTML = `<form method="dialog" class="dlghead"><h2>Berichtswährung</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
+      <p class="note">Alle Kurse auf diesem Gerät in dieser Währung.</p>
+      <div class="base-list" role="listbox" aria-label="Währungen">${rows}</div>
+      <div class="row end"><button id="baseSave" type="button" class="primary base-apply"${picked === baseCurrency ? ' disabled' : ''}>Als Berichtswährung festlegen</button></div>`;
+    dlg.querySelectorAll('.base-row').forEach(btn => {
+      btn.onclick = () => { picked = btn.dataset.code; draw(); };
+    });
+    const save = dlg.querySelector('#baseSave');
+    save.onclick = async () => {
+      const code = picked;
+      setBaseCurrency(code);
+      dlg.close();
+      await loadBaseHint();
+      render({ keepScroll: true });
+      loadLive();
+      registerCurrency(code);
+    };
   };
+  draw();
 }
 
 function csv() {

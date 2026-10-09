@@ -4,7 +4,7 @@ Parallel zu GitHub Actions und GitHub Pages. Die Schritte stehen auch im Reposit
 
 Es gibt kein App-Passwort und kein gemeinsames ntfy-Thema. Die Erfassungszeiten sind eine Anzeige auf dem Gerät. FX-Alarme legt jede Person selbst an.
 
-Die Basiswährung liegt auf dem Gerät (`localStorage`). Schweiz bleibt Franken mit Euro, Dollar und Pfund. Eine andere Basis, die biquote.io als CHF-Paar führt, meldet das Gerät mit `POST /api/currencies` (`{ "codes": ["SEK"] }`). Der stündliche Cron erfasst diese Währungen zusätzlich, höchstens zwölf, nur wenn der Code bei der EZB (Frankfurter) und bei biquote.io existiert. Bis die Stunde gespeichert ist, rechnet die Seite mit dem EZB-Tageskurs. `GET /api/currencies` zeigt die Liste. Die eingebauten Kurse USD, EUR und GBP bleiben im JSON.
+Die Berichtswährung liegt auf dem Gerät (`localStorage`). Ein neues Gerät leitet sie aus der Locale ab. Schweiz und Liechtenstein bleiben Franken, Euro, Dollar, Pfund. Eine andere Berichtswährung, die biquote.io als CHF-Paar führt, meldet das Gerät mit `POST /api/currencies` (`{ "codes": ["SEK"] }`). Der stündliche Cron erfasst diese Währungen zusätzlich, höchstens zwölf, nur wenn der Code bei der EZB (Frankfurter) und bei biquote.io existiert. Bis die Stunde gespeichert ist, rechnet die Seite mit dem EZB-Tageskurs. `GET /api/currencies` zeigt die Liste. Die eingebauten Kurse USD, EUR und GBP bleiben im JSON.
 
 `GET /data/history/<CCY>.json?range=1M|1J|5J|10J` liefert den EZB-Tagesverlauf als CHF je 1 Einheit, ausgedünnt. Einmalig `node history-backfill.mjs` (lokal) oder `node history-backfill.mjs --remote`. Der Cron ergänzt werktags um 17 Uhr Zürich und samstags die letzten Wochen. GitHub Pages liest für die Grafik denselben Worker-Endpunkt.
 
