@@ -89,7 +89,7 @@ github.com → Profilbild → **Settings** → **Developer settings** → **Pers
 **Generate new token**: Name «Währungen», Ablaufdatum wählen, Repository access **Only select repositories** →
 **BigYok61/currency** (ein bestehender Aktienübersicht-Token kann alternativ um dieses Repository erweitert werden),
 Permissions → Repository permissions → **Contents: Read and write**, alles andere «No access» → **Generate token**, kopieren.
-Web-App: 🔔 → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
+Web-App: Einstellungen → Alarme → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
 «Token entfernen» löscht ihn). Mac-App: Einstellungen → FX-Alarme → Token (Schlüsselbund).
 Ohne Token sind die Schwellen in den Apps nur lesbar.
 
@@ -100,7 +100,8 @@ Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Pl
 - `GET /data/rates.json` bleibt im bisherigen Format (die macOS-App liest diese URL). Der Cron erfasst werktags jede volle Stunde 00–23 (Zürich), mit demselben Nachtrag, derselben Quelle und derselben EZB-Logik. Die im JSON gespeicherte Prognose bleibt die zur Stunde 06:00. Weicht die Anzeige davon ab, rechnet die Seite die Prognose aus den gespeicherten Kursen.
 - Die Uhr (Erfassungszeiten) ist nur die Anzeige auf diesem Gerät (`localStorage`, Standard 06:00–20:00 alle 2 Stunden). Speichern braucht kein Netz. Die Tabelle zeigt dieses Raster, dazu immer die Zeile Tagesendkurs 16:00.
 - Basiswährung: auf einem neuen Gerät aus Sprache und Zeitzone. Schweiz bleibt Franken, Euro, Dollar, Pfund. Andere Basen, die die Quelle führt, werden per `POST /api/currencies` zusätzlich erfasst (höchstens zwölf). Bis die Stunde vorliegt, gilt der EZB-Tageskurs. Umschalten im Blatt «Basiswährung».
-- FX-Alarme: jedes Gerät erzeugt eine eigene Kennung und ein eigenes ntfy-Thema `wae-…`. Schwellen gehen an `POST /api/alerts/<kennung>` ohne Passwort; die Kennung ist der Zugriff. Der 15-Minuten-Cron prüft jedes Abo und schickt höchstens eine Meldung je Währung und Richtung und Tag. Abos ohne Änderung seit 90 Tagen werden gelöscht. In der Glocke stehen die Schritte zum Abonnieren, ein Link auf `https://ntfy.sh/<thema>`, «Test-Push senden» und «Abo löschen».
+- Ansicht liegt auf dem Gerät (`localStorage`, ohne Passwort). Standard: Prognosen und Kursverlauf an. Ohne Prognosen entfallen die Prognose- und Abweichungszeilen. Ohne Kursverlauf zeigt jede Währung den aktuellen Kurs, die Veränderung seit Beginn und die Uhrzeit; Tagesendkurs und EZB bleiben als kurze Zeile, das Stundenraster entfällt, und die Erfassungszeiten sind deaktiviert.
+- FX-Alarme: jedes Gerät erzeugt eine eigene Kennung und ein eigenes ntfy-Thema `wae-…`. Schwellen gehen an `POST /api/alerts/<kennung>` ohne Passwort; die Kennung ist der Zugriff. Der 15-Minuten-Cron prüft jedes Abo und schickt höchstens eine Meldung je Währung und Richtung und Tag. Abos ohne Änderung seit 90 Tagen werden gelöscht. Unter Einstellungen → Alarme stehen die Schritte zum Abonnieren, ein Link auf `https://ntfy.sh/<thema>`, «Test-Push senden» und «Abo löschen».
 - `GET /data/capture-times.json`, `/data/fx-alerts.json` und `/data/fx-alert-state.json` bleiben die importierten Dateien. Daraus wird kein persönliches Abo.
 
 Die macOS-App liest weiter dasselbe JSON. Worker-URL:

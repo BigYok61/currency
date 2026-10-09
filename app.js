@@ -11,6 +11,8 @@ const DEFAULT_LEAD = ['EUR', 'USD', 'GBP'];
 const LS_ORDER = 'wu.currencyOrder';
 const LS_HIDDEN = 'wu.currencyHidden';
 const LS_BASE = 'wu.baseCurrency';
+const LS_VIEW_OPTS = 'wu.viewOptions';
+const CHEV = '<svg class="sym" viewBox="0 0 12 20" width="8" height="14" aria-hidden="true" focusable="false"><path d="M2.2 2.4 9.2 10l-7 7.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CCY_NAMES = {
   CHF: 'Schweizer Franken', EUR: 'Euro', USD: 'US-Dollar', GBP: 'Britisches Pfund',
   SEK: 'Schwedische Krone', JPY: 'Japanischer Yen', NOK: 'Norwegische Krone', DKK: 'Dänische Krone',
@@ -52,6 +54,8 @@ const TZ_REGION = {
 };
 const LANG_REGION = { sv: 'SE', nb: 'NO', nn: 'NO', da: 'DK', pl: 'PL', ja: 'JP', tr: 'TR' };
 let baseCurrency = 'CHF';
+let showForecasts = true;
+let showIntervals = true;
 let baseHint = null;
 /** Tag → CHF je 1 Basiseinheit, aus der EZB-Reihe, solange die Stunde noch nicht erfasst ist. */
 let baseDaily = {};
@@ -564,6 +568,95 @@ function cancelDrag() {
     el.style.removeProperty('--move');
   }
 }
+function readViewOptions() {
+  try {
+    const raw = localStorage.getItem(LS_VIEW_OPTS);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && typeof data.forecasts === 'boolean') showForecasts = data.forecasts;
+    if (data && typeof data.intervals === 'boolean') showIntervals = data.intervals;
+  } catch { /* Standard: beides an */ }
+}
+function writeViewOptions() {
+  try { localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({ forecasts: showForecasts, intervals: showIntervals })); } catch { /* gilt für diese Sitzung */ }
+}
+function latestOn(c, today, read) {
+  let day = today;
+  for (let i = 0; i < 12; i++) {
+    const v = read(day);
+    if (v != null) return { v, day };
+    day = addDays(day, -1);
+  }
+  return null;
+}
+function quoteParts(c, today) {
+  const L = c.code === 'CHF' ? live[baseCurrency] : live[c.code];
+  const liveV = shownLive(c);
+  const basisHour = changeBasis(c, today);
+  const basis = basisHour != null ? shown(c, today, basisHour) : null;
+  if (liveV != null && L) return { v: liveV, basis, basisHour, at: L.at, quoteAt: L.quoteAt, closed: !!L.closed, live: true };
+  const hours = [...HOURS, CLOSE_HOUR].sort((a, b) => b - a);
+  for (const hr of hours) {
+    const v = shown(c, today, hr);
+    if (v != null) return { v, basis, basisHour, hour: hr, live: false };
+  }
+  return { v: null, basis, basisHour, live: false };
+}
+function deltaBits(v, basis, basisHour) {
+  if (v == null || basis == null || basisHour == null || basis === 0) return { arrow: '', text: '', title: '' };
+  const d = v - basis;
+  const arrow = d > EPS ? '<span class="arr up">▲</span>' : d < -EPS ? '<span class="arr down">▼</span>' : '<span class="arr flat">–</span>';
+  const text = `${d > EPS ? '+' : ''}${r(d)} (${pctFmt.format((v / basis - 1) * 100)} %)`;
+  return { arrow, text, title: `Veränderung seit ${pad(basisHour)}:00: ${r(d)}` };
+}
+function renderCompact(rows, today) {
+  const bits = [];
+  for (const c of rows) {
+    const name = ccyName(c);
+    const hideBtn = editing ? `<button type="button" class="ccy-hide" data-code="${esc(c.code)}" aria-label="${esc(name)} ausblenden">${ICON_MINUS}</button>` : '';
+    const dragBtn = editing ? `<button type="button" class="ccy-drag" data-code="${esc(c.code)}" aria-label="${esc(name)} verschieben. Pfeiltasten ändern die Position." aria-keyshortcuts="ArrowUp ArrowDown">${ICON_DRAG}</button>` : '';
+    const q = quoteParts(c, today);
+    const delta = deltaBits(q.v, q.basis, q.basisHour);
+    if (delta.arrow.includes('flat')) delta.arrow = '';
+    let when = '';
+    if (q.live) {
+      when = hmFmt.format(q.quoteAt || q.at);
+      if (q.closed) when += ' · geschlossen';
+    } else if (q.hour != null) when = `${pad(q.hour)}:00`;
+    const since = q.basisHour != null ? `seit ${pad(q.basisHour)}:00` : '';
+    const meta = [since, delta.text, when].filter(Boolean).join(' · ');
+    const closeHit = latestOn(c, today, day => shown(c, day, CLOSE_HOUR));
+    const ecbHit = latestOn(c, today, day => shownEcb(c, day));
+    const closeV = closeHit && closeHit.v;
+    const ecbV = ecbHit && ecbHit.v;
+    const todayClose = shown(c, today, CLOSE_HOUR);
+    const closeLabel = closeHit && closeHit.day === today ? 'Tagesendkurs' : `Tagesendkurs ${closeHit ? header(closeHit.day) : ''}`;
+    const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenz' : `EZB ${ecbHit ? header(ecbHit.day) : ''}`;
+    let extra = '';
+    if (closeV != null) extra += `<p class="quote-sub"><span>${esc(closeLabel)}</span><span>${r(closeV)}</span></p>`;
+    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
+    if (showForecasts) {
+      const dayFc = shownForecast(c, today, 'day');
+      const weekFc = shownForecast(c, today, '7');
+      const dayDev = dayFc.value != null && todayClose != null ? todayClose - dayFc.value : null;
+      const weekActual = shownActual7(c, today);
+      const weekDev = weekFc.value != null && weekActual ? weekActual.v - weekFc.value : null;
+      extra += `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose Tagesende *</span><span>${dayFc.value == null ? '–' : r(dayFc.value)}${dayDev == null ? '' : ` <span class="quote-dev">${dayDev >= 0 ? '+' : ''}${r(dayDev)}</span>`}</span></p>`;
+      extra += `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose 7 Tage *</span><span>${weekFc.value == null ? '–' : r(weekFc.value)}${weekDev == null ? '' : ` <span class="quote-dev">${weekDev >= 0 ? '+' : ''}${r(weekDev)}</span>`}</span></p>`;
+    }
+    bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${delta.title ? ` title="${esc(delta.title)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p><p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
+  }
+  if (editing) {
+    const hidden = currenciesInOrder().filter(c => hiddenSet().has(c.code));
+    const disabled = hidden.length === 0;
+    let more = `<button type="button" class="more-btn" aria-expanded="${moreOpen && !disabled ? 'true' : 'false'}"${disabled ? ' disabled' : ''}><span class="plus">${ICON_PLUS}</span><span class="more-label">Weitere Währungen…</span></button>`;
+    if (moreOpen && !disabled) {
+      more += hidden.map(c => `<button type="button" class="ccy-add" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} einblenden"><span class="plus">${ICON_PLUS}</span>${ccyIdentity(c, '')}</button>`).join('');
+    }
+    bits.push(`<div class="quote-card more-card">${more}</div>`);
+  }
+  return bits.join('');
+}
 function render(opts = {}) {
   if (drag) cancelDrag();
   const keepDrag = opts.focusDrag
@@ -573,6 +666,30 @@ function render(opts = {}) {
   const today = zurichToday();
   const days = weekdayKeys(START, today < START ? START : today);
   const rows = visibleCurrencies();
+  if (typeof document !== 'undefined') document.body.classList.toggle('compact', !showIntervals);
+  if (!showIntervals && typeof document !== 'undefined') {
+    const sc = document.getElementById('scroller');
+    const top = sc.scrollTop;
+    const grid = document.getElementById('grid');
+    const compact = document.getElementById('compact');
+    grid.innerHTML = '';
+    grid.hidden = true;
+    grid.style.minWidth = '';
+    compact.hidden = false;
+    compact.innerHTML = renderCompact(rows, today);
+    grid.closest('main').style.minWidth = '';
+    if (opts.focusMore) {
+      const moreBtn = compact.querySelector('.more-btn');
+      if (moreBtn) moreBtn.focus({ preventScroll: true });
+    } else if (keepDrag) {
+      const btn = compact.querySelector(`.ccy-drag[data-code="${CSS.escape(keepDrag)}"]`);
+      if (btn) btn.focus({ preventScroll: true });
+    }
+    sc.scrollTop = top;
+    document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
+    syncBaseButton();
+    return;
+  }
   const td = (k, html, cls = '', title = '') =>
     `<td class="${k === today ? 'today ' : ''}${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
   const blanks = days.map(k => td(k, '')).join('');
@@ -601,6 +718,7 @@ function render(opts = {}) {
       }
       return row + '</tr>';
     };
+    if (showForecasts) {
     // Prognosen vor den Uhrzeiten. Die Basis ist die Startstunde (bei älteren Prognosen 08:00).
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
     for (const k of days) {
@@ -645,6 +763,7 @@ function render(opts = {}) {
       else h += td(k, `→ ${header(target7(k)).split(' ')[1]}`, 'empty pending', `Ist-Wert ab ${header(target7(k))} 16:00`);
     }
     h += '</tr>';
+    }
     HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1 ? 'alt' : '', `${pad(hr)}:00`); });
     h += slotRow(CLOSE_HOUR, 'close', 'Tagesendkurs');
     // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den erfassten Zeitpunkten
@@ -683,6 +802,9 @@ function render(opts = {}) {
   const left = sc.scrollLeft;
   const top = sc.scrollTop;
   const grid = document.getElementById('grid');
+  const compact = document.getElementById('compact');
+  if (compact) { compact.hidden = true; compact.innerHTML = ''; }
+  grid.hidden = false;
   grid.innerHTML = h;
   if (opts.focusMore) {
     const moreBtn = grid.querySelector('.more-btn');
@@ -1203,7 +1325,6 @@ async function openAlerts() {
   if (tok) tok.focus();
 }
 if (typeof document !== 'undefined') {
-$('alertsBtn').addEventListener('click', () => { runtimePromise.then(() => openAlerts()); });
 $('alerts').addEventListener('close', () => { if ($('times').open) renderTimes(); });
 }
 // ------------------------------------------------------- Erfassungszeiten (data/capture-times.json)
@@ -1315,22 +1436,64 @@ function renderTimes() {
     openAlerts();
   };
 }
+function renderSettings() {
+  const off = !showIntervals;
+  $('settings').innerHTML = `<form method="dialog" class="dlghead"><h2>Einstellungen</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
+    <div class="set-list">
+      <button type="button" class="set-row" data-go="view"><span>Ansicht</span><span class="chev">${CHEV}</span></button>
+      <button type="button" class="set-row" data-go="times"${off ? ' disabled' : ''}><span>Erfassungszeiten</span><span class="chev">${CHEV}</span></button>
+      <button type="button" class="set-row" data-go="alerts"><span>Alarme</span><span class="chev">${CHEV}</span></button>
+    </div>
+    <p class="note"${off ? '' : ' hidden'}>Ohne Kursverlauf gibt es kein Stundenraster.</p>`;
+}
+function renderView() {
+  const sw = (id, on, label) => `<div class="tm-row"><span id="${id}Label">${label}</span><button type="button" class="switch" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-labelledby="${id}Label"></button></div>`;
+  $('viewDlg').innerHTML = `<div class="dlghead nav"><button type="button" id="viewBack" class="back">Einstellungen</button><h2>Ansicht</h2><button type="button" id="viewClose" aria-label="Schliessen">${XMARK}</button></div>
+    <div class="tm">${sw('swForecast', showForecasts, 'Prognosen anzeigen')}${sw('swIntervals', showIntervals, 'Kursverlauf (Intervalle) anzeigen')}</div>
+    <p class="note">Gilt nur für dieses Gerät.</p>`;
+  const flip = (id, get, set) => {
+    $('viewDlg').querySelector('#' + id).onclick = () => {
+      set(!get());
+      writeViewOptions();
+      $('viewDlg').querySelector('#' + id).setAttribute('aria-checked', get() ? 'true' : 'false');
+      render({ keepScroll: true });
+    };
+  };
+  flip('swForecast', () => showForecasts, v => { showForecasts = v; });
+  flip('swIntervals', () => showIntervals, v => { showIntervals = v; });
+  $('viewBack').onclick = () => { $('viewDlg').close(); renderSettings(); $('settings').showModal(); };
+  $('viewClose').onclick = () => $('viewDlg').close();
+}
+async function openTimes() {
+  await runtimePromise;
+  const dlg = $('times');
+  dlg.innerHTML = '<p class="note">Lade …</p>';
+  dlg.showModal();
+  const data = await fetchTimes();
+  if (data) applyTimesConfig(data);
+  render({ keepScroll: true });
+  renderTimes();
+}
 if (typeof document !== 'undefined') {
 initBase();
+readViewOptions();
 syncBaseButton();
 runtimePromise = detectRuntime().then(mode => { runtime = mode; });
 $('baseBtn').addEventListener('click', () => {
   renderBase();
   $('baseDlg').showModal();
 });
-$('timesBtn').addEventListener('click', async () => {
-  await runtimePromise;
-  const dlg = $('times');
-  dlg.innerHTML = '<p class="note">Lade …</p>'; dlg.showModal();
-  const data = await fetchTimes();
-  if (data) applyTimesConfig(data);
-  render({ keepScroll: true });
-  renderTimes();
+$('settingsBtn').addEventListener('click', () => {
+  renderSettings();
+  $('settings').showModal();
+});
+$('settings').addEventListener('click', e => {
+  const go = e.target.closest('[data-go]');
+  if (!go || go.disabled) return;
+  $('settings').close();
+  if (go.dataset.go === 'view') { renderView(); $('viewDlg').showModal(); }
+  else if (go.dataset.go === 'times') openTimes();
+  else runtimePromise.then(() => openAlerts());
 });
 
 function placeDrag(dy) {
@@ -1363,11 +1526,11 @@ function startDrag(e) {
   if (!editing || drag) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const handle = e.target.closest('.ccy-drag');
-  if (!handle || !handle.closest('#grid')) return;
-  const tbody = handle.closest('tbody.ccy');
+  if (!handle || !handle.closest('main')) return;
+  const tbody = handle.closest('.ccy');
   if (!tbody) return;
   e.preventDefault();
-  const list = [...document.querySelectorAll('#grid tbody.ccy')];
+  const list = [...document.querySelectorAll('#grid tbody.ccy, #compact .ccy')];
   const rects = list.map(el => {
     const r = el.getBoundingClientRect();
     return { top: r.top, height: r.height };
@@ -1445,7 +1608,7 @@ document.getElementById('editBtn').addEventListener('click', () => {
   syncEditButton();
   render({ keepScroll: true });
 });
-document.getElementById('grid').addEventListener('click', e => {
+document.querySelector('main').addEventListener('click', e => {
   const hide = e.target.closest('.ccy-hide');
   if (hide) { hideCurrency(hide.dataset.code); return; }
   const add = e.target.closest('.ccy-add');
@@ -1456,14 +1619,14 @@ document.getElementById('grid').addEventListener('click', e => {
     render({ keepScroll: true, focusMore: true });
   }
 });
-document.getElementById('grid').addEventListener('keydown', e => {
+document.querySelector('main').addEventListener('keydown', e => {
   const handle = e.target.closest('.ccy-drag');
   if (!handle) return;
   if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
   e.preventDefault();
   moveCurrency(handle.dataset.code, e.key === 'ArrowUp' ? 'up' : 'down', { focus: true });
 });
-document.getElementById('grid').addEventListener('pointerdown', startDrag);
+document.querySelector('main').addEventListener('pointerdown', startDrag);
 document.addEventListener('pointermove', moveDrag, { passive: false });
 document.addEventListener('pointerup', e => endDrag(e, true));
 document.addEventListener('pointercancel', e => endDrag(e, false));
