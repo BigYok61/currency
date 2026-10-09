@@ -14,7 +14,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 <header>
@@ -23,7 +23,10 @@
       <span class="edit-label">Bearbeiten</span>
       <span class="edit-check" aria-hidden="true"><svg class="sym" viewBox="0 0 24 24" width="16" height="16" focusable="false"><path d="M6.2 12.5 10.2 16.4 17.8 8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </button>
-    <h1>Währungen</h1>
+    <div class="title-stack">
+      <h1>Währungen</h1>
+      <button id="baseBtn" type="button" class="base-btn" aria-haspopup="dialog" aria-label="Basiswährung Schweizer Franken">in CHF</button>
+    </div>
     <div class="tools">
       <button id="timesBtn" type="button" title="Erfassungszeiten" aria-label="Erfassungszeiten">
         <svg class="sym" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7.25" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.2V12l2.6 1.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -51,7 +54,8 @@
   </footer>
 </div>
 <dialog id="alerts" aria-label="FX-Alarme"></dialog>
+<dialog id="baseDlg" aria-label="Basiswährung"></dialog>
 <dialog id="times" aria-label="Erfassungszeiten"></dialog>
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

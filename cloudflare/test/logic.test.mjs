@@ -371,6 +371,19 @@ test('alert ids, topics, and the 90-day cutoff', () => {
   assert.equal(normalizeAlerts({ currencies: { USD: { enabled: true, down: 0.5, up: 0.25 } } }), null);
 });
 
+test('requested currencies stay inside the ECB and biquote lists', async () => {
+  const { currenciesFor, mergeCurrencyRequests, inBase, EXTRA_CAP } = await import('../src/currencies.js');
+  const list = currenciesFor(['SEK', 'CNY', 'usd', 'EUR', 'nope']);
+  assert.deepEqual(list.map(c => c.code), ['USD', 'EUR', 'GBP', 'SEK']);
+  assert.equal(list.find(c => c.code === 'SEK').symbol, 'CHFSEK');
+  assert.equal(list.find(c => c.code === 'SEK').inv, true);
+  assert.equal(mergeCurrencyRequests(['SEK'], { codes: ['JPY', 'CNY', 'sek'] }).join(','), 'SEK,JPY');
+  assert.equal(mergeCurrencyRequests([], { codes: 'SEK' }), null);
+  const many = mergeCurrencyRequests([], { codes: ['SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR', 'AUD', 'CAD', 'NZD'] });
+  assert.equal(many.length, EXTRA_CAP);
+  assert.ok(Math.abs(inBase(0.94, 1 / 12) - 11.28) < 1e-9);
+});
+
 test('forecast helpers stay null without enough history', () => {
   assert.equal(forecastEndOfDay([], '2026-10-09', 6), null);
   assert.equal(forecast7Days([], { '2026-10-08': 1 }, '2026-10-09', 6), null);

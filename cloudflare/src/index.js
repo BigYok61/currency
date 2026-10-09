@@ -3,8 +3,9 @@ import { runCapture } from './capture.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
 import { parseHour } from './schedule.js';
+import { currenciesFor, mergeCurrencyRequests } from './currencies.js';
 import {
-  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readRaw, updateSubscription,
+  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, updateSubscription, writeRaw,
 } from './storage.js';
 import { zurichDateString } from './time.js';
 
@@ -158,6 +159,24 @@ async function handleAlerts(request, env, id, test) {
   return jsonResponse({ error: 'nicht gefunden' }, 404);
 }
 
+async function handleCurrencies(request, env) {
+  const method = request.method.toUpperCase();
+  const doc = await readJson(env, 'currency-requests');
+  const existing = doc && Array.isArray(doc.codes) ? doc.codes : [];
+  if (method === 'GET') {
+    return jsonResponse({ version: 1, codes: existing, capturing: currenciesFor(existing).map(c => c.code) });
+  }
+  if (method !== 'POST') return jsonResponse({ error: 'nicht gefunden' }, 404);
+  const limited = await tooFast(env, request, null, '');
+  if (limited) return jsonResponse({ error: limited }, 429);
+  const body = await readJsonBody(request);
+  if (body.error) return jsonResponse({ error: body.error }, body.status);
+  const merged = mergeCurrencyRequests(existing, body.value);
+  if (!merged) return jsonResponse({ error: 'JSON ungültig' }, 400);
+  await writeRaw(env, 'currency-requests', canonicalJson({ version: 1, codes: merged }));
+  return jsonResponse({ version: 1, codes: merged, capturing: currenciesFor(merged).map(c => c.code) });
+}
+
 async function handle(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -169,6 +188,8 @@ async function handle(request, env) {
 
   const alertMatch = path.match(/^\/api\/alerts\/([A-Za-z0-9_-]+)(\/test)?$/);
   if (alertMatch) return handleAlerts(request, env, alertMatch[1], !!alertMatch[2]);
+
+  if (path === '/api/currencies') return handleCurrencies(request, env);
 
   const docKey = DOCS[path];
   if (method === 'GET' && docKey) {

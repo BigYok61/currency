@@ -5,6 +5,7 @@ import { forecast7Days, forecastEndOfDay, forecastTargetDay, resolveBasisHour } 
 import {
   ECB_LOOKBACK_DAYS, START_DAY, addDays, isWeekday, pad, parseInstant, slotUtcMs, weekdays, zurichDateString, zurichParts,
 } from './time.js';
+import { currenciesFor } from './currencies.js';
 
 export const CURRENCIES = [
   { code: 'USD', symbol: 'USDCHF', inv: false, unit: 1 },
@@ -46,8 +47,8 @@ export function ohlcLimit(now) {
   return Math.max(24, Math.min(hoursBack + 14 * 24, 1000));
 }
 
-export function ecbUrl(today) {
-  const syms = [...new Set([...CURRENCIES.map(c => c.code).filter(c => c !== 'EUR'), 'CHF'])].sort().join(',');
+export function ecbUrl(today, currencies = CURRENCIES) {
+  const syms = [...new Set([...currencies.map(c => c.code).filter(c => c !== 'EUR'), 'CHF'])].sort().join(',');
   return `https://api.frankfurter.dev/v1/${ecbStartDay(today)}..?base=EUR&symbols=${syms}`;
 }
 
@@ -68,7 +69,7 @@ export function workerCapturePlan() {
  * @param {Date} now
  * @param {(url: string) => Promise<any>} getJson
  */
-export async function applyCapture(history, timesDoc, now, getJson, plan) {
+export async function applyCapture(history, timesDoc, now, getJson, plan, currencies = CURRENCIES) {
   if (!history.version) history.version = 1;
   if (!history.days) history.days = {};
   const { start, grid, capture } = plan || loadTimes(timesDoc);
@@ -79,15 +80,15 @@ export async function applyCapture(history, timesDoc, now, getJson, plan) {
   let changed = 0;
   const errors = [];
 
-  const ecbAll = Object.fromEntries(CURRENCIES.map(c => [c.code, {}]));
+  const ecbAll = Object.fromEntries(currencies.map(c => [c.code, {}]));
   try {
-    const resp = await getJson(ecbUrl(today));
+    const resp = await getJson(ecbUrl(today, currencies));
     const rates = resp && resp.rates ? resp.rates : {};
     for (const key of Object.keys(rates)) {
       const r = rates[key] || {};
       const chf = r.CHF;
       if (!chf) continue;
-      for (const { code, unit } of CURRENCIES) {
+      for (const { code, unit } of currencies) {
         const x = code === 'EUR' ? 1 : r[code];
         if (x) {
           ecbAll[code][key] = chf / x * unit;
@@ -102,7 +103,7 @@ export async function applyCapture(history, timesDoc, now, getJson, plan) {
   }
 
   const limit = ohlcLimit(now);
-  for (const { code, symbol, inv, unit } of CURRENCIES) {
+  for (const { code, symbol, inv, unit } of currencies) {
     let bars;
     try {
       const body = await getJson(ohlcUrl(symbol, limit));
@@ -163,7 +164,7 @@ export async function applyCapture(history, timesDoc, now, getJson, plan) {
 
   if (changed) history.updated = now.toISOString().slice(0, 19) + 'Z';
   history.days = Object.fromEntries(Object.entries(history.days).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
-  return { history, changed, errors, fatal: errors.length === CURRENCIES.length + 1 };
+  return { history, changed, errors, fatal: errors.length === currencies.length + 1 };
 }
 
 function dateKey(z) {
@@ -186,7 +187,9 @@ export async function runCapture(env, opts = {}) {
   const { readJson, readRaw, writeRaw } = await import('./storage.js');
   const stored = await readJson(env, 'rates');
   const history = stored && typeof stored === 'object' ? stored : emptyHistory();
-  const result = await applyCapture(history, null, now, url => fetchJson(url, fetchImpl), workerCapturePlan());
+  const requested = await readJson(env, 'currency-requests');
+  const list = currenciesFor(requested && requested.codes);
+  const result = await applyCapture(history, null, now, url => fetchJson(url, fetchImpl), workerCapturePlan(), list);
   const body = historyJson(result.history);
   const prev = await readRaw(env, 'rates');
   if (prev !== body) await writeRaw(env, 'rates', body);

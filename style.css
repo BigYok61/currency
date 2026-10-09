@@ -80,10 +80,16 @@ header {
   border-bottom: .5px solid var(--line);
 }
 .titlebar { display: flex; align-items: center; gap: 10px; }
+.title-stack { display: flex; flex-direction: column; align-items: flex-start; flex: 1; min-width: 0; }
 h1 {
-  flex: 1; min-width: 0;
+  min-width: 0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   font-size: 28px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 0;
+}
+.base-btn {
+  margin: 1px 0 0; padding: 0; border: none; background: none; color: var(--accent);
+  font: inherit; font-size: 13px; font-weight: 590; letter-spacing: -.01em; line-height: 1.2;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 #editBtn {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
@@ -234,7 +240,7 @@ body.dragging { user-select: none; -webkit-user-select: none; }
   45% { transform: scale(1.045); }
   100% { transform: scale(1.02); }
 }
-#editBtn:focus-visible, .ccy-hide:focus-visible, .ccy-drag:focus-visible,
+#editBtn:focus-visible, #baseBtn:focus-visible, .ccy-hide:focus-visible, .ccy-drag:focus-visible,
 .more-btn:focus-visible, .ccy-add:focus-visible,
 #reload:focus-visible, #alertsBtn:focus-visible, #timesBtn:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
