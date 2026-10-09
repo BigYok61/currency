@@ -804,7 +804,9 @@ function hourlySeries(code, daysBack, today) {
   while (day <= today) {
     const slots = history.days[day]?.slots || {};
     const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null).sort((a, b) => a - b);
+    const grid = daysBack === 1 && HOURS.length ? new Set(HOURS) : null;
     for (const hr of hours) {
+      if (grid && !grid.has(hr)) continue;
       const v = shown({ code }, day, hr);
       if (v == null) continue;
       const label = daysBack === 1 ? `${pad(hr)}:00` : `${header(day)} ${pad(hr)}:00`;
@@ -2087,7 +2089,9 @@ function timeOptions(selected) {
   return html;
 }
 function renderTimes() {
-  const dlg = $('times'), rw = canWrite();
+  const dlg = $('times');
+  const onWorker = runtime === 'cloudflare';
+  const rw = onWorker || !!ghToken();
   let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
     <p class="note">${runtime === 'cloudflare' ? 'Gilt nur für die Anzeige auf diesem Gerät. Volle Stunden Schweizer Zeit, von–bis.' : 'Volle Stunden Schweizer Zeit, von–bis.'}</p>
     <div class="tm">
@@ -2101,7 +2105,7 @@ function renderTimes() {
     <p id="tmExtra" class="note" hidden></p>
     <p id="tmMsg" class="msg" hidden></p>`;
   if (rw) h += '<div class="row end"><button id="tmSave" type="button" class="primary">Speichern</button></div>';
-  else h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern mit GitHub verbinden</button>';
+  else if (!onWorker) h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern mit GitHub verbinden</button>';
   dlg.innerHTML = h;
   const readForm = () => ({
     start: Number($('tmStart').value),
@@ -2171,7 +2175,7 @@ function renderTimes() {
       render({ keepScroll: true });
       renderTimes();
       tmMsg(runtime === 'cloudflare'
-        ? 'Gespeichert. Die Tabelle zeigt jetzt dieses Raster.'
+        ? 'Gespeichert. Tabelle und Tagesgrafik zeigen jetzt dieses Raster.'
         : 'Gespeichert. Erfassung und Seitenveröffentlichung laufen jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
     } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };
@@ -2196,17 +2200,15 @@ function timesSummary() {
   return `${pad(schedule.start)}–${pad(schedule.end)} · ${schedule.intervalHours} h`;
 }
 function renderSettings() {
-  const off = viewMode !== 'intervals';
-  const row = (go, kind, glyph, title, value, disabled) =>
-    `<button type="button" class="set-row" data-go="${go}"${disabled ? ' disabled' : ''}><span class="set-ico set-ico-${kind}" aria-hidden="true">${glyph}</span><span class="set-title">${title}</span>${value ? `<span class="set-value">${esc(value)}</span>` : ''}<span class="chev">${CHEV}</span></button>`;
+  const row = (go, kind, glyph, title, value) =>
+    `<button type="button" class="set-row" data-go="${go}"><span class="set-ico set-ico-${kind}" aria-hidden="true">${glyph}</span><span class="set-title">${title}</span>${value ? `<span class="set-value">${esc(value)}</span>` : ''}<span class="chev">${CHEV}</span></button>`;
   $('settings').innerHTML = `<form method="dialog" class="dlghead"><h2>Einstellungen</h2><button class="done" value="close">Fertig</button></form>
     <div class="set-list">
       ${row('view', 'view', SET_EYE, 'Ansicht', viewModeName())}
-      ${row('times', 'time', SET_CLOCK, 'Erfassungszeiten', timesSummary(), off)}
+      ${row('times', 'time', SET_CLOCK, 'Erfassungszeiten', timesSummary())}
       ${row('alerts', 'bell', SET_BELL, 'Alarme', '')}
       ${row('base', 'base', SET_NOTE, 'Berichtswährung', baseCurrency)}
     </div>
-    <p class="note"${off ? '' : ' hidden'}>Ohne Intervalle gibt es kein Stundenraster.</p>
     <p class="app-version">Währungen · ${appVersionLabel()}</p>`;
 }
 function renderView() {
@@ -2260,7 +2262,7 @@ function renderView() {
   $('viewClose').onclick = () => $('viewDlg').close();
 }
 async function openTimes() {
-  await runtimePromise;
+  runtime = await runtimePromise || runtime;
   const dlg = $('times');
   dlg.innerHTML = '<p class="note">Lade …</p>';
   dlg.showModal();
@@ -2269,13 +2271,49 @@ async function openTimes() {
   render({ keepScroll: true });
   renderTimes();
 }
+const LS_COACH = 'wu.seenSettingsHint';
+function showSettingsCoach() {
+  let seen = true;
+  try { seen = localStorage.getItem(LS_COACH) === '1'; } catch { return; }
+  if (seen) return;
+  const btn = $('settingsBtn');
+  if (!btn) return;
+  const tip = document.createElement('div');
+  tip.className = 'coach';
+  tip.setAttribute('role', 'status');
+  tip.innerHTML = '<p>Einstellungen: Ansicht, Erfassungszeiten, Alarme</p>';
+  document.body.appendChild(tip);
+  const place = () => {
+    const r = btn.getBoundingClientRect();
+    tip.style.top = `${Math.round(r.bottom + 8)}px`;
+    tip.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+  };
+  place();
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) tip.classList.add('in');
+  else requestAnimationFrame(() => tip.classList.add('in'));
+  try { localStorage.setItem(LS_COACH, '1'); } catch { /* diese Sitzung zeigt ihn trotzdem nur einmal */ }
+  let gone = false;
+  const dismiss = () => {
+    if (gone) return;
+    gone = true;
+    tip.classList.remove('in');
+    const remove = () => { if (tip.parentNode) tip.remove(); };
+    tip.addEventListener('transitionend', remove, { once: true });
+    setTimeout(remove, 280);
+  };
+  tip.addEventListener('click', dismiss);
+  btn.addEventListener('click', dismiss, { once: true });
+  setTimeout(dismiss, 5600);
+  window.addEventListener('resize', () => { if (!gone) place(); });
+}
 if (typeof document !== 'undefined') {
 initBase();
 readViewOptions();
 syncBaseButton();
 bindChartScrub();
 bindPullToRefresh();
-runtimePromise = detectRuntime().then(mode => { runtime = mode; });
+runtimePromise = detectRuntime().then(mode => { runtime = mode; return mode; });
+showSettingsCoach();
 $('baseBtn').addEventListener('click', () => {
   renderBase();
   $('baseDlg').showModal();

@@ -134,6 +134,24 @@ body.editing #editBtn {
   #reload:hover, #settingsBtn:hover { background: var(--fill-hover); }
 }
 #reload:active, #settingsBtn:active { transform: scale(.94); }
+.coach {
+  position: fixed; z-index: 20; max-width: min(260px, calc(100vw - 24px));
+  margin: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--fg); color: var(--canvas);
+  font-size: 13px; font-weight: 560; letter-spacing: -.014em; line-height: 1.3;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22);
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity .22s ease, transform .22s ease;
+}
+.coach.in { opacity: 1; transform: none; }
+.coach p { margin: 0; }
+.coach::before {
+  content: ""; position: absolute; top: -4px; right: 16px;
+  width: 10px; height: 10px; background: inherit; transform: rotate(45deg); border-radius: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach { transition: none; transform: none; }
+}
 #reload.spin .sym { animation: spin .55s cubic-bezier(.4,0,.2,1); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #reload.spin .sym { animation: none; } }
