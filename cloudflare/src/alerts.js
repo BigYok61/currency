@@ -12,6 +12,11 @@ export const WINDOW = [7, 22];
 export const LEGACY_BASIS_HOUR = 8;
 export const MAX_QUOTE_AGE = 20 * 60;
 export const UA = 'Waehrungsuebersicht/1.4 (+cloudflare)';
+export const ALERT_ID_RE = /^[a-f0-9]{64}$/;
+export const TOPIC_RE = /^wae-[a-f0-9]{32}$/;
+export const INACTIVE_MS = 90 * 24 * 60 * 60 * 1000;
+export const LIMITS = { ipPerHour: 30, idPerHour: 20, testPerDay: 8 };
+export const ALERT_CODES = ['USD', 'EUR'];
 
 export function formatPct(v) {
   const sign = v > 0 ? '+' : v < 0 ? '\u2212' : '\u00b1';
@@ -26,6 +31,24 @@ export function formatThreshold(v) {
   // Python f"{down}" for a float: 0.5 -> "0.5", 1.0 -> "1.0".
   if (Number.isInteger(v)) return `${v}.0`;
   return String(v);
+}
+
+export function validAlertId(id) {
+  return typeof id === 'string' && ALERT_ID_RE.test(id);
+}
+
+export function validTopic(topic) {
+  return typeof topic === 'string' && TOPIC_RE.test(topic);
+}
+
+export function inactiveCutoff(nowMs) {
+  return nowMs - INACTIVE_MS;
+}
+
+/** Nächster Zählerstand: abgelaufenes Fenster beginnt bei 1. */
+export function nextHits(storedHits, storedReset, now) {
+  if (storedReset == null || storedReset <= now) return 1;
+  return storedHits + 1;
 }
 
 export function inWindow(date) {
@@ -235,94 +258,104 @@ async function getJson(url, fetchImpl) {
   return res.json();
 }
 
-export async function runFxAlerts(env, opts = {}) {
-  const fetchImpl = opts.fetch || fetch;
-  const now = opts.now || new Date();
-  const test = !!opts.test;
-  const force = !!opts.force;
-  const topic = String(env.NTFY_TOPIC || '').trim();
-  const dry = String(env.FX_DRY || '') === '1' || !!opts.dry;
-  const appUrl = String(env.APP_URL || '').trim();
-  if (!topic && !dry) {
-    if (test) throw new Error('NTFY_TOPIC fehlt');
-    console.log('NTFY_TOPIC fehlt – keine Prüfung.');
-    return { skipped: true };
-  }
-  const { readJson, readRaw, writeRaw } = await import('./storage.js');
-  const times = await readJson(env, 'capture-times');
-  const cfg = (await readJson(env, 'fx-alerts')) || { version: 1, currencies: DEFAULTS };
-
-  if (test) {
-    const quotes = {};
-    const bars = {};
-    for (const code of ['USD', 'EUR']) {
-      try {
-        quotes[code] = await getJson(`https://biquote.io/api/${SYMBOLS[code]}`, fetchImpl);
-        bars[code] = (await getJson(`https://biquote.io/api/${SYMBOLS[code]}/ohlc?interval=1h&limit=30`, fetchImpl)).bars;
-      } catch (e) {
-        quotes[code] = null;
-        bars[code] = null;
-        quotes[code] = { __error: e };
-      }
-    }
-    const safeQuotes = {};
-    const safeBars = {};
-    for (const code of ['USD', 'EUR']) {
-      if (quotes[code] && quotes[code].__error) {
-        safeQuotes[code] = new Proxy({}, { get() { throw quotes[code].__error; } });
-        safeBars[code] = [];
-      } else {
-        safeQuotes[code] = quotes[code];
-        safeBars[code] = bars[code];
-      }
-    }
-    const message = testLines(now, times, safeQuotes, safeBars);
-    const ok = await pushNtfy(topic, 'TEST: Währungsübersicht FX-Alarm', message, ['test_tube'], 3, appUrl, fetchImpl, dry);
-    console.log(ok ? 'Test-Push gesendet' : 'Test-Push fehlgeschlagen');
-    if (!ok) throw new Error('Test-Push fehlgeschlagen');
-    return { test: true, ok };
-  }
-
-  const stateRaw = await readRaw(env, 'fx-alert-state');
-  const state = stateRaw ? JSON.parse(stateRaw) : null;
-  // Fetch lazily inside evaluate via prefetched maps. Prefetch the configured pairs.
-  const currencies = (cfg && cfg.currencies && Object.keys(cfg.currencies).length) ? cfg.currencies : DEFAULTS;
-  const quotes = {};
-  const bars = {};
-  const errors = {};
-  if (!(!force && (isWeekend(now) || !inWindow(now)))) {
-    for (const code of Object.keys(currencies)) {
-      if (!SYMBOLS[code] || currencies[code].enabled === false) continue;
-      try {
-        quotes[code] = await getJson(`https://biquote.io/api/${SYMBOLS[code]}`, fetchImpl);
-        bars[code] = (await getJson(`https://biquote.io/api/${SYMBOLS[code]}/ohlc?interval=1h&limit=30`, fetchImpl)).bars;
-      } catch (e) {
-        errors[code] = e;
-      }
-    }
-  }
+function wrapFetch(quotes, bars, errors, codes) {
   const wrappedQuotes = {};
   const wrappedBars = {};
-  for (const code of Object.keys(currencies)) {
+  for (const code of codes) {
     if (errors[code]) {
-      wrappedQuotes[code] = new Proxy({}, { get() { throw errors[code]; } });
-      wrappedBars[code] = new Proxy({}, { get() { throw errors[code]; } });
+      const err = errors[code];
+      wrappedQuotes[code] = new Proxy({}, { get() { throw err; } });
+      wrappedBars[code] = new Proxy({}, { get() { throw err; } });
     } else {
       wrappedQuotes[code] = quotes[code];
       wrappedBars[code] = bars[code];
     }
   }
-  const decision = evaluateAlerts({ now, times, cfg, state, force, quotes: wrappedQuotes, bars: wrappedBars });
-  for (const line of decision.logs) console.log(line);
-  if (decision.skipped) return { skipped: true };
+  return { quotes: wrappedQuotes, bars: wrappedBars };
+}
 
-  const ok = [];
-  for (let i = 0; i < decision.pushes.length; i++) {
-    const p = decision.pushes[i];
-    if (await pushNtfy(topic, p.title, p.message, p.tags, p.priority, appUrl, fetchImpl, dry)) ok.push(i);
+async function fetchPairs(codes, fetchImpl) {
+  const quotes = {};
+  const bars = {};
+  const errors = {};
+  for (const code of codes) {
+    if (!SYMBOLS[code]) continue;
+    try {
+      quotes[code] = await getJson(`https://biquote.io/api/${SYMBOLS[code]}`, fetchImpl);
+      bars[code] = (await getJson(`https://biquote.io/api/${SYMBOLS[code]}/ohlc?interval=1h&limit=30`, fetchImpl)).bars;
+    } catch (e) {
+      errors[code] = e;
+    }
   }
-  const applied = decision.applyPush(ok);
-  for (const line of applied && decision.logs.slice(decision.logs.length - ok.length)) console.log(line);
-  if (applied.write) await writeRaw(env, 'fx-alert-state', canonicalJson(applied.state));
-  return { skipped: false, changed: applied.changed, pushes: ok.length };
+  return wrapFetch(quotes, bars, errors, codes);
+}
+
+export async function sendTestPush(env, subscription, opts = {}) {
+  const fetchImpl = opts.fetch || fetch;
+  const now = opts.now || new Date();
+  const dry = String(env.FX_DRY || '') === '1' || !!opts.dry;
+  const appUrl = String(env.APP_URL || '').trim();
+  const config = JSON.parse(subscription.config);
+  const times = { start: config.start ?? 6 };
+  const data = await fetchPairs(ALERT_CODES, fetchImpl);
+  const message = testLines(now, times, data.quotes, data.bars);
+  const ok = await pushNtfy(subscription.topic, 'TEST: Währungsübersicht FX-Alarm', message, ['test_tube'], 3, appUrl, fetchImpl, dry);
+  console.log(ok ? 'Test-Push gesendet' : 'Test-Push fehlgeschlagen');
+  if (!ok) throw new Error('Test-Push fehlgeschlagen');
+  return { test: true, ok };
+}
+
+export async function runFxAlerts(env, opts = {}) {
+  const fetchImpl = opts.fetch || fetch;
+  const now = opts.now || new Date();
+  const force = !!opts.force;
+  const dry = String(env.FX_DRY || '') === '1' || !!opts.dry;
+  const appUrl = String(env.APP_URL || '').trim();
+  const { listSubscriptions, pruneSubscriptions, pruneRateLimits, saveSubscriptionState } = await import('./storage.js');
+  const pruned = await pruneSubscriptions(env, inactiveCutoff(now.getTime()));
+  await pruneRateLimits(env, now.getTime());
+  if (pruned) console.log(`${pruned} inaktive Abos entfernt`);
+  if (!force && (isWeekend(now) || !inWindow(now))) {
+    const { hour, minute } = zurichHourMinute(now);
+    console.log(isWeekend(now)
+      ? 'Wochenende – keine Prüfung.'
+      : `Ausserhalb ${pad(WINDOW[0])}:00–${pad(WINDOW[1])}:00 Zürich (${pad(hour)}:${pad(minute)}) – keine Prüfung.`);
+    return { skipped: true, pruned };
+  }
+  const rows = await listSubscriptions(env);
+  if (!rows.length) {
+    console.log('Keine Abos.');
+    return { skipped: true, subscriptions: 0, pruned };
+  }
+  const parsed = rows.map(row => ({
+    ...row,
+    config: JSON.parse(row.config),
+    state: JSON.parse(row.state),
+  }));
+  const codes = new Set(ALERT_CODES);
+  const data = await fetchPairs([...codes], fetchImpl);
+  let pushes = 0;
+  for (const sub of parsed) {
+    const times = { start: sub.config.start ?? 6 };
+    const decision = evaluateAlerts({
+      now,
+      times,
+      cfg: sub.config,
+      state: sub.state,
+      force,
+      quotes: data.quotes,
+      bars: data.bars,
+    });
+    for (const line of decision.logs) console.log(`${sub.id.slice(0, 8)} ${line}`);
+    if (decision.skipped) continue;
+    const ok = [];
+    for (let i = 0; i < decision.pushes.length; i++) {
+      const p = decision.pushes[i];
+      if (await pushNtfy(sub.topic, p.title, p.message, p.tags, p.priority, appUrl, fetchImpl, dry)) ok.push(i);
+    }
+    const applied = decision.applyPush(ok);
+    if (applied.write) await saveSubscriptionState(env, sub.id, canonicalJson(applied.state));
+    pushes += ok.length;
+  }
+  return { skipped: false, subscriptions: rows.length, pushes, pruned };
 }

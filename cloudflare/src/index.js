@@ -1,10 +1,12 @@
-// Währungen auf Cloudflare: statische PWA, D1-Dokumente, Cron für Erfassung und FX-Alarme.
+// Währungen auf Cloudflare: statische PWA, gemeinsame Kurse, Abos je Gerät.
 import { runCapture } from './capture.js';
-import { runFxAlerts } from './alerts.js';
+import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
-import { expandSchedule, parseHour, parseStep } from './schedule.js';
-import { readRaw, writeRaw } from './storage.js';
-import { pad } from './time.js';
+import { parseHour } from './schedule.js';
+import {
+  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readRaw, updateSubscription,
+} from './storage.js';
+import { zurichDateString } from './time.js';
 
 const DOCS = {
   '/data/rates.json': 'rates',
@@ -18,38 +20,12 @@ const JSON_HEADERS = {
   'cache-control': 'no-store',
 };
 
+const ALERT_CODES = ['USD', 'EUR'];
+const MAX_BODY = 4096;
+
 function jsonResponse(body, status = 200) {
   const text = typeof body === 'string' ? body : canonicalJson(body);
   return new Response(text.endsWith('\n') ? text : text + '\n', { status, headers: JSON_HEADERS });
-}
-
-function timingSafeEqual(a, b) {
-  const enc = new TextEncoder();
-  const x = enc.encode(String(a));
-  const y = enc.encode(String(b));
-  const len = Math.max(x.length, y.length);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < len; i++) diff |= (x[i] || 0) ^ (y[i] || 0);
-  return diff === 0;
-}
-
-function passwordStatus(request, env) {
-  const expected = env.APP_PASSWORD;
-  if (!expected) return 'unset';
-  const header = request.headers.get('Authorization') || '';
-  if (!/^Bearer\s+/i.test(header)) return false;
-  const got = header.replace(/^Bearer\s+/i, '');
-  return timingSafeEqual(got, expected);
-}
-
-export function normalizeTimes(body) {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-  const start = parseHour(body.start);
-  const end = parseHour(body.end);
-  const step = parseStep(body.intervalHours);
-  const grid = expandSchedule(start, end, step);
-  if (!grid) return null;
-  return { version: 2, start: pad(start), end: pad(end), intervalHours: step };
 }
 
 export function normalizeAlerts(body) {
@@ -57,8 +33,8 @@ export function normalizeAlerts(body) {
   const currencies = body.currencies;
   if (!currencies || typeof currencies !== 'object' || Array.isArray(currencies)) return null;
   const out = {};
-  for (const [code, c] of Object.entries(currencies)) {
-    if (!/^[A-Z]{3}$/.test(code)) return null;
+  for (const code of ALERT_CODES) {
+    const c = currencies[code];
     if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
     if (typeof c.enabled !== 'boolean') return null;
     const down = typeof c.down === 'number' ? c.down : Number(c.down);
@@ -66,17 +42,123 @@ export function normalizeAlerts(body) {
     if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) return null;
     out[code] = { enabled: c.enabled, down, up };
   }
-  if (!Object.keys(out).length) return null;
+  if (Object.keys(currencies).some(code => !ALERT_CODES.includes(code))) return null;
   return { version: 1, currencies: out };
 }
 
-async function readBody(request) {
-  const text = await request.text();
-  if (!text.trim()) return null;
-  return JSON.parse(text);
+export function normalizeSubscription(body) {
+  const alerts = normalizeAlerts(body);
+  if (!alerts || !validTopic(body.topic)) return null;
+  let start = 6;
+  if (body.start != null && body.start !== '') {
+    const n = parseHour(body.start);
+    if (n == null) return null;
+    start = n;
+  }
+  return { version: 1, topic: body.topic, start, currencies: alerts.currencies };
 }
 
-async function handle(request, env, ctx) {
+function publicAlert(row, now = new Date()) {
+  const config = JSON.parse(row.config);
+  const state = JSON.parse(row.state || '{"date":"","sent":{}}');
+  const today = zurichDateString(now);
+  return {
+    version: 1,
+    topic: row.topic,
+    start: config.start ?? 6,
+    currencies: config.currencies,
+    sent: state.date === today ? (state.sent || {}) : {},
+  };
+}
+
+function hourBucket(now) {
+  return Math.floor(now / 3600000);
+}
+
+function nextHour(now) {
+  return (hourBucket(now) + 1) * 3600000;
+}
+
+async function tooFast(env, request, id, kind) {
+  const now = Date.now();
+  const ip = request.headers.get('CF-Connecting-IP') || 'local';
+  const ipHits = await bumpLimit(env, `ip:${ip}:${hourBucket(now)}`, now, nextHour(now));
+  if (ipHits > LIMITS.ipPerHour) return 'Zu viele Anfragen. Bitte später erneut versuchen.';
+  if (id) {
+    const idHits = await bumpLimit(env, `id:${id}:${hourBucket(now)}`, now, nextHour(now));
+    if (idHits > LIMITS.idPerHour) return 'Zu viele Änderungen für dieses Gerät. Bitte später erneut versuchen.';
+  }
+  if (kind === 'test' && id) {
+    const day = zurichDateString(new Date(now));
+    const resetAt = nextHour(now) + 23 * 3600000;
+    const testHits = await bumpLimit(env, `test:${id}:${day}`, now, resetAt);
+    if (testHits > LIMITS.testPerDay) return 'Zu viele Test-Pushes heute.';
+  }
+  return null;
+}
+
+async function readJsonBody(request) {
+  const text = await request.text();
+  if (text.length > MAX_BODY) return { error: 'Anfrage zu gross', status: 413 };
+  if (!text.trim()) return { error: 'JSON ungültig', status: 400 };
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return { error: 'JSON ungültig', status: 400 };
+  }
+}
+
+async function handleAlerts(request, env, id, test) {
+  if (!validAlertId(id)) return jsonResponse({ error: 'Kennung ungültig' }, 400);
+  const method = request.method.toUpperCase();
+  const limited = await tooFast(env, request, id, test && method === 'POST' ? 'test' : '');
+  if (limited) return jsonResponse({ error: limited }, 429);
+
+  if (method === 'GET' && !test) {
+    const row = await getSubscription(env, id);
+    if (!row) return jsonResponse({ error: 'nicht vorhanden' }, 404);
+    return jsonResponse(publicAlert(row));
+  }
+
+  if (method === 'DELETE' && !test) {
+    await deleteSubscription(env, id);
+    return jsonResponse({ ok: true });
+  }
+
+  if (method === 'POST' && test) {
+    const row = await getSubscription(env, id);
+    if (!row) return jsonResponse({ error: 'Zuerst die Schwellen speichern' }, 404);
+    try {
+      await sendTestPush(env, row);
+    } catch (e) {
+      return jsonResponse({ error: e && e.message ? e.message : 'Test-Push fehlgeschlagen' }, 502);
+    }
+    return jsonResponse({ ok: true });
+  }
+
+  if (method === 'POST' && !test) {
+    const body = await readJsonBody(request);
+    if (body.error) return jsonResponse({ error: body.error }, body.status);
+    const next = normalizeSubscription(body.value);
+    if (!next) return jsonResponse({ error: 'FX-Alarme ungültig' }, 400);
+    const existing = await getSubscription(env, id);
+    const config = canonicalJson({ version: 1, start: next.start, currencies: next.currencies });
+    const now = Date.now();
+    if (!existing) {
+      await insertSubscription(env, id, next.topic, config, now);
+    } else if (existing.topic !== next.topic) {
+      return jsonResponse({ error: 'Thema gehört zu einem anderen Abo' }, 409);
+    } else {
+      await updateSubscription(env, id, config, now);
+    }
+    const row = await getSubscription(env, id);
+    return jsonResponse(publicAlert(row));
+  }
+
+  return jsonResponse({ error: 'nicht gefunden' }, 404);
+}
+
+async function handle(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method.toUpperCase();
@@ -85,52 +167,13 @@ async function handle(request, env, ctx) {
     return jsonResponse({ runtime: 'cloudflare' });
   }
 
-  if (method === 'GET' && path === '/api/auth') {
-    const status = passwordStatus(request, env);
-    if (status === 'unset') return jsonResponse({ error: 'APP_PASSWORD ist nicht gesetzt' }, 503);
-    if (status !== true) return jsonResponse({ error: 'Passwort ungültig' }, 401);
-    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
-  }
+  const alertMatch = path.match(/^\/api\/alerts\/([A-Za-z0-9_-]+)(\/test)?$/);
+  if (alertMatch) return handleAlerts(request, env, alertMatch[1], !!alertMatch[2]);
 
   const docKey = DOCS[path];
   if (method === 'GET' && docKey) {
     const body = await readRaw(env, docKey);
     if (body == null) return jsonResponse({ error: 'nicht vorhanden' }, 404);
-    return jsonResponse(body);
-  }
-
-  if ((method === 'PUT' || method === 'POST') && (path === '/api/capture-times' || path === '/api/fx-alerts' || path === '/api/fx-alerts/test')) {
-    const status = passwordStatus(request, env);
-    if (status === 'unset') return jsonResponse({ error: 'APP_PASSWORD ist nicht gesetzt' }, 503);
-    if (status !== true) return jsonResponse({ error: 'Passwort ungültig' }, 401);
-
-    if (path === '/api/fx-alerts/test') {
-      try {
-        await runFxAlerts(env, { test: true });
-      } catch (e) {
-        return jsonResponse({ error: e && e.message ? e.message : 'Test-Push fehlgeschlagen' }, 502);
-      }
-      return jsonResponse({ ok: true });
-    }
-
-    let parsed;
-    try {
-      parsed = await readBody(request);
-    } catch {
-      return jsonResponse({ error: 'JSON ungültig' }, 400);
-    }
-    if (path === '/api/capture-times') {
-      const next = normalizeTimes(parsed);
-      if (!next) return jsonResponse({ error: 'Erfassungszeiten ungültig (Von vor Bis, Intervall 1, 2, 3, 4, 8, 12 oder 24)' }, 400);
-      const body = canonicalJson(next);
-      await writeRaw(env, 'capture-times', body);
-      ctx.waitUntil(runCapture(env).catch(err => console.error('Erfassung nach Speichern:', err && err.message ? err.message : err)));
-      return jsonResponse(body);
-    }
-    const next = normalizeAlerts(parsed);
-    if (!next) return jsonResponse({ error: 'FX-Alarme ungültig' }, 400);
-    const body = canonicalJson(next);
-    await writeRaw(env, 'fx-alerts', body);
     return jsonResponse(body);
   }
 

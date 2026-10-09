@@ -95,13 +95,12 @@ Ohne Token sind die Schwellen in den Apps nur lesbar.
 
 ## Cloudflare (parallel zu GitHub Pages)
 
-Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Plan). GitHub bleibt das Code-Repository. Actions und Pages bleiben unverändert und laufen weiter, bis sie absichtlich abgeschaltet werden. Der Worker liest zur Laufzeit nichts von GitHub.
+Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Plan). GitHub bleibt das Code-Repository. Actions und Pages bleiben unverändert: dort gelten weiter die gemeinsamen Dateien und der GitHub-Token. Der Worker liest zur Laufzeit nichts von GitHub und hat kein App-Passwort und kein gemeinsames `NTFY_TOPIC`.
 
-- Statische PWA plus `GET /data/rates.json`, `/data/capture-times.json`, `/data/fx-alerts.json`, `/data/fx-alert-state.json` in derselben Form wie die Dateien im Repo.
-- Cron `5 * * * 1-5` und `5 6 * * 6`: Erfassung wie `scripts/capture.py` (Zürich, Raster, 16:00 immer, Nachtrag, Prognosen, EZB).
-- Cron `*/15 5-21 * * 1-5`: FX-Alarme wie `scripts/fx_alerts.py`. Topic ist das Worker-Secret `NTFY_TOPIC`.
-- Speicher ist eine D1-Datenbank mit einer Zeile pro Dokument (nicht KV: Schreiben und direkt folgendes Lesen sollen denselben Stand sehen).
-- Speichern in der App: nur wenn die Seite vom Worker kommt (`GET /api/runtime`). Dann gibt es kein GitHub-Token-Feld, sondern ein App-Passwort (Secret `APP_PASSWORD`, einmal eingeben, `localStorage`). Auf GitHub Pages bleibt der Token-Dialog.
+- `GET /data/rates.json` bleibt im bisherigen Format (die macOS-App liest diese URL). Der Cron erfasst werktags jede volle Stunde 00–23 (Zürich), mit demselben Nachtrag, derselben Quelle und derselben EZB-Logik. Die im JSON gespeicherte Prognose bleibt die zur Stunde 06:00. Weicht die Anzeige davon ab, rechnet die Seite die Prognose aus den gespeicherten Kursen.
+- Die Uhr (Erfassungszeiten) ist nur die Anzeige auf diesem Gerät (`localStorage`, Standard 06:00–20:00 alle 2 Stunden). Speichern braucht kein Netz. Die Tabelle zeigt dieses Raster, dazu immer die Zeile Tagesendkurs 16:00.
+- FX-Alarme: jedes Gerät erzeugt eine eigene Kennung und ein eigenes ntfy-Thema `wae-…`. Schwellen gehen an `POST /api/alerts/<kennung>` ohne Passwort; die Kennung ist der Zugriff. Der 15-Minuten-Cron prüft jedes Abo und schickt höchstens eine Meldung je Währung und Richtung und Tag. Abos ohne Änderung seit 90 Tagen werden gelöscht. In der Glocke stehen die Schritte zum Abonnieren, ein Link auf `https://ntfy.sh/<thema>`, «Test-Push senden» und «Abo löschen».
+- `GET /data/capture-times.json`, `/data/fx-alerts.json` und `/data/fx-alert-state.json` bleiben die importierten Dateien. Daraus wird kein persönliches Abo.
 
 Die macOS-App liest weiter dasselbe JSON. Worker-URL:
 
@@ -109,7 +108,7 @@ Die macOS-App liest weiter dasselbe JSON. Worker-URL:
 
 Deploy von einem Linux-Rechner mit Node 22 oder neuer (`npx wrangler` 4.x braucht das), im Verzeichnis `cloudflare/`. Der API-Token braucht Account-Rechte Workers Scripts, D1, Workers KV Storage und Cloudflare Pages (Edit). Nicht committen.
 
-`database_id` (`89ef4623-822f-425e-b016-fe0bb43b946f`) und `APP_URL` (`https://waehrungen.bigyok61.workers.dev/`) stehen in `wrangler.toml`. `npx wrangler d1 create waehrungen` nur, wenn die Datenbank neu angelegt werden muss; dann die neue `database_id` eintragen.
+`database_id` (`89ef4623-822f-425e-b016-fe0bb43b946f`) und `APP_URL` (`https://waehrungen.bigyok61.workers.dev/`) stehen in `wrangler.toml`. `npx wrangler d1 create waehrungen` nur, wenn die Datenbank neu angelegt werden muss; dann die neue `database_id` eintragen. Waren `APP_PASSWORD` oder `NTFY_TOPIC` früher als Worker-Secret gesetzt, können sie weg: `npx wrangler secret delete APP_PASSWORD` und `npx wrangler secret delete NTFY_TOPIC`. Der GitHub-Workflow «FX-Push-Alarme (ntfy)» bleibt davon unberührt.
 
 ```bash
 cd cloudflare
@@ -118,26 +117,12 @@ export CLOUDFLARE_ACCOUNT_ID='7990e79f1ae37e88673013377e1e75f0'
 
 npx wrangler d1 migrations apply waehrungen --remote
 node import.mjs
-printf '%s' 'HIER-APP-PASSWORT' | npx wrangler secret put APP_PASSWORD
 node prepare-assets.mjs
 npx wrangler deploy
 ```
 
-`node import.mjs` kopiert `data/rates.json`, `data/capture-times.json`, `data/fx-alerts.json` und `data/fx-alert-state.json` nach D1, inklusive des ganzen bisherigen Verlaufs, als ein einziges `INSERT`. Ohne `BEGIN`/`COMMIT`: die Remote-Import-API von D1 führt die Datei selbst als eine Einheit aus und lehnt explizite Transaktionen ab. Ein zweites Ausführen ersetzt diese vier Dokumente wieder durch die Dateien im Repo; Zwischenergebnisse des Workers gehen dabei verloren.
+`node import.mjs` kopiert `data/rates.json`, `data/capture-times.json`, `data/fx-alerts.json` und `data/fx-alert-state.json` nach D1, inklusive des ganzen bisherigen Verlaufs, als ein einziges `INSERT`. Ohne `BEGIN`/`COMMIT`: die Remote-Import-API von D1 führt die Datei selbst als eine Einheit aus. Ein zweites Ausführen ersetzt diese vier Dokumente wieder durch die Dateien im Repo. Persönliche Abos in `subscriptions` bleiben dabei stehen. Der Import legt keine Abos an; die bestehenden GitHub-Schwellen werden nicht übernommen.
 
-`NTFY_TOPIC` erst setzen, wenn der GitHub-Workflow «FX-Push-Alarme (ntfy)» aus ist. Sonst prüft der Worker parallel und schickt dieselbe Meldung ein zweites Mal.
+Lokal, ohne Token: `node --test cloudflare/test/logic.test.mjs`. `node prepare-assets.mjs`, `npx wrangler d1 migrations apply waehrungen --local`, `node import.mjs --local`, dann `npx wrangler dev` (`FX_DRY=1` in `cloudflare/.dev.vars`, Vorlage `.dev.vars.example`).
 
-```bash
-printf '%s' 'TOPIC-WIE-IM-GITHUB-SECRET' | npx wrangler secret put NTFY_TOPIC
-```
-
-Ohne dieses Secret überspringt der Alarm-Cron die Prüfung und gilt nicht als Fehler. Test-Push statt `gh workflow run … -f test=true`: in der App das Passwort speichern ist nicht nötig; von aussen:
-
-```bash
-curl -X POST -H "Authorization: Bearer HIER-APP-PASSWORT" \
-  https://waehrungen.bigyok61.workers.dev/api/fx-alerts/test
-```
-
-Lokal, ohne Token: `node --test cloudflare/test/logic.test.mjs` vergleicht Erfassung, Prognose, Raster und Alarme mit den Python-Skripten. `node prepare-assets.mjs`, `npx wrangler d1 migrations apply waehrungen --local`, `node import.mjs --local`, dann `npx wrangler dev` (Passwort in `cloudflare/.dev.vars`, Vorlage `.dev.vars.example`).
-
-Was festzulegen ist, bevor der Mac und die Pushes umgezogen werden: das App-Passwort und der Zeitpunkt, an dem `NTFY_TOPIC` gesetzt und die beiden GitHub-Workflows abgeschaltet werden. Bis dahin kann Pages unter https://bigyok61.github.io/currency/ bleiben. Der Worker ist unter https://waehrungen.bigyok61.workers.dev/ erreichbar.
+Der Worker ist unter https://waehrungen.bigyok61.workers.dev/ erreichbar. Pages kann unter https://bigyok61.github.io/currency/ bleiben, bis die macOS-App umgezogen wird.

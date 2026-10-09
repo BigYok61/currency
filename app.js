@@ -104,11 +104,6 @@ function applyTimesConfig(data) {
   timesFit = true;
 }
 applyTimesConfig(null);
-function hoursLabel() {
-  const parts = HOURS.map(pad);
-  if (parts.length <= 1) return parts[0] || pad(schedule.start);
-  return `${parts.slice(0, -1).join(', ')} und ${parts[parts.length - 1]}`;
-}
 const START = '2026-10-01';
 const TZ = 'Europe/Zurich';
 const EPS = 0.00005;
@@ -127,7 +122,6 @@ function weekdayKeys(from, to) {
 }
 const hdrFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'short', timeZone: 'UTC' });
 function header(key) { const d = new Date(key + 'T12:00:00Z'); return `${hdrFmt.format(d).replace('.', '')} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`; }
-const longFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const pctFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
@@ -179,6 +173,72 @@ function forecastBasisHour(c, dayKey, kind) {
   const hasForecast = kind === '7' ? fc7(c, dayKey) != null : fc(c, dayKey) != null;
   if (hasForecast) return LEGACY_BASIS;
   return changeBasis(c, dayKey);
+}
+function weekdayDate(key) {
+  const wd = new Date(key + 'T12:00:00Z').getUTCDay();
+  return wd !== 0 && wd !== 6;
+}
+function previousCloses(code, day, limit) {
+  const closes = [];
+  let d = day;
+  for (let i = 0; i < 40 && closes.length < limit; i++) {
+    d = addDays(d, -1);
+    if (!weekdayDate(d)) continue;
+    const close = history.days[d]?.slots?.[pad(CLOSE_HOUR)]?.[code];
+    if (close != null) closes.push(close);
+    else if (history.days[d]?.ecb && Object.prototype.hasOwnProperty.call(history.days[d].ecb, code)) closes.push(history.days[d].ecb[code]);
+  }
+  return closes;
+}
+/** Prognose aus den gespeicherten Stundenkursen, wenn die Basis nicht die Startstunde dieses Geräts ist. */
+function clientForecastDay(code, day, basisHour) {
+  const spot = history.days[day]?.slots?.[pad(basisHour)]?.[code];
+  if (spot == null) return null;
+  const closes = [];
+  let d = day;
+  for (let i = 0; i < 14 && closes.length < 6; i++) {
+    d = addDays(d, -1);
+    if (!weekdayDate(d)) continue;
+    const close = history.days[d]?.slots?.[pad(CLOSE_HOUR)]?.[code];
+    if (close != null) closes.push(close);
+  }
+  if (closes.length < 2) return null;
+  const trend = (closes[0] - closes[closes.length - 1]) / (closes.length - 1);
+  const overnight = spot - closes[0];
+  const avgRange = Math.abs(spot) * 0.005;
+  let change = 0.5 * trend - 0.3 * overnight;
+  const limit = 0.5 * avgRange;
+  change = Math.min(Math.max(change, -limit), limit);
+  return spot + change;
+}
+function clientForecast7(code, day, basisHour) {
+  const spot = history.days[day]?.slots?.[pad(basisHour)]?.[code];
+  if (spot == null) return null;
+  const closes = previousCloses(code, day, 20);
+  if (closes.length < 2) return null;
+  const rets = [];
+  for (let i = 0; i < closes.length - 1; i++) rets.push(Math.log(closes[i] / closes[i + 1]));
+  const head = rets.slice(0, 10);
+  const m = head.reduce((s, v) => s + v, 0) / head.length;
+  const horizon = 5;
+  const trend = spot * 0.3 * horizon * m;
+  const revert = closes.length >= 5 ? 0.15 * (closes.reduce((s, v) => s + v, 0) / closes.length - spot) : 0;
+  let sd = 0.005;
+  if (rets.length >= 3) {
+    const mean = rets.reduce((s, v) => s + v, 0) / rets.length;
+    sd = Math.sqrt(rets.reduce((s, r0) => s + (r0 - mean) ** 2, 0) / (rets.length - 1));
+  }
+  const limit = sd * Math.sqrt(horizon) * spot;
+  const change = Math.min(Math.max(trend + revert, -limit), limit);
+  return spot + change;
+}
+function displayForecast(c, dayKey, kind) {
+  const stored = kind === '7' ? fc7(c, dayKey) : fc(c, dayKey);
+  const basis = forecastBasisHour(c, dayKey, kind);
+  if (runtime !== 'cloudflare' || (stored != null && basis === schedule.start)) return { value: stored, basis };
+  const computed = kind === '7' ? clientForecast7(c.code, dayKey, schedule.start) : clientForecastDay(c.code, dayKey, schedule.start);
+  if (computed != null) return { value: computed, basis: schedule.start };
+  return { value: stored, basis };
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
@@ -275,7 +335,8 @@ function render(opts = {}) {
     // Prognosen vor den Uhrzeiten. Die Basis ist die Startstunde (bei älteren Prognosen 08:00).
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
     for (const k of days) {
-      const f = fc(c, k), basisHour = forecastBasisHour(c, k, 'day');
+      const shownFc = displayForecast(c, k, 'day');
+      const f = shownFc.value, basisHour = shownFc.basis;
       const base = basisHour != null ? val(c, k, basisHour) : null;
       let arrow = '';
       if (f != null && base != null) {
@@ -289,7 +350,8 @@ function render(opts = {}) {
     // Prognose 7 Tage (erstellt zur Basisstunde, Ziel: gleicher Wochentag eine Woche später, 16:00)
     h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung – Kurs eine Woche später (gleicher Wochentag, 16:00)">Prognose 7 Tage *</th>';
     for (const k of days) {
-      const f = fc7(c, k), basisHour = forecastBasisHour(c, k, '7');
+      const shownFc = displayForecast(c, k, '7');
+      const f = shownFc.value, basisHour = shownFc.basis;
       const base = basisHour != null ? val(c, k, basisHour) : null;
       let arrow = '';
       if (f != null && base != null) {
@@ -301,13 +363,13 @@ function render(opts = {}) {
     }
     h += '</tr><tr class="dev"><th class="lab">Abweichung Tagesende</th>';
     for (const k of days) {
-      const f = fc(c, k), a = val(c, k, CLOSE_HOUR);
+      const f = displayForecast(c, k, 'day').value, a = val(c, k, CLOSE_HOUR);
       if (f != null && a != null) { const d = a - f; h += td(k, (d >= 0 ? '+' : '') + r(d), '', `Ist 16:00: ${r(a)} · Prognose: ${r(f)}`); }
       else h += td(k, '–', 'empty');
     }
     h += '</tr><tr class="dev"><th class="lab">Abweichung 7 Tage</th>';
     for (const k of days) {
-      const f = fc7(c, k);
+      const f = displayForecast(c, k, '7').value;
       if (f == null) { h += td(k, '–', 'empty'); continue; }
       const a = actual7(c, k);
       if (a) { const d = a.v - f; h += td(k, (d >= 0 ? '+' : '') + r(d), '', `Ist ${header(a.day)} ${pad(a.hr)}:00: ${r(a.v)} · Prognose: ${r(f)}`); }
@@ -348,13 +410,6 @@ function render(opts = {}) {
   sc.scrollLeft = opts.keepScroll ? left : sc.scrollWidth;
   sc.scrollTop = top;
 
-  const ecbDays = Object.keys(history.days).filter(k => Object.keys(history.days[k].ecb || {}).length).sort();
-  const last = ecbDays[ecbDays.length - 1];
-  const note = document.getElementById('hoursNote');
-  if (note) note.textContent = `Mittelkurs werktags um ${hoursLabel()} Uhr Schweizer Zeit (Europe/Zurich), Eröffnungskurs der Stundenkerze. Tagesendkurs 16:00 wird immer erfasst. «Aktuell» = Live-Kurs beim Öffnen/Aktualisieren (nur heute, wird nicht gespeichert)`;
-  const fcNote = document.getElementById('fcNote');
-  if (fcNote) fcNote.textContent = `* Prognose Tagesende (16:00) und Prognose 7 Tage (gleicher Wochentag eine Woche später, 16:00), jeweils zum Startzeitpunkt ${pad(schedule.start)}:00 erstellt: Schätzung, keine Anlageberatung. ↓ = CHF stärker, ↑ = CHF schwächer`;
-  document.getElementById('stand').textContent = last ? `Stand: ${longFmt.format(new Date(last + 'T12:00:00Z'))}, EZB-Referenzkurse` : 'EZB-Referenzkurse (noch keine Daten)';
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
 }
 
@@ -402,10 +457,10 @@ function csv() {
   const lines = [['Währung', 'Zeit', ...days.map(dmy)].join(';')];
   for (const c of currenciesInOrder()) {
     const L = `${c.label} in CHF`;
-    lines.push([L, 'Prognose 16:00 (Schätzung)', ...days.map(k => num(fc(c, k)))].join(';'));
-    lines.push([L, 'Prognose 7 Tage (Schätzung, Ziel +7 Tage 16:00)', ...days.map(k => num(fc7(c, k)))].join(';'));
-    lines.push([L, 'Abweichung Ist − Prognose', ...days.map(k => { const f = fc(c, k), a = val(c, k, CLOSE_HOUR); return f != null && a != null ? num(a - f) : ''; })].join(';'));
-    lines.push([L, 'Abweichung 7 Tage Ist − Prognose', ...days.map(k => { const f = fc7(c, k), a = actual7(c, k); return f != null && a ? num(a.v - f) : ''; })].join(';'));
+    lines.push([L, 'Prognose 16:00 (Schätzung)', ...days.map(k => num(displayForecast(c, k, 'day').value))].join(';'));
+    lines.push([L, 'Prognose 7 Tage (Schätzung, Ziel +7 Tage 16:00)', ...days.map(k => num(displayForecast(c, k, '7').value))].join(';'));
+    lines.push([L, 'Abweichung Ist − Prognose', ...days.map(k => { const f = displayForecast(c, k, 'day').value, a = val(c, k, CLOSE_HOUR); return f != null && a != null ? num(a - f) : ''; })].join(';'));
+    lines.push([L, 'Abweichung 7 Tage Ist − Prognose', ...days.map(k => { const f = displayForecast(c, k, '7').value, a = actual7(c, k); return f != null && a ? num(a.v - f) : ''; })].join(';'));
     HOURS.forEach(hr => {
       lines.push([L, `${pad(hr)}:00`, ...days.map(k => num(val(c, k, hr)))].join(';'));
     });
@@ -425,16 +480,17 @@ const STATE_PATH = 'data/fx-alert-state.json';
 const DEFAULT_TIMES = { version: 2, start: '06', end: '20', intervalHours: 2 };
 const LS_TOKEN = 'wu.ghToken';
 const LS_TIMES = 'wu.captureTimes';
+const LS_VIEW = 'wu.viewSchedule';
+const LS_ALERT_ID = 'wu.alertId';
+const LS_ALERT_TOPIC = 'wu.alertTopic';
 const TIMES_FRESH_MS = 10 * 60 * 1000;
 const ALERT_CODES = ['USD', 'EUR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
 const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
-const LS_PASSWORD = 'wu.appPassword';
 /** 'github' auf Pages und lokal, 'cloudflare' wenn /api/runtime vom Worker kommt. */
 let runtime = 'github';
 let runtimePromise;
-const appPassword = () => localStorage.getItem(LS_PASSWORD) || '';
-const canWrite = () => runtime === 'cloudflare' ? !!appPassword() : !!ghToken();
+const canWrite = () => runtime === 'cloudflare' || !!ghToken();
 const b64e = str => btoa(String.fromCharCode(...new TextEncoder().encode(str)));
 const b64d = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, '')), ch => ch.charCodeAt(0)));
 let alertCfg = null, alertState = null;
@@ -504,12 +560,41 @@ async function detectRuntime() {
   } catch { /* GitHub Pages oder lokale Datei */ }
   return 'github';
 }
-async function fetchTimes() {
-  if (runtime === 'cloudflare') {
-    const saved = rememberedTimes();
-    const local = await fetchJson(`${TIMES_PATH}?t=${Date.now()}`);
-    return pickTimes({ api: local, raw: null, pages: null, saved });
+function readViewDoc() {
+  try {
+    const raw = localStorage.getItem(LS_VIEW);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return parseSchedule(data) ? data : null;
+  } catch { return null; }
+}
+function writeView(sch) {
+  const data = { version: 2, start: pad(sch.start), end: pad(sch.end), intervalHours: sch.intervalHours };
+  localStorage.setItem(LS_VIEW, JSON.stringify(data));
+  return data;
+}
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return [...buf].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function ensureAlertIdentity() {
+  let id = localStorage.getItem(LS_ALERT_ID) || '';
+  let topic = localStorage.getItem(LS_ALERT_TOPIC) || '';
+  if (!/^[a-f0-9]{64}$/.test(id) || !/^wae-[a-f0-9]{32}$/.test(topic)) {
+    id = randomHex(32);
+    topic = `wae-${randomHex(16)}`;
+    localStorage.setItem(LS_ALERT_ID, id);
+    localStorage.setItem(LS_ALERT_TOPIC, topic);
   }
+  return { id, topic };
+}
+function clearAlertIdentity() {
+  localStorage.removeItem(LS_ALERT_ID);
+  localStorage.removeItem(LS_ALERT_TOPIC);
+}
+async function fetchTimes() {
+  if (runtime === 'cloudflare') return readViewDoc();
   let api = null;
   if (ghToken()) {
     try {
@@ -525,36 +610,36 @@ async function fetchTimes() {
   const pages = await fetchJson(`${TIMES_PATH}?t=${Date.now()}`);
   return pickTimes({ api: null, raw, pages, saved });
 }
+let alertLoadError = '';
 async function loadAlerts() {
   if (runtime === 'cloudflare') {
-    alertCfg = await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`);
-    alertCfg ||= structuredClone(DEFAULT_ALERTS);
-    alertState = await fetchJson(`${STATE_PATH}?t=${Date.now()}`);
+    alertLoadError = '';
+    const { id } = ensureAlertIdentity();
+    try {
+      const res = await fetch(`api/alerts/${id}?t=${Date.now()}`, { cache: 'no-store' });
+      if (res.status === 404) {
+        alertCfg = structuredClone(DEFAULT_ALERTS);
+        alertState = null;
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      alertCfg = await res.json();
+      alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
+    } catch (e) {
+      alertCfg = structuredClone(DEFAULT_ALERTS);
+      alertState = null;
+      alertLoadError = e.message || 'Alarme konnten nicht geladen werden';
+    }
     return;
   }
   try { alertCfg = ghToken() ? (await ghGet(ALERTS_PATH)).data : await publicGet(ALERTS_PATH); } catch (e) { alertCfg = await publicGet(ALERTS_PATH); }
   alertCfg ||= structuredClone(DEFAULT_ALERTS);
   alertState = await publicGet(STATE_PATH);
 }
-async function saveCloud(path, body) {
-  const res = await fetch(path, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${appPassword()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    cache: 'no-store',
-  });
-  if (res.status === 401) throw new Error('Passwort ungültig');
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.json()).error || ''; } catch { /* Antwort ohne JSON */ }
-    throw new Error(detail || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-async function checkPassword(pw) {
-  const res = await fetch('api/auth', { headers: { Authorization: `Bearer ${pw}` }, cache: 'no-store' });
-  if (res.status === 401) throw new Error('Passwort ungültig');
-  if (!res.ok) throw new Error(res.status === 503 ? 'App-Passwort ist auf dem Server nicht gesetzt' : `Passwortprüfung HTTP ${res.status}`);
+async function alertError(res) {
+  let detail = '';
+  try { detail = (await res.json()).error || ''; } catch { /* Antwort ohne JSON */ }
+  return detail || `HTTP ${res.status}`;
 }
 /** Änderung auf den aktuellen Stand im Repo anwenden und committen (bei Konflikt erneut) */
 async function saveRepoFile(path, message, fallback, mutate) {
@@ -572,15 +657,121 @@ async function saveRepoFile(path, message, fallback, mutate) {
 }
 async function saveAlerts(mutate) {
   if (runtime === 'cloudflare') {
-    const cur = (await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`)) || structuredClone(DEFAULT_ALERTS);
+    const { id, topic } = ensureAlertIdentity();
+    const cur = structuredClone(DEFAULT_ALERTS);
+    if (alertCfg?.currencies) cur.currencies = structuredClone(alertCfg.currencies);
     mutate(cur);
-    alertCfg = await saveCloud('api/fx-alerts', cur);
+    const res = await fetch(`api/alerts/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, start: schedule.start, currencies: cur.currencies }),
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(await alertError(res));
+    alertCfg = await res.json();
+    alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
     return;
   }
   alertCfg = await saveRepoFile(ALERTS_PATH, 'FX-Alarme geändert', DEFAULT_ALERTS, mutate);
 }
+function readAlertForm(dlg) {
+  const vals = {};
+  for (const inp of dlg.querySelectorAll('input[data-code]')) {
+    const o = (vals[inp.dataset.code] ||= {});
+    if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
+    else {
+      const v = parseFloat(String(inp.value).replace(',', '.'));
+      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).` };
+      o[inp.dataset.k] = Math.round(v * 100) / 100;
+    }
+  }
+  return { vals };
+}
+function applyAlertForm(mutateVals) {
+  return saveAlerts(cur => {
+    cur.version ||= 1;
+    cur.currencies ||= {};
+    for (const [code, o] of Object.entries(mutateVals)) cur.currencies[code] = Object.assign(cur.currencies[code] || {}, o);
+  });
+}
 function alertMsg(text, ok) { const m = $('alMsg'); if (m) { m.textContent = text || ''; m.className = ok ? 'msg ok' : 'msg err'; m.hidden = !text; } }
+function sentLabel(sent, code) {
+  return ['down', 'up'].filter(d => sent[`${code}:${d}`]).map(d => `${d === 'down' ? '▼' : '▲'} ${esc(sent[`${code}:${d}`].time || '')}`).join(' ') || '–';
+}
+function renderCloudAlerts() {
+  const dlg = $('alerts');
+  const { topic } = ensureAlertIdentity();
+  const todayKey = zurichToday();
+  const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
+  const href = `https://ntfy.sh/${topic}`;
+  let h = `<form method="dialog" class="dlghead"><h2>FX-Alarme</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
+    <p class="note">Gilt nur für dieses Gerät. Push, wenn sich der Kurs gegenüber ${pad(schedule.start)}:00 Schweizer Zeit (vorher: Tageseröffnung) stärker als die Schwelle bewegt. Werktags etwa 07:00–22:00, alle 15 Minuten, je Währung und Richtung höchstens einmal am Tag.</p>
+    <p class="note">So abonnieren:</p>
+    <ol class="steps">
+      <li>ntfy-App installieren oder ntfy.sh öffnen.</li>
+      <li>Dieses Thema abonnieren: <code class="topic">${esc(topic)}</code></li>
+      <li>Schwellen speichern. Ein Test-Push prüft, ob die Meldung ankommt.</li>
+    </ol>
+    <div class="row"><a class="btnlink" href="${esc(href)}" target="_blank" rel="noopener">Thema abonnieren</a><button id="alTest" type="button">Test-Push senden</button></div>`;
+  for (const code of ALERT_CODES) {
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
+    h += `<section class="alcard"><h3>${code}/CHF</h3>
+      <label class="alfield"><span>Aktiv</span><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''}></label>
+      <label class="alfield"><span>Fällt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}"> %</span></label>
+      <label class="alfield"><span>Steigt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}"> %</span></label>
+      <p class="note">Heute gesendet: ${sentLabel(sent, code)}</p></section>`;
+  }
+  h += `<p id="alMsg" class="msg"${alertLoadError ? '' : ' hidden'}>${alertLoadError ? esc(alertLoadError) : ''}</p>
+    <div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="alDrop" type="button" class="danger">Abo löschen</button></div>`;
+  dlg.innerHTML = h;
+  if (alertLoadError) { const m = $('alMsg'); m.className = 'msg err'; }
+  const saveFromForm = () => {
+    const form = readAlertForm(dlg);
+    if (form.error) { alertMsg(form.error); return null; }
+    return form.vals;
+  };
+  $('alSave').onclick = async () => {
+    const vals = saveFromForm();
+    if (!vals) return;
+    const sv = $('alSave');
+    sv.disabled = true; alertMsg('Speichere …', true);
+    try {
+      await applyAlertForm(vals);
+      renderCloudAlerts();
+      alertMsg('Gespeichert. Gilt ab dem nächsten Lauf (alle 15 Min.).', true);
+    } catch (e) { sv.disabled = false; alertMsg(`Speichern fehlgeschlagen: ${e.message}`); }
+  };
+  $('alTest').onclick = async () => {
+    const vals = saveFromForm();
+    if (!vals) return;
+    const btn = $('alTest');
+    btn.disabled = true; alertMsg('Sende Test-Push …', true);
+    try {
+      await applyAlertForm(vals);
+      const { id } = ensureAlertIdentity();
+      const res = await fetch(`api/alerts/${id}/test`, { method: 'POST', cache: 'no-store' });
+      if (!res.ok) throw new Error(await alertError(res));
+      renderCloudAlerts();
+      alertMsg('Test-Push gesendet. In ntfy sollte «TEST» erscheinen.', true);
+    } catch (e) { btn.disabled = false; alertMsg(`Test-Push fehlgeschlagen: ${e.message}`); }
+  };
+  $('alDrop').onclick = async () => {
+    if (!confirm('Alarm und Thema auf diesem Gerät löschen?')) return;
+    const { id } = ensureAlertIdentity();
+    try {
+      const res = await fetch(`api/alerts/${id}`, { method: 'DELETE', cache: 'no-store' });
+      if (!res.ok) throw new Error(await alertError(res));
+      clearAlertIdentity();
+      alertCfg = structuredClone(DEFAULT_ALERTS);
+      alertState = null;
+      alertLoadError = '';
+      renderCloudAlerts();
+      alertMsg('Abo gelöscht. Es gibt ein neues Thema.', true);
+    } catch (e) { alertMsg(`Löschen fehlgeschlagen: ${e.message}`); }
+  };
+}
 function renderAlerts() {
+  if (runtime === 'cloudflare') return renderCloudAlerts();
   const dlg = $('alerts'), rw = canWrite();
   const todayKey = zurichToday();
   const sent = alertState && alertState.date === todayKey ? alertState.sent || {} : {};
@@ -590,16 +781,12 @@ function renderAlerts() {
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
     const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    const s = ['down', 'up'].filter(d => sent[`${code}:${d}`]).map(d => `${d === 'down' ? '▼' : '▲'} ${esc(sent[`${code}:${d}`].time || '')}`).join(' ') || '–';
     h += `<tr><td>${code}/CHF</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
-      <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${s}</td></tr>`;
+      <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${sentLabel(sent, code)}</td></tr>`;
   }
   h += '</tbody></table><p id="alMsg" class="msg" hidden></p>';
-  if (rw) h += `<div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="tokOut" type="button" class="danger">${runtime === 'cloudflare' ? 'Passwort entfernen' : 'Token entfernen'}</button></div>`;
-  else if (runtime === 'cloudflare') h += `<p class="note">Nur lesbar. Zum Ändern einmalig das App-Passwort eintragen.</p>
-    <div class="row"><input id="tok" type="password" placeholder="App-Passwort" autocomplete="current-password"><button id="tokSave" type="button">Passwort speichern</button></div>
-    <p class="note">Das Passwort bleibt nur in diesem Browser (localStorage) und wird nur an diese Website gesendet.</p>`;
+  if (rw) h += '<div class="row"><button id="alSave" type="button" class="primary">Speichern</button><button id="tokOut" type="button" class="danger">Token entfernen</button></div>';
   else h += `<p class="note">Nur lesbar. Zum Ändern einmalig einen GitHub-Token (Fine-grained, nur Repository ${REPO}, Contents: Read and write) eintragen –
     oder die Datei direkt auf GitHub bearbeiten: <a href="https://github.com/${REPO}/edit/main/${ALERTS_PATH}" target="_blank" rel="noopener">${ALERTS_PATH}</a>.</p>
     <div class="row"><input id="tok" type="password" placeholder="GitHub-Token (github_pat_…)" autocomplete="off"><button id="tokSave" type="button">Token speichern</button></div>
@@ -607,47 +794,22 @@ function renderAlerts() {
   dlg.innerHTML = h;
   const sv = $('alSave');
   if (sv) sv.onclick = async () => {
-    const vals = {};
-    for (const inp of dlg.querySelectorAll('input[data-code]')) {
-      const o = (vals[inp.dataset.code] ||= {});
-      if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
-      else {
-        const v = parseFloat(String(inp.value).replace(',', '.'));
-        if (!(v > 0 && v <= 20)) return alertMsg(`Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).`);
-        o[inp.dataset.k] = Math.round(v * 100) / 100;
-      }
-    }
+    const form = readAlertForm(dlg);
+    if (form.error) return alertMsg(form.error);
     sv.disabled = true; alertMsg('Speichere …', true);
     try {
-      await saveAlerts(cur => { cur.version ||= 1; cur.currencies ||= {}; for (const [code, o] of Object.entries(vals)) cur.currencies[code] = Object.assign(cur.currencies[code] || {}, o); });
+      await applyAlertForm(form.vals);
       renderAlerts(); alertMsg('Gespeichert. Gilt ab dem nächsten Lauf (alle 15 Min.).', true);
     } catch (e) { sv.disabled = false; alertMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };
   const ts = $('tokSave');
   if (ts) ts.onclick = async () => {
     const t = $('tok').value.trim(); if (!t) return;
-    if (runtime === 'cloudflare') {
-      try {
-        await checkPassword(t);
-        localStorage.setItem(LS_PASSWORD, t);
-        alertCfg = (await fetchJson(`${ALERTS_PATH}?t=${Date.now()}`)) || alertCfg;
-        renderAlerts();
-        alertMsg('Passwort gespeichert – Bearbeiten ist aktiv.', true);
-      } catch (e) {
-        localStorage.removeItem(LS_PASSWORD);
-        alertMsg(`Passwort abgelehnt: ${e.message}`);
-      }
-      return;
-    }
     localStorage.setItem(LS_TOKEN, t);
     try { alertCfg = (await ghGet(ALERTS_PATH)).data || alertCfg; renderAlerts(); alertMsg('Token gespeichert – Bearbeiten ist aktiv.', true); }
     catch (e) { localStorage.removeItem(LS_TOKEN); alertMsg(`Token abgelehnt: ${e.message}`); }
   };
-  const to = $('tokOut'); if (to) to.onclick = () => {
-    if (runtime === 'cloudflare') localStorage.removeItem(LS_PASSWORD);
-    else localStorage.removeItem(LS_TOKEN);
-    renderAlerts();
-  };
+  const to = $('tokOut'); if (to) to.onclick = () => { localStorage.removeItem(LS_TOKEN); renderAlerts(); };
 }
 async function openAlerts() {
   const dlg = $('alerts');
@@ -678,7 +840,7 @@ function timeOptions(selected) {
 function renderTimes() {
   const dlg = $('times'), rw = canWrite();
   let h = `<form method="dialog" class="dlghead"><h2>Erfassungszeiten</h2><button value="close" aria-label="Schliessen">${XMARK}</button></form>
-    <p class="note">Volle Stunden Schweizer Zeit, von–bis.</p>
+    <p class="note">${runtime === 'cloudflare' ? 'Gilt nur für die Anzeige auf diesem Gerät. Volle Stunden Schweizer Zeit, von–bis.' : 'Volle Stunden Schweizer Zeit, von–bis.'}</p>
     <div class="tm">
       <div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(schedule.start)}</select></div>
       <div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(schedule.end)}</select></div>
@@ -689,8 +851,7 @@ function renderTimes() {
     <div class="tm-preview" aria-live="polite"><div id="tmPills" class="pills"></div><p id="tmCount" class="tm-count"></p></div>
     <p id="tmExtra" class="note" hidden></p>
     <p id="tmMsg" class="msg" hidden></p>`;
-  if (rw) h += '<div class="row"><button id="tmSave" type="button" class="primary">Speichern</button></div>';
-  else if (runtime === 'cloudflare') h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern Passwort eingeben</button>';
+  if (rw) h += '<div class="row end"><button id="tmSave" type="button" class="primary">Speichern</button></div>';
   else h += '<button type="button" id="tmConnect" class="tm-link">Zum Speichern mit GitHub verbinden</button>';
   dlg.innerHTML = h;
   const readForm = () => ({
@@ -712,7 +873,6 @@ function renderTimes() {
     }
     pills.innerHTML = previewPills(pattern);
     count.textContent = measurementCaption(pattern.length);
-    notes.push('Tagesendkurs 16:00 wird immer erfasst.');
     if (!timesFit) notes.push('Die gespeicherte Liste folgt keinem Von/Bis-Raster und gilt bis zum Speichern.');
     extra.hidden = notes.length === 0;
     extra.textContent = notes.join(' ');
@@ -744,23 +904,25 @@ function renderTimes() {
     if (!expandSchedule(sch.start, sch.end, sch.intervalHours).length) return tmMsg('Beginn muss vor dem Ende liegen.');
     sv.disabled = true; tmMsg('Speichere …', true);
     try {
-      const saved = runtime === 'cloudflare'
-        ? await saveCloud('api/capture-times', { version: 2, start: pad(sch.start), end: pad(sch.end), intervalHours: sch.intervalHours })
-        : await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
+      if (runtime === 'cloudflare') {
+        try { writeView(sch); } catch { /* Anzeige gilt trotzdem für diese Sitzung */ }
+      } else {
+        const saved = await saveRepoFile(TIMES_PATH, 'Erfassungszeiten geändert', DEFAULT_TIMES, cur => {
           cur.version = 2;
           cur.start = pad(sch.start);
           cur.end = pad(sch.end);
           cur.intervalHours = sch.intervalHours;
           delete cur.hours;
         });
-      rememberTimes(saved);
+        rememberTimes(saved);
+      }
       schedule = sch;
       HOURS = hoursFromSchedule(sch);
       timesFit = true;
       render({ keepScroll: true });
       renderTimes();
       tmMsg(runtime === 'cloudflare'
-        ? 'Gespeichert. Die Erfassung läuft jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.'
+        ? 'Gespeichert. Die Tabelle zeigt jetzt dieses Raster.'
         : 'Gespeichert. Erfassung und Seitenveröffentlichung laufen jetzt; fehlende Kurse der letzten ca. 7 Tage werden nachgetragen. Neue Zeilen zeigen «–», bis ein Kurs erfasst ist.', true);
     } catch (e) { sv.disabled = false; tmMsg(`Speichern fehlgeschlagen: ${e.message}`); }
   };

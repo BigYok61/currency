@@ -1,5 +1,6 @@
-# Währungen – ein Worker, statische PWA, D1, zwei Cron-Gruppen.
+# Währungen – ein Worker, statische PWA, gemeinsame Kurse, Abos je Gerät.
 # GitHub Actions / GitHub Pages bleiben unverändert parallel dazu.
+# Kein APP_PASSWORD und kein globales NTFY_TOPIC: jedes Gerät hat ein eigenes ntfy-Thema.
 # database_id der bestehenden D1-Datenbank «waehrungen».
 name = "waehrungen"
 main = "src/index.js"

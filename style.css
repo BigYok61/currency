@@ -109,24 +109,18 @@ h1 {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
 }
-.lede, footer {
+footer, #error {
   position: sticky; left: 0; z-index: 1;
   background: var(--canvas);
 }
-.lede {
-  padding: 14px 28px 2px;
-  padding-left: max(28px, env(safe-area-inset-left));
-  padding-right: max(28px, env(safe-area-inset-right));
-}
-.sub { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: -.01em; }
 .note { margin: 8px 0 0; max-width: 78ch; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .note + .note { margin-top: 4px; }
-.purple { color: var(--purple); }
 .error {
-  margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 13px;
+  margin: 0; padding: 10px 16px; font-size: 13px;
   background: color-mix(in srgb, #ff9f0a 16%, var(--surface));
-  border: .5px solid color-mix(in srgb, #ff9f0a 40%, transparent);
+  border-bottom: .5px solid color-mix(in srgb, #ff9f0a 40%, transparent);
 }
+.error[hidden] { display: none; }
 main {
   margin: 16px var(--edge) 8px;
   min-width: calc(100% - 2 * var(--edge));
@@ -230,7 +224,6 @@ footer a { color: var(--accent); text-decoration: none; transition: opacity var(
 @media (max-width: 700px) {
   :root { --label-w: 214px; --edge: 0px; --card-radius: 0px; }
   header { padding: max(12px, env(safe-area-inset-top)) 16px 10px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
-  .lede { padding: 10px 16px 2px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   h1 { font-size: 22px; }
   #reload, #alertsBtn, #timesBtn { width: 40px; height: 40px; border-radius: 11px; }
   main { margin: 0; border-radius: 0; box-shadow: none; min-width: 100%; }
@@ -273,6 +266,7 @@ dialog::backdrop { background: rgba(0,0,0,.28); -webkit-backdrop-filter: blur(8p
   transition: border-color var(--ease), box-shadow var(--ease);
 }
 dialog .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
+dialog .row.end { justify-content: flex-end; }
 dialog .row input {
   flex: 1; min-width: min(200px, 100%); font: inherit; padding: 8px 10px; min-height: 34px;
   border: .5px solid var(--line); border-radius: 10px; background: var(--field); color: var(--fg);
@@ -358,6 +352,24 @@ dialog .pill-dot {
 dialog .tm-count { margin: 8px 0 0; font-size: 12px; font-weight: 450; color: var(--muted); letter-spacing: -.01em; }
 dialog button.danger { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
 dialog a { color: var(--accent); }
+dialog a.btnlink {
+  display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; font-weight: 590; min-height: 32px; padding: 6px 14px; border-radius: 8px;
+  background: var(--accent-fill); color: #fff; text-decoration: none;
+}
+dialog ol.steps { margin: 6px 0 0; padding-left: 1.2em; font-size: 13px; line-height: 1.45; color: var(--muted); }
+dialog ol.steps li { margin: 4px 0; }
+dialog code.topic { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; color: var(--fg); }
+dialog .alcard {
+  margin: 12px 0; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--fill) 65%, var(--surface));
+}
+dialog .alcard h3 { margin: 0 0 6px; font-size: 15px; font-weight: 650; letter-spacing: -.02em; }
+dialog .alfield { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; }
+dialog .alfield input[type=number] {
+  width: 76px; font: inherit; font-variant-numeric: tabular-nums; padding: 4px 8px;
+  border: .5px solid var(--line); border-radius: 8px; background: var(--field); color: var(--fg); text-align: right;
+}
 .msg { font-size: 13px; padding: 8px 10px; border-radius: 10px; margin: 8px 0; }
 .msg.ok { background: color-mix(in srgb, var(--up) 16%, transparent); }
 .msg.err { background: color-mix(in srgb, var(--down) 16%, transparent); }

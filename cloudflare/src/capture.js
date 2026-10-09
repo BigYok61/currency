@@ -55,16 +55,23 @@ export function ohlcUrl(symbol, limit) {
   return `https://biquote.io/api/${symbol}/ohlc?interval=1h&limit=${limit}`;
 }
 
+/** Alle vollen Stunden 00–23. Prognose im gemeinsamen rates.json bleibt auf 06:00 (Mac-App). */
+export function workerCapturePlan() {
+  const capture = [];
+  for (let hour = 0; hour < 24; hour++) capture.push(hour);
+  return { start: 6, grid: capture.slice(), capture };
+}
+
 /**
  * @param {object} history mutated
  * @param {object|null} timesDoc
  * @param {Date} now
  * @param {(url: string) => Promise<any>} getJson
  */
-export async function applyCapture(history, timesDoc, now, getJson) {
+export async function applyCapture(history, timesDoc, now, getJson, plan) {
   if (!history.version) history.version = 1;
   if (!history.days) history.days = {};
-  const { start, grid, capture } = loadTimes(timesDoc);
+  const { start, grid, capture } = plan || loadTimes(timesDoc);
   const captureSet = new Set(capture);
   const today = zurichDateString(now);
   const firstKey = START_DAY;
@@ -179,8 +186,7 @@ export async function runCapture(env, opts = {}) {
   const { readJson, readRaw, writeRaw } = await import('./storage.js');
   const stored = await readJson(env, 'rates');
   const history = stored && typeof stored === 'object' ? stored : emptyHistory();
-  const times = await readJson(env, 'capture-times');
-  const result = await applyCapture(history, times, now, url => fetchJson(url, fetchImpl));
+  const result = await applyCapture(history, null, now, url => fetchJson(url, fetchImpl), workerCapturePlan());
   const body = historyJson(result.history);
   const prev = await readRaw(env, 'rates');
   if (prev !== body) await writeRaw(env, 'rates', body);

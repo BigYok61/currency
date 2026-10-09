@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { evaluateAlerts, formatNum, formatPct, testLines } from '../src/alerts.js';
-import { applyCapture, ecbUrl, historyJson, ohlcUrl } from '../src/capture.js';
+import { evaluateAlerts, formatNum, formatPct, inactiveCutoff, nextHits, testLines, validAlertId, validTopic } from '../src/alerts.js';
+import { applyCapture, ecbUrl, historyJson, ohlcUrl, workerCapturePlan } from '../src/capture.js';
 import { forecast7Days, forecastEndOfDay, resolveBasisHour } from '../src/forecast.js';
 import { canonicalJson, formatPyFloat, roundHalfEven } from '../src/json.js';
 import { loadTimes } from '../src/schedule.js';
 import { addDays, isWeekday, slotUtcMs } from '../src/time.js';
-import { normalizeAlerts, normalizeTimes } from '../src/index.js';
+import { normalizeAlerts, normalizeSubscription } from '../src/index.js';
 
 const ROOT = new URL('../../', import.meta.url);
 const ROOT_PATH = fileURLToPath(ROOT);
@@ -288,19 +288,87 @@ test('FX alerts match scripts/fx_alerts.py', () => {
   }
 });
 
-test('settings normalise the documents the app saves', () => {
-  assert.deepEqual(normalizeTimes({ version: 2, start: '06', end: '22', intervalHours: 2 }), {
-    version: 2, start: '06', end: '22', intervalHours: 2,
-  });
-  assert.equal(normalizeTimes({ version: 2, start: '20', end: '06', intervalHours: 2 }), null);
-  assert.equal(normalizeTimes({ version: 2, start: '06', end: '20', intervalHours: 5 }), null);
-  const alerts = normalizeAlerts({
-    version: 1,
+test('worker capture stores every weekday hour and keeps the 06:00 forecast', async () => {
+  const plan = workerCapturePlan();
+  assert.deepEqual(plan.capture, Array.from({ length: 24 }, (_, hour) => hour));
+  assert.equal(plan.start, 6);
+  const ecb = { rates: {} };
+  for (let day = '2026-09-01'; day <= '2026-10-09'; day = addDays(day, 1)) {
+    if (!isWeekday(day)) continue;
+    ecb.rates[day] = { CHF: 0.95, USD: 1.08, GBP: 0.86 };
+  }
+  const bars = {};
+  for (const [symbol, base] of [['USDCHF', 0.83], ['EURCHF', 0.94], ['GBPCHF', 1.1]]) {
+    const list = [];
+    for (let day = '2026-09-20'; day <= '2026-10-09'; day = addDays(day, 1)) {
+      for (let hour = 0; hour < 24; hour++) {
+        const open = Math.round((base + hour * 0.0001) * 1e6) / 1e6;
+        list.push({
+          openTime: new Date(slotUtcMs(day, hour)).toISOString().replace('.000Z', 'Z'),
+          open, high: open + 0.002, low: open - 0.001,
+        });
+      }
+    }
+    bars[symbol] = list;
+  }
+  const now = new Date('2026-10-09T10:05:00Z');
+  const result = await applyCapture({ version: 1, days: {} }, null, now, async url => {
+    if (url.includes('frankfurter')) return ecb;
+    const symbol = url.split('/api/')[1].split('/')[0];
+    return { bars: bars[symbol] };
+  }, plan);
+  const friday = result.history.days['2026-10-09'];
+  assert.ok(friday.slots['00'].EUR > 0);
+  assert.ok(friday.slots['23'].USD > 0);
+  assert.equal(friday.forecastBasis.EUR, 6);
+  assert.equal(result.history.days['2026-10-10'], undefined);
+  const again = await applyCapture(structuredClone(result.history), null, now, async url => {
+    if (url.includes('frankfurter')) return ecb;
+    const symbol = url.split('/api/')[1].split('/')[0];
+    return { bars: bars[symbol] };
+  }, plan);
+  assert.equal(again.changed, 0);
+});
+
+test('each alert subscription keeps its own state', () => {
+  const now = new Date('2026-10-09T10:05:00Z');
+  const bars = { USD: dayBars(now, [6]), EUR: dayBars(now, [6]) };
+  const usdBase = bars.USD[0].open;
+  const eurBase = bars.EUR[0].open;
+  const quotes = { USD: quoteAt(usdBase * 0.99, 30, now), EUR: quoteAt(eurBase * 1.001, 30, now) };
+  const strict = { currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
+  const loose = { currencies: { USD: { enabled: true, down: 2, up: 2 }, EUR: { enabled: false, down: 0.5, up: 0.25 } } };
+  const a = evaluateAlerts({ now, times: { start: '06' }, cfg: strict, state: null, quotes, bars });
+  const b = evaluateAlerts({ now, times: { start: '08' }, cfg: loose, state: { date: '2026-10-09', sent: {} }, quotes, bars });
+  assert.equal(a.pushes.length, 1);
+  assert.equal(a.pushes[0].code, 'USD');
+  assert.equal(b.pushes.length, 0);
+  assert.equal(a.applyPush([0]).state.sent['USD:down'] != null, true);
+  assert.deepEqual(b.applyPush([]).state.sent, {});
+});
+
+test('alert ids, topics, and the 90-day cutoff', () => {
+  const id = 'a'.repeat(64);
+  const topic = `wae-${'b'.repeat(32)}`;
+  assert.equal(validAlertId(id), true);
+  assert.equal(validAlertId(id.slice(0, 32)), false);
+  assert.equal(validTopic(topic), true);
+  assert.equal(validTopic('wae-short'), false);
+  const now = Date.parse('2026-10-09T10:00:00Z');
+  assert.equal(inactiveCutoff(now), now - 90 * 24 * 60 * 60 * 1000);
+  assert.equal(nextHits(4, now + 1000, now), 5);
+  assert.equal(nextHits(4, now, now), 1);
+  const body = normalizeSubscription({
+    topic,
+    start: '08',
     currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: false, down: '0.40', up: 1 } },
   });
-  assert.equal(alerts.currencies.EUR.enabled, false);
-  assert.equal(alerts.currencies.EUR.down, 0.4);
+  assert.equal(body.start, 8);
+  assert.equal(body.topic, topic);
+  assert.equal(body.currencies.EUR.down, 0.4);
+  assert.equal(normalizeSubscription({ topic: 'nope', start: 6, currencies: body.currencies }), null);
   assert.equal(normalizeAlerts({ currencies: {} }), null);
+  assert.equal(normalizeAlerts({ currencies: { USD: { enabled: true, down: 0.5, up: 0.25 } } }), null);
 });
 
 test('forecast helpers stay null without enough history', () => {
