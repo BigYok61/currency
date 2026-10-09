@@ -54,7 +54,10 @@ const TZ_REGION = {
 };
 const LANG_REGION = { sv: 'SE', nb: 'NO', nn: 'NO', da: 'DK', pl: 'PL', ja: 'JP', tr: 'TR' };
 let baseCurrency = 'CHF';
-let showForecasts = true;
+let showFcDay = true;
+let showDevDay = true;
+let showFcWeek = true;
+let showDevWeek = true;
 /** intervals | chart | compact. intervals bleibt im Speicher, damit ältere Stände «Nur aktuell» noch verstehen. */
 let viewMode = 'intervals';
 let chartRange = '1T';
@@ -589,7 +592,17 @@ function readViewOptions() {
     const raw = localStorage.getItem(LS_VIEW_OPTS);
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (data && typeof data.forecasts === 'boolean') showForecasts = data.forecasts;
+    if (data && typeof data.fcDay === 'boolean') {
+      showFcDay = data.fcDay;
+      showDevDay = data.devDay !== false;
+      showFcWeek = data.fcWeek !== false;
+      showDevWeek = data.devWeek !== false;
+    } else if (data && data.forecasts === false) {
+      showFcDay = false;
+      showDevDay = false;
+      showFcWeek = false;
+      showDevWeek = false;
+    }
     if (data && (data.mode === 'intervals' || data.mode === 'chart' || data.mode === 'compact')) viewMode = data.mode;
     else if (data && data.intervals === false) viewMode = 'compact';
     if (data && CHART_RANGES.some(r => r.id === data.range)) chartRange = data.range;
@@ -598,7 +611,11 @@ function readViewOptions() {
 function writeViewOptions() {
   try {
     localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({
-      forecasts: showForecasts,
+      forecasts: showFcDay || showDevDay || showFcWeek || showDevWeek,
+      fcDay: showFcDay,
+      devDay: showDevDay,
+      fcWeek: showFcWeek,
+      devWeek: showDevWeek,
       intervals: viewMode === 'intervals',
       mode: viewMode,
       range: chartRange,
@@ -797,16 +814,94 @@ function rangeBarHtml() {
   const buttons = CHART_RANGES.map(r => `<button type="button" data-range="${r.id}" aria-pressed="${r.id === chartRange ? 'true' : 'false'}" aria-label="${esc(r.aria)}">${r.label}</button>`).join('');
   return `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>`;
 }
+function signedDelta(d) {
+  return `${d >= 0 ? '+' : ''}${r(d)}`;
+}
+function dayDevParts(c, k) {
+  const f = shownForecast(c, k, 'day').value;
+  const a = shown(c, k, CLOSE_HOUR);
+  if (f != null && a != null) {
+    const d = a - f;
+    return { text: signedDelta(d), title: `Ist 16:00: ${r(a)} · Prognose: ${r(f)}` };
+  }
+  return { text: '–', title: '', empty: true };
+}
+function weekDevParts(c, k) {
+  const f = shownForecast(c, k, '7').value;
+  if (f == null) return { text: '–', title: '', empty: true };
+  const a = shownActual7(c, k);
+  if (a) {
+    const d = a.v - f;
+    return { text: signedDelta(d), title: `Ist ${header(a.day)} ${pad(a.hr)}:00: ${r(a.v)} · Prognose: ${r(f)}` };
+  }
+  const when = header(target7(k));
+  return { text: `→ ${when.split(' ')[1]}`, title: `Ist-Wert ab ${when} 16:00`, pending: true };
+}
+function forecastCell(c, k, today, kind, showFc, showDev) {
+  const bits = [];
+  if (showFc) {
+    const shownFc = shownForecast(c, k, kind);
+    const f = shownFc.value;
+    const basisHour = shownFc.basis;
+    const base = basisHour != null ? shown(c, k, basisHour) : null;
+    let arrow = '';
+    if (f != null && base != null) {
+      const d = f - base;
+      const word = d < -EPS ? `Erwartung: ${baseCurrency} stärker` : d > EPS ? `Erwartung: ${baseCurrency} schwächer` : 'Erwartung: unverändert';
+      arrow = `<span class="fcarr" title="${esc(word)}">${d < -EPS ? '↓' : d > EPS ? '↑' : '→'}</span>`;
+    }
+    let title = '';
+    if (f != null && kind === 'day') title = `Schätzung, keine Anlageberatung${basisHour != null && base != null ? `\nBasis ${pad(basisHour)}:00: ${r(base)}` : ''}`;
+    if (f != null && kind !== 'day') title = `Schätzung, keine Anlageberatung\nZiel: ${header(target7(k))} 16:00${basisHour != null && base != null ? ` · Basis ${pad(basisHour)}:00: ${r(base)}` : ''}`;
+    bits.push(`<span class="fc-val${f == null ? ' empty' : ''}"${title ? ` title="${esc(title)}"` : ''}>${f == null ? '–' : arrow + r(f)}</span>`);
+  }
+  if (showDev) {
+    const dev = kind === 'day' ? dayDevParts(c, k) : weekDevParts(c, k);
+    bits.push(`<span class="fc-dev${dev.pending ? ' pending' : ''}${dev.empty ? ' empty' : ''}"${dev.title ? ` title="${esc(dev.title)}"` : ''}>${esc(dev.text)}</span>`);
+  }
+  const inner = bits.length > 1 ? `<span class="fc-stack">${bits.join('')}</span>` : bits.join('');
+  return `<td class="${k === today ? 'today' : ''}">${inner}</td>`;
+}
+function forecastTableRow(c, days, today, kind) {
+  const isDay = kind === 'day';
+  const showFc = isDay ? showFcDay : showFcWeek;
+  const showDev = isDay ? showDevDay : showDevWeek;
+  if (!showFc && !showDev) return '';
+  const pair = showFc && showDev;
+  const name = isDay ? 'Prognose Tagesende *' : 'Prognose 7 Tage *';
+  const hint = isDay
+    ? 'Schätzung, keine Anlageberatung'
+    : 'Schätzung, keine Anlageberatung – Kurs eine Woche später (gleicher Wochentag, 16:00)';
+  const label = pair
+    ? `<span class="fc-stack"><span class="fc-name">${name}</span><span class="fc-sub">Abweichung</span></span>`
+    : (showFc ? name : (isDay ? 'Abweichung heute' : 'Abweichung 7 Tage'));
+  const cls = showFc ? `fc${pair ? ' fc-pair' : ''}` : 'dev';
+  let row = `<tr class="${cls}"><th class="lab"${showFc ? ` title="${esc(hint)}"` : ''}>${label}</th>`;
+  for (const k of days) row += forecastCell(c, k, today, kind, showFc, showDev);
+  return row + '</tr>';
+}
+function quoteForecastLine(c, today, kind) {
+  const isDay = kind === 'day';
+  const showFc = isDay ? showFcDay : showFcWeek;
+  const showDev = isDay ? showDevDay : showDevWeek;
+  if (!showFc && !showDev) return '';
+  const dev = isDay ? dayDevParts(c, today) : weekDevParts(c, today);
+  const devHtml = `<span class="fc-dev${dev.pending ? ' pending' : ''}${dev.empty ? ' empty' : ''}"${dev.title ? ` title="${esc(dev.title)}"` : ''}>${esc(dev.text)}</span>`;
+  if (showFc && showDev) {
+    const fc = shownForecast(c, today, kind);
+    const name = isDay ? 'Prognose Tagesende *' : 'Prognose 7 Tage *';
+    return `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span class="fc-stack"><span class="fc-name">${name}</span><span class="fc-sub">Abweichung</span></span><span class="fc-stack"><span class="fc-val">${fc.value == null ? '–' : r(fc.value)}</span>${devHtml}</span></p>`;
+  }
+  if (showFc) {
+    const fc = shownForecast(c, today, kind);
+    const name = isDay ? 'Prognose Tagesende *' : 'Prognose 7 Tage *';
+    return `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>${name}</span><span class="fc-val">${fc.value == null ? '–' : r(fc.value)}</span></p>`;
+  }
+  const name = isDay ? 'Abweichung heute' : 'Abweichung 7 Tage';
+  return `<p class="quote-sub quote-devrow"${dev.title ? ` title="${esc(dev.title)}"` : ''}><span>${name}</span><span>${esc(dev.text)}</span></p>`;
+}
 function forecastQuoteHtml(c, today) {
-  if (!showForecasts) return '';
-  const dayFc = shownForecast(c, today, 'day');
-  const weekFc = shownForecast(c, today, '7');
-  const todayClose = shown(c, today, CLOSE_HOUR);
-  const dayDev = dayFc.value != null && todayClose != null ? todayClose - dayFc.value : null;
-  const weekActual = shownActual7(c, today);
-  const weekDev = weekFc.value != null && weekActual ? weekActual.v - weekFc.value : null;
-  return `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose Tagesende *</span><span>${dayFc.value == null ? '–' : r(dayFc.value)}${dayDev == null ? '' : ` <span class="quote-dev">${dayDev >= 0 ? '+' : ''}${r(dayDev)}</span>`}</span></p>`
-    + `<p class="quote-sub quote-fc" title="Schätzung, keine Anlageberatung"><span>Prognose 7 Tage *</span><span>${weekFc.value == null ? '–' : r(weekFc.value)}${weekDev == null ? '' : ` <span class="quote-dev">${weekDev >= 0 ? '+' : ''}${r(weekDev)}</span>`}</span></p>`;
+  return quoteForecastLine(c, today, 'day') + quoteForecastLine(c, today, '7');
 }
 function renderCharts(rows, today) {
   const rangeName = CHART_RANGES.find(r => r.id === chartRange)?.aria || '';
@@ -1077,52 +1172,8 @@ function render(opts = {}) {
       }
       return row + '</tr>';
     };
-    if (showForecasts) {
-    // Prognosen vor den Uhrzeiten. Die Basis ist die Startstunde (bei älteren Prognosen 08:00).
-    h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung">Prognose Tagesende *</th>';
-    for (const k of days) {
-      const shownFc = shownForecast(c, k, 'day');
-      const f = shownFc.value, basisHour = shownFc.basis;
-      const base = basisHour != null ? shown(c, k, basisHour) : null;
-      let arrow = '';
-      if (f != null && base != null) {
-        const d = f - base;
-        arrow = `<span class="fcarr" title="${d < -EPS ? `Erwartung: ${baseCurrency} stärker` : d > EPS ? `Erwartung: ${baseCurrency} schwächer` : 'Erwartung: unverändert'}">${d < -EPS ? '↓' : d > EPS ? '↑' : '→'}</span>`;
-      }
-      const title = f == null ? '' : `Schätzung, keine Anlageberatung${basisHour != null && base != null ? `\nBasis ${pad(basisHour)}:00: ${r(base)}` : ''}`;
-      h += td(k, f == null ? '–' : arrow + r(f), f == null ? 'empty' : '', title);
-    }
-    h += '</tr>';
-    // Prognose 7 Tage (erstellt zur Basisstunde, Ziel: gleicher Wochentag eine Woche später, 16:00)
-    h += '<tr class="fc"><th class="lab" title="Schätzung, keine Anlageberatung – Kurs eine Woche später (gleicher Wochentag, 16:00)">Prognose 7 Tage *</th>';
-    for (const k of days) {
-      const shownFc = shownForecast(c, k, '7');
-      const f = shownFc.value, basisHour = shownFc.basis;
-      const base = basisHour != null ? shown(c, k, basisHour) : null;
-      let arrow = '';
-      if (f != null && base != null) {
-        const d = f - base;
-        arrow = `<span class="fcarr">${d < -EPS ? '↓' : d > EPS ? '↑' : '→'}</span>`;
-      }
-      h += td(k, f == null ? '–' : arrow + r(f), f == null ? 'empty' : '',
-        f == null ? '' : `Schätzung, keine Anlageberatung\nZiel: ${header(target7(k))} 16:00${basisHour != null && base != null ? ` · Basis ${pad(basisHour)}:00: ${r(base)}` : ''}`);
-    }
-    h += '</tr><tr class="dev"><th class="lab">Abweichung Tagesende</th>';
-    for (const k of days) {
-      const f = shownForecast(c, k, 'day').value, a = shown(c, k, CLOSE_HOUR);
-      if (f != null && a != null) { const d = a - f; h += td(k, (d >= 0 ? '+' : '') + r(d), '', `Ist 16:00: ${r(a)} · Prognose: ${r(f)}`); }
-      else h += td(k, '–', 'empty');
-    }
-    h += '</tr><tr class="dev"><th class="lab">Abweichung 7 Tage</th>';
-    for (const k of days) {
-      const f = shownForecast(c, k, '7').value;
-      if (f == null) { h += td(k, '–', 'empty'); continue; }
-      const a = shownActual7(c, k);
-      if (a) { const d = a.v - f; h += td(k, (d >= 0 ? '+' : '') + r(d), '', `Ist ${header(a.day)} ${pad(a.hr)}:00: ${r(a.v)} · Prognose: ${r(f)}`); }
-      else h += td(k, `→ ${header(target7(k)).split(' ')[1]}`, 'empty pending', `Ist-Wert ab ${header(target7(k))} 16:00`);
-    }
-    h += '</tr>';
-    }
+    h += forecastTableRow(c, days, today, 'day');
+    h += forecastTableRow(c, days, today, '7');
     HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1 ? 'alt' : '', `${pad(hr)}:00`); });
     h += slotRow(CLOSE_HOUR, 'close', 'Tagesendkurs');
     // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den erfassten Zeitpunkten
@@ -1938,7 +1989,8 @@ function renderSettings() {
       <button type="button" class="set-row" data-go="times"${off ? ' disabled' : ''}><span>Erfassungszeiten</span><span class="chev">${CHEV}</span></button>
       <button type="button" class="set-row" data-go="alerts"><span>Alarme</span><span class="chev">${CHEV}</span></button>
     </div>
-    <p class="note"${off ? '' : ' hidden'}>Ohne Intervalle gibt es kein Stundenraster.</p>`;
+    <p class="note"${off ? '' : ' hidden'}>Ohne Intervalle gibt es kein Stundenraster.</p>
+    <p class="app-version">${appVersionLabel()}</p>`;
 }
 function renderView() {
   const sw = (id, on, label) => `<div class="tm-row"><span id="${id}Label">${label}</span><button type="button" class="switch" id="${id}" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-labelledby="${id}Label"></button></div>`;
@@ -1947,15 +1999,29 @@ function renderView() {
   $('viewDlg').innerHTML = `<div class="dlghead nav"><button type="button" id="viewBack" class="back">Einstellungen</button><h2>Ansicht</h2><button type="button" id="viewClose" aria-label="Schliessen">${XMARK}</button></div>
     <div class="tm">
       <div class="tm-row tm-interval"><span id="viewModeLabel">Darstellung</span><div class="seg view-seg" role="radiogroup" aria-labelledby="viewModeLabel">${seg}</div></div>
-      ${sw('swForecast', showForecasts, 'Prognosen anzeigen')}
+    </div>
+    <p class="sec-label">Prognosen</p>
+    <div class="tm">
+      ${sw('swFcDay', showFcDay, 'Prognose heute')}
+      ${sw('swDevDay', showDevDay, 'Abweichung heute')}
+      ${sw('swFcWeek', showFcWeek, 'Prognose 7 Tage')}
+      ${sw('swDevWeek', showDevWeek, 'Abweichung 7 Tage')}
     </div>
     <p class="note">Gilt nur für dieses Gerät.</p>`;
-  $('viewDlg').querySelector('#swForecast').onclick = () => {
-    showForecasts = !showForecasts;
-    writeViewOptions();
-    $('viewDlg').querySelector('#swForecast').setAttribute('aria-checked', showForecasts ? 'true' : 'false');
-    render({ keepScroll: true });
-  };
+  const flips = [
+    ['swFcDay', () => showFcDay, v => { showFcDay = v; }],
+    ['swDevDay', () => showDevDay, v => { showDevDay = v; }],
+    ['swFcWeek', () => showFcWeek, v => { showFcWeek = v; }],
+    ['swDevWeek', () => showDevWeek, v => { showDevWeek = v; }],
+  ];
+  for (const [id, get, set] of flips) {
+    $('viewDlg').querySelector('#' + id).onclick = () => {
+      set(!get());
+      writeViewOptions();
+      $('viewDlg').querySelector('#' + id).setAttribute('aria-checked', get() ? 'true' : 'false');
+      render({ keepScroll: true });
+    };
+  }
   const group = $('viewDlg').querySelector('.view-seg');
   const pick = mode => {
     if (mode !== 'intervals' && mode !== 'chart' && mode !== 'compact') return;
