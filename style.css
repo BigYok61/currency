@@ -146,7 +146,17 @@ body.editing #editBtn {
   overscroll-behavior-y: none;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
+  scroll-snap-type: x proximity;
+  scroll-padding-left: calc(var(--edge) + var(--label-w));
+  scroll-padding-right: var(--edge);
 }
+/* Liegt über der Scrollfläche, unter der Titelleiste, und deckt die Seitenränder ab. */
+.edge-mask {
+  position: fixed; top: 0; bottom: 0; z-index: 4; pointer-events: none;
+  width: var(--edge); background: var(--canvas);
+}
+.edge-left { left: 0; }
+.edge-right { right: 0; }
 /* Ziehen zum Aktualisieren. Der Balken ist nur die Lücke; die Scheibe sitzt fixed,
    damit sie die klebende Datumskopfzeile und das waagrechte Scrollen nicht verschiebt. */
 .ptr {
@@ -215,26 +225,102 @@ main {
 #grid thead th {
   height: 32px; font-size: 0.75rem; font-weight: 590; letter-spacing: -.01em; color: var(--muted);
   position: sticky; top: 0; z-index: 2;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--surface);
   border-bottom: .5px solid var(--line);
 }
 #grid thead th.today { color: var(--accent); }
+#grid thead th:not(.lab) { scroll-snap-align: end; }
+#grid .c-day { width: var(--day-w, 108px); }
 #grid .lab {
   position: sticky; left: var(--edge); z-index: 1; text-align: left; background: var(--surface);
-  min-width: var(--label-w); max-width: var(--label-w); overflow: hidden; text-overflow: ellipsis;
+  min-width: var(--label-w); max-width: var(--label-w); overflow: visible;
   border-right: .5px solid var(--line);
   padding-left: max(14px, env(safe-area-inset-left));
+  box-shadow: calc(-1 * var(--edge)) 0 0 var(--canvas);
 }
-#grid thead .lab { z-index: 3; background: var(--surface); }
-#grid thead th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+/* Deckt die Seitenmarge links der Karte ab, damit gescrollte Tageswerte dort nicht durchscheinen. */
+#grid .lab::before {
+  content: "";
+  position: absolute; z-index: 2; pointer-events: none;
+  top: -4px; bottom: -4px; right: 100%;
+  width: calc(var(--edge) + 8px);
+  background: var(--canvas);
+}
+#grid thead .lab { z-index: 4; background: var(--canvas); padding: 0; overflow: visible; border-radius: 0; border-bottom: 0; }
+#grid thead th:first-child { border-radius: 0; }
 #grid thead th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+#grid .lab-face {
+  display: flex; align-items: center; height: 100%; position: relative; z-index: 1;
+  padding-left: max(14px, env(safe-area-inset-left));
+}
+#grid thead .lab-face {
+  /* WebKit malt border-radius von Kindelementen in Tabellenzellen nicht aus. Die Ecke sitzt deshalb im Hintergrund. */
+  background:
+    radial-gradient(circle at 100% 100%, transparent 11.5px, var(--canvas) 12px) left top / 12px 12px no-repeat,
+    radial-gradient(circle at 100% 0, transparent 11.5px, var(--canvas) 12px) left bottom / 12px 12px no-repeat,
+    linear-gradient(var(--line), var(--line)) 12px 100% / calc(100% - 12px) .5px no-repeat,
+    var(--surface);
+  border-radius: 12px 0 0 12px;
+  color: var(--muted); font-weight: 590;
+}
 #grid tbody.ccy tr.group > * { border-top: var(--card-gap) solid var(--canvas); }
-#grid tbody.ccy tr.group th:first-child { border-top-left-radius: var(--card-radius); }
+#grid tbody.ccy tr.group > th.lab {
+  background: var(--canvas); padding: 0; overflow: visible; border-radius: 0;
+}
+#grid tbody.ccy tr.group > th.lab .ccy-head {
+  background:
+    radial-gradient(circle at 100% 100%, transparent calc(var(--card-radius) - .5px), var(--canvas) var(--card-radius)) left top / var(--card-radius) var(--card-radius) no-repeat,
+    var(--surface);
+  border-top-left-radius: var(--card-radius);
+  height: 100%;
+  padding-left: max(14px, env(safe-area-inset-left));
+  position: relative; z-index: 1;
+}
 #grid tbody.ccy tr.group td:last-child { border-top-right-radius: var(--card-radius); }
 #grid tbody.ccy tr:last-child > * { border-bottom-color: transparent; }
-#grid tbody.ccy tr:last-child th:first-child { border-bottom-left-radius: var(--card-radius); }
+#grid tbody.ccy tr:last-child > th.lab {
+  background: var(--canvas); padding: 0; overflow: visible; border-radius: 0;
+}
+#grid tbody.ccy tr:last-child > th.lab .lab-face {
+  border-bottom-left-radius: var(--card-radius);
+  background:
+    radial-gradient(circle at 100% 0, transparent calc(var(--card-radius) - .5px), var(--canvas) var(--card-radius)) left bottom / var(--card-radius) var(--card-radius) no-repeat,
+    var(--surface);
+}
+#grid tbody.ccy tr.ecb:last-child > th.lab .lab-face {
+  background:
+    radial-gradient(circle at 100% 0, transparent calc(var(--card-radius) - .5px), var(--canvas) var(--card-radius)) left bottom / var(--card-radius) var(--card-radius) no-repeat,
+    linear-gradient(var(--ecb), var(--ecb)), var(--surface);
+  color: var(--muted); font-weight: 450;
+}
+/* Rechte Kartenecke bleibt stehen, wenn eine Tagespalte darunter durchscrollt. */
+#grid thead .lab::after,
+#grid tbody.ccy tr.group > th.lab::after,
+#grid tbody.ccy tr:last-child > th.lab::after {
+  content: ""; position: absolute; z-index: 3; pointer-events: none;
+  width: calc(var(--corner, var(--card-radius)) + var(--edge));
+  background: var(--canvas);
+}
+#grid thead .lab::after {
+  --corner: 12px;
+  top: 0; bottom: 0; left: calc(var(--card-w, 100vw) - 12px);
+  background:
+    linear-gradient(var(--canvas), var(--canvas)) right center / var(--edge) 100% no-repeat,
+    radial-gradient(circle at 0 100%, transparent 11.5px, var(--canvas) 12px) left top / 12px 12px no-repeat,
+    radial-gradient(circle at 0 0, transparent 11.5px, var(--canvas) 12px) left bottom / 12px 12px no-repeat;
+}
+#grid tbody.ccy tr.group > th.lab::after {
+  top: 0; height: var(--card-radius); left: calc(var(--card-w, 100vw) - var(--card-radius));
+  background:
+    linear-gradient(var(--canvas), var(--canvas)) right center / var(--edge) 100% no-repeat,
+    radial-gradient(circle at 0 100%, transparent calc(var(--card-radius) - .5px), var(--canvas) var(--card-radius)) left top / var(--card-radius) var(--card-radius) no-repeat;
+}
+#grid tbody.ccy tr:last-child > th.lab::after {
+  bottom: 0; height: var(--card-radius); left: calc(var(--card-w, 100vw) - var(--card-radius));
+  background:
+    linear-gradient(var(--canvas), var(--canvas)) right center / var(--edge) 100% no-repeat,
+    radial-gradient(circle at 0 0, transparent calc(var(--card-radius) - .5px), var(--canvas) var(--card-radius)) left bottom / var(--card-radius) var(--card-radius) no-repeat;
+}
 #grid tbody.ccy tr:last-child td:last-child { border-bottom-right-radius: var(--card-radius); }
 #grid td.today { background: var(--today); }
 #grid tr.group td, #grid tr.group th {
@@ -391,6 +477,11 @@ body.editing { --label-w: 268px; }
   #grid th, #grid td { padding: 0 8px; }
   #grid tr.group td, #grid tr.group th { height: 64px; }
   #grid .lab { padding-left: max(12px, env(safe-area-inset-left)); }
+  #grid thead .lab,
+  #grid tbody.ccy tr.group > th.lab,
+  #grid tbody.ccy tr:last-child > th.lab { padding: 0; }
+  #grid .lab-face,
+  #grid tbody.ccy tr.group > th.lab .ccy-head { padding-left: max(12px, env(safe-area-inset-left)); }
   .flag, .flag svg, .flag-emoji { width: 32px; height: 32px; }
   .ccy-code { font-size: 1.1875rem; }
   .ccy-sub { font-size: 0.8125rem; }

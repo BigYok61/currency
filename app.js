@@ -1210,6 +1210,54 @@ function renderCompact(rows, today) {
   if (more) bits.push(more);
   return bits.join('');
 }
+function cssPx(el, name) {
+  const n = parseFloat(getComputedStyle(el).getPropertyValue(name));
+  return Number.isFinite(n) ? n : 0;
+}
+/** Tagespalten so breit, dass eine ganze Zahl davon zwischen Beschriftung und rechtem Kartenrand liegt. */
+function fitDayColumns(sc, dayCount) {
+  const edge = cssPx(document.body, '--edge');
+  const labelVar = cssPx(document.body, '--label-w');
+  const apply = (labelW) => {
+    const viewW = Math.max(88, sc.clientWidth - labelW - edge * 2);
+    const columns = Math.max(1, Math.floor(viewW / 88));
+    const dayW = viewW / columns;
+    const cardW = Math.max(0, sc.clientWidth - edge * 2);
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--day-w', dayW + 'px');
+    rootStyle.setProperty('--card-w', cardW + 'px');
+    const width = `calc(${labelW}px + ${dayCount} * ${dayW}px)`;
+    const grid = document.getElementById('grid');
+    grid.style.width = width;
+    grid.style.minWidth = width;
+    grid.closest('main').style.minWidth = width;
+    return { labelW, dayW, cardW };
+  };
+  apply(labelVar);
+  let labelW = labelVar;
+  const lab = document.querySelector('#grid thead .lab');
+  if (lab) {
+    const measured = lab.getBoundingClientRect().width;
+    if (measured > 1 && Math.abs(measured - labelVar) > 1) labelW = measured;
+  }
+  const used = apply(labelW);
+  const signature = `${used.labelW.toFixed(2)}|${used.dayW.toFixed(3)}|${dayCount}|${used.cardW.toFixed(2)}`;
+  const changed = fitDayColumns.signature !== signature;
+  fitDayColumns.signature = signature;
+  return changed;
+}
+/** Heute bündig an den rechten Kartenrand, linke Kante auf einer Spaltengrenze. */
+function pinToday(sc) {
+  const today = document.querySelector('#grid thead th.today') || document.querySelector('#grid thead th:last-child');
+  if (!today) { sc.scrollLeft = sc.scrollWidth; return; }
+  const edge = cssPx(document.body, '--edge');
+  const place = () => {
+    const target = sc.getBoundingClientRect().left + sc.clientWidth - edge;
+    sc.scrollLeft += today.getBoundingClientRect().right - target;
+  };
+  place();
+  place();
+}
 function render(opts = {}) {
   if (drag) cancelDrag();
   const keepDrag = opts.focusDrag
@@ -1232,6 +1280,7 @@ function render(opts = {}) {
     grid.innerHTML = '';
     grid.hidden = true;
     grid.style.minWidth = '';
+    grid.style.width = '';
     compact.hidden = false;
     const pending = viewMode === 'chart' ? neededHistory(rows) : [];
     compact.innerHTML = viewMode === 'chart' ? renderCharts(rows, today) : renderCompact(rows, today);
@@ -1259,7 +1308,7 @@ function render(opts = {}) {
   const td = (k, html, cls = '', title = '') =>
     `<td class="${k === today ? 'today ' : ''}${cls}"${title ? ` title="${esc(title)}"` : ''}>${html}</td>`;
   const blanks = days.map(k => td(k, '')).join('');
-  let h = `<colgroup><col class="c-lab">${days.map(() => '<col class="c-day">').join('')}</colgroup><thead><tr><th class="lab">Zeit (CH)</th>` +
+  let h = `<colgroup><col class="c-lab">${days.map(() => '<col class="c-day">').join('')}</colgroup><thead><tr><th class="lab"><span class="lab-face">Zeit (CH)</span></th>` +
     days.map(k => `<th class="${k === today ? 'today' : ''}">${header(k)}</th>`).join('') + '</tr></thead>';
   for (const c of rows) {
     // Kopfzeile zeigt den Live-Kurs nur, wenn es keine Spalte für heute gibt (Wochenende) – sonst steht er in der Zeile «Aktuell»
@@ -1307,7 +1356,7 @@ function render(opts = {}) {
       h += td(k, arrow + r(liveV), L.closed ? 'stale' : '', title);
     }
     h += '</tr>';
-    h += `<tr class="ecb"><th class="lab">EZB-Referenz</th>${days.map(k => { const v = shownEcb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr></tbody>`;
+    h += `<tr class="ecb"><th class="lab"><span class="lab-face">EZB-Referenz</span></th>${days.map(k => { const v = shownEcb(c, k); return td(k, r(v), v == null ? 'empty' : ''); }).join('')}</tr></tbody>`;
   }
   if (editing) {
     const hidden = currenciesInOrder().filter(c => hiddenSet().has(c.code));
@@ -1335,11 +1384,9 @@ function render(opts = {}) {
     const btn = grid.querySelector(`.ccy-drag[data-code="${CSS.escape(keepDrag)}"]`);
     if (btn) btn.focus({ preventScroll: true });
   }
-  const tableMin = `calc(var(--label-w) + ${days.length} * 108px)`;
-  grid.style.minWidth = tableMin;
-  // Karte so breit wie die Tabelle, damit Hintergrund und Ecken alle Spalten umfassen.
-  grid.closest('main').style.minWidth = `max(calc(100% - 2 * var(--edge)), ${tableMin})`;
-  sc.scrollLeft = opts.keepScroll ? left : sc.scrollWidth;
+  const geometryChanged = fitDayColumns(sc, days.length);
+  if (opts.keepScroll && !geometryChanged) sc.scrollLeft = left;
+  else pinToday(sc);
   sc.scrollTop = top;
 
   document.getElementById('updated').textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
@@ -2317,6 +2364,19 @@ document.getElementById('editBtn').addEventListener('click', () => {
   syncEditButton();
   render({ keepScroll: true });
 });
+const scrollerEl = document.getElementById('scroller');
+if (scrollerEl && typeof ResizeObserver !== 'undefined') {
+  let refitLock = false;
+  new ResizeObserver(() => {
+    if (refitLock || viewMode !== 'intervals') return;
+    const days = document.querySelectorAll('#grid thead th:not(.lab)').length;
+    if (!days) return;
+    refitLock = true;
+    const changed = fitDayColumns(scrollerEl, days);
+    if (changed) pinToday(scrollerEl);
+    refitLock = false;
+  }).observe(scrollerEl);
+}
 document.querySelector('main').addEventListener('click', e => {
   const hide = e.target.closest('.ccy-hide');
   if (hide) { hideCurrency(hide.dataset.code); return; }
