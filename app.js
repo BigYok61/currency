@@ -904,12 +904,14 @@ function bindChartScrub() {
     paintChart(hit.card, hit.point, false);
   };
   root.addEventListener('pointerdown', e => {
+    if (document.getElementById('scroller')?.dataset.pulling) return;
     const svg = e.target.closest?.('.plot');
     if (!svg || !root.contains(svg)) return;
     gesture = { id: e.pointerId, svg, x: e.clientX, y: e.clientY, scrub: e.pointerType === 'mouse' };
     if (gesture.scrub) show(svg, e.clientX);
   });
   root.addEventListener('pointermove', e => {
+    if (document.getElementById('scroller')?.dataset.pulling) return;
     if (gesture && gesture.id === e.pointerId) {
       if (!gesture.scrub) {
         const dx = e.clientX - gesture.x;
@@ -1199,8 +1201,143 @@ async function load() {
   }
   await loadBaseHint();
   render();
-  loadLive();
+  await loadLive();
   registerCurrency(baseCurrency);
+}
+function spinReload() {
+  const b = document.getElementById('reload');
+  if (!b) return;
+  b.classList.remove('spin');
+  void b.offsetWidth;
+  b.classList.add('spin');
+}
+/**
+ * Ziehen am oberen Rand lädt Kurse und Live-Kurs neu, wie der Knopf Aktualisieren.
+ * Dasselbe Muster ist in der iOS-App UIRefreshControl bzw. .refreshable.
+ * Waagrechtes Scrollen und der Grafik-Scrubber bleiben unangetastet.
+ */
+function bindPullToRefresh() {
+  const sc = document.getElementById('scroller');
+  const ptr = document.getElementById('ptr');
+  if (!sc || !ptr) return;
+  const spin = ptr.querySelector('.ptr-spin');
+  const rotor = ptr.querySelector('.ptr-spinner');
+  const status = document.getElementById('ptrStatus');
+  const THRESHOLD = 64;
+  const HOLD = 52;
+  let gesture = null;
+  let refreshing = false;
+  let offset = 0;
+
+  function rubber(dy) {
+    const t = Math.max(0, dy) * 0.55;
+    const limit = 132;
+    return Math.min(limit, (t * limit) / (t + limit * 0.45));
+  }
+  function place(px, spinning) {
+    offset = px;
+    const rect = sc.getBoundingClientRect();
+    if (px <= 0) {
+      ptr.hidden = true;
+      ptr.classList.remove('spinning');
+      ptr.style.height = '';
+      delete sc.dataset.pulling;
+      if (status) status.textContent = '';
+      return;
+    }
+    ptr.hidden = false;
+    ptr.style.height = `${px}px`;
+    ptr.classList.toggle('spinning', !!spinning);
+    ptr.style.setProperty('--ptr', Math.min(1, px / THRESHOLD).toFixed(3));
+    spin.style.left = `${rect.left + rect.width / 2}px`;
+    spin.style.top = `${rect.top + px / 2}px`;
+    rotor.style.transform = spinning ? '' : `rotate(${(px * 2.6).toFixed(1)}deg)`;
+    sc.dataset.pulling = '1';
+    if (status) status.textContent = spinning ? 'Aktualisieren' : '';
+    if (sc.scrollTop > 0) {
+      const left = sc.scrollLeft;
+      sc.scrollTop = 0;
+      sc.scrollLeft = left;
+    }
+  }
+  function track(px) {
+    ptr.classList.remove('settle');
+    place(px, false);
+  }
+  function settleTo(px, spinning) {
+    ptr.classList.remove('settle');
+    void ptr.offsetWidth;
+    ptr.classList.add('settle');
+    if (px > 0) { place(px, spinning); return; }
+    offset = 0;
+    ptr.classList.remove('spinning');
+    ptr.style.height = '0px';
+    ptr.style.setProperty('--ptr', '0');
+    const rect = sc.getBoundingClientRect();
+    spin.style.top = `${rect.top}px`;
+    delete sc.dataset.pulling;
+    if (status) status.textContent = '';
+    const hide = () => { if (offset === 0) ptr.hidden = true; };
+    ptr.addEventListener('transitionend', hide, { once: true });
+    setTimeout(hide, 420);
+  }
+  function canStart(target) {
+    if (refreshing || !target || !target.closest) return false;
+    if (document.querySelector('dialog[open]')) return false;
+    if (sc.scrollTop > 1) return false;
+    if (target.closest('.ccy-drag, button, a, input, select, textarea, label')) return false;
+    return true;
+  }
+  function begin(id, x, y, target) {
+    gesture = canStart(target) ? { id, x, y, mode: null } : null;
+  }
+  function move(id, x, y, prevent) {
+    if (!gesture || gesture.id !== id || refreshing) return;
+    const dx = x - gesture.x;
+    const dy = y - gesture.y;
+    if (!gesture.mode) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dx) >= Math.abs(dy) || dy < 0 || sc.scrollTop > 1) { gesture = null; return; }
+      gesture.mode = 'pull';
+    }
+    if (sc.scrollTop > 1) { gesture = null; track(0); return; }
+    prevent();
+    track(rubber(dy));
+  }
+  async function end(id) {
+    if (!gesture || gesture.id !== id) return;
+    const pulled = gesture.mode === 'pull' ? offset : 0;
+    gesture = null;
+    if (pulled < THRESHOLD) { settleTo(0, false); return; }
+    refreshing = true;
+    settleTo(HOLD, true);
+    spinReload();
+    try { await load(); }
+    finally { refreshing = false; settleTo(0, false); }
+  }
+
+  sc.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { gesture = null; return; }
+    const t = e.touches[0];
+    begin(t.identifier, t.clientX, t.clientY, e.target);
+  }, { passive: true });
+  sc.addEventListener('touchmove', e => {
+    if (!gesture || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    move(t.identifier, t.clientX, t.clientY, () => { if (e.cancelable) e.preventDefault(); });
+  }, { passive: false });
+  sc.addEventListener('touchend', e => { end(e.changedTouches[0] && e.changedTouches[0].identifier); });
+  sc.addEventListener('touchcancel', e => { end(e.changedTouches[0] && e.changedTouches[0].identifier); });
+  sc.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    begin('mouse', e.clientX, e.clientY, e.target);
+  });
+  sc.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse') return;
+    move('mouse', e.clientX, e.clientY, () => e.preventDefault());
+  });
+  sc.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') end('mouse'); });
+  sc.addEventListener('pointercancel', e => { if (e.pointerType === 'mouse') end('mouse'); });
 }
 
 async function fetchQuote(code) {
@@ -1854,6 +1991,7 @@ initBase();
 readViewOptions();
 syncBaseButton();
 bindChartScrub();
+bindPullToRefresh();
 runtimePromise = detectRuntime().then(mode => { runtime = mode; });
 $('baseBtn').addEventListener('click', () => {
   renderBase();
@@ -2013,9 +2151,8 @@ document.addEventListener('keydown', e => {
   cancelDrag();
   render({ keepScroll: true, focusDrag: code });
 });
-document.getElementById('reload').addEventListener('click', e => {
-  const b = e.currentTarget;
-  b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
+document.getElementById('reload').addEventListener('click', () => {
+  spinReload();
   load();
 });
 document.getElementById('csv').addEventListener('click', e => {

@@ -14,7 +14,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <header>
@@ -39,6 +39,10 @@
 </header>
 <p id="ccyLive" class="sr-only" aria-live="polite" aria-atomic="true"></p>
 <div class="scrollport" id="scroller">
+  <div id="ptr" class="ptr" hidden>
+    <div class="ptr-spin"><div class="ptr-spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <p id="ptrStatus" class="sr-only"></p>
+  </div>
   <div id="error" class="error" hidden></div>
   <main>
     <table id="grid" aria-label="Kursübersicht"></table>
@@ -56,6 +60,6 @@
 <dialog id="alerts" aria-label="FX-Alarme"></dialog>
 <dialog id="baseDlg" aria-label="Basiswährung"></dialog>
 <dialog id="times" aria-label="Erfassungszeiten"></dialog>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

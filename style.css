@@ -143,8 +143,46 @@ body.editing #editBtn {
 .scrollport {
   flex: 1 1 auto; min-height: 0; min-width: 0;
   overflow: auto; overflow-anchor: none; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: none;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--fg) 28%, transparent) transparent;
+}
+/* Ziehen zum Aktualisieren. Der Balken ist nur die Lücke; die Scheibe sitzt fixed,
+   damit sie die klebende Datumskopfzeile und das waagrechte Scrollen nicht verschiebt. */
+.ptr {
+  position: sticky; left: 0; z-index: 4; pointer-events: none;
+  height: 0; width: 100%;
+}
+.ptr[hidden] { display: none; }
+.ptr.settle { transition: height .34s cubic-bezier(.22,.9,.3,1); }
+.ptr-spin {
+  position: fixed; z-index: 4; width: 28px; height: 28px; margin: -14px 0 0 -14px;
+  opacity: var(--ptr, 0); pointer-events: none;
+}
+.ptr.settle .ptr-spin { transition: top .34s cubic-bezier(.22,.9,.3,1), opacity .22s linear; }
+.ptr.spinning .ptr-spin { opacity: 1; }
+.ptr-spinner { width: 28px; height: 28px; position: relative; }
+.ptr.spinning .ptr-spinner { animation: ptr-spin .8s linear infinite; }
+.ptr-spinner i {
+  position: absolute; left: 50%; top: 1px; width: 2.5px; height: 7px; margin-left: -1.25px;
+  border-radius: 1.5px; background: var(--faint); transform-origin: 50% 13px;
+}
+.ptr-spinner i:nth-child(1) { transform: rotate(0deg); opacity: .95; }
+.ptr-spinner i:nth-child(2) { transform: rotate(30deg); opacity: .85; }
+.ptr-spinner i:nth-child(3) { transform: rotate(60deg); opacity: .72; }
+.ptr-spinner i:nth-child(4) { transform: rotate(90deg); opacity: .58; }
+.ptr-spinner i:nth-child(5) { transform: rotate(120deg); opacity: .45; }
+.ptr-spinner i:nth-child(6) { transform: rotate(150deg); opacity: .34; }
+.ptr-spinner i:nth-child(7) { transform: rotate(180deg); opacity: .26; }
+.ptr-spinner i:nth-child(8) { transform: rotate(210deg); opacity: .2; }
+.ptr-spinner i:nth-child(9) { transform: rotate(240deg); opacity: .16; }
+.ptr-spinner i:nth-child(10) { transform: rotate(270deg); opacity: .18; }
+.ptr-spinner i:nth-child(11) { transform: rotate(300deg); opacity: .28; }
+.ptr-spinner i:nth-child(12) { transform: rotate(330deg); opacity: .5; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ptr.settle, .ptr.settle .ptr-spin { transition: none; }
+  .ptr.spinning .ptr-spinner { animation: none; }
 }
 footer, #error {
   position: sticky; left: 0; z-index: 1;
