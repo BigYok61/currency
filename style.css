@@ -885,7 +885,36 @@ body.v21 #alertsBtn .sym,
 body.v21 #reload .sym { display: block; pointer-events: none; }
 body.v21 .edge-mask { display: none; }
 body.v21 main { margin: 0; min-width: 0; width: 100%; }
-body.v21 .scrollport { scroll-snap-type: none; scroll-padding: 0; }
+body.v21 .scrollport {
+  scroll-snap-type: none;
+  scroll-padding: 0;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+body.v21 footer {
+  position: fixed;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 1px;
+  margin: 0;
+  padding: 6px max(16px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  border-top: .5px solid rgba(60,60,67,.29);
+  background: rgba(242,242,247,.92);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  color: rgba(60,60,67,.62);
+}
+body.v21 footer #source,
+body.v21 footer #updated { flex: 1 0 100%; }
 body.v21 .cap {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   margin: 4px 0 0; padding: 2px 16px 6px 20px;
@@ -949,6 +978,7 @@ body.v21 .calc-pill button {
   border: none; background: none; color: rgba(60,60,67,.75);
   font: inherit; font-size: 16px; font-weight: 600; line-height: 1; padding: 0 2px; cursor: pointer;
 }
+body.v21 .calc-dock[hidden] { display: none; }
 body.v21 .calc-dock {
   position: fixed; z-index: 6; left: 0; right: 0; bottom: 0;
   display: flex; justify-content: flex-end; align-items: center;
@@ -958,7 +988,8 @@ body.v21 .calc-dock {
 body.v21 .calc-dock button {
   border: none; background: none; color: #007aff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
 }
-body.v21.calc-editing .scrollport { padding-bottom: 52px; }
+body.v21.calc-editing footer { bottom: calc(44px + env(safe-area-inset-bottom)); }
+body.v21.calc-editing .scrollport { padding-bottom: calc(116px + env(safe-area-inset-bottom)); }
 body.v21 .blocks { margin-top: 8px; }
 body.v21 .cactions { display: flex; align-items: center; gap: 2px; flex: none; }
 body.v21 .row-btn {
@@ -1174,6 +1205,11 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .calc-pill { background: rgba(120,120,128,.28); }
   body.v21 .calc-pill button { color: rgba(235,235,245,.75); }
   body.v21 .calc-dock { background: rgba(28,28,30,.96); border-top-color: rgba(84,84,88,.65); }
+  body.v21 footer {
+    background: rgba(28,28,30,.88);
+    color: rgba(235,235,245,.6);
+    border-top-color: rgba(84,84,88,.65);
+  }
   body.v21 .ccard + .ccard::before, body.v21 .check + .check::before { background: rgba(84,84,88,.65); }
   body.v21 .rangebar button[aria-pressed="true"] { background: #007aff; color: #fff; }
   body.v21 dialog.sheet { background: #1c1c1e; color: #f5f5f7; }

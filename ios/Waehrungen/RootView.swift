@@ -123,10 +123,16 @@ struct RootView: View {
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
         .padding(.bottom, 4)
-        .background(.background)
+        .background(.bar, ignoresSafeAreaEdges: .bottom)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 1 / UIScreen.main.scale)
+        }
     }
 }
 
