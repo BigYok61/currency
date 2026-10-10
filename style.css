@@ -1017,8 +1017,8 @@ body.v21 .fc-line {
 }
 body.v21 .fc-k { padding-top: 1px; }
 body.v21 .pair { display: grid; grid-template-columns: auto auto; column-gap: 4px; align-items: start; }
-body.v21 .pair .tag { grid-column: 1; grid-row: 1; color: rgba(60,60,67,.75); font-weight: 400; }
-body.v21 .pair .val { grid-column: 2; grid-row: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+body.v21 .pair .tag { grid-column: 1; grid-row: 1; color: rgba(60,60,67,.75); font-size: 13px; font-weight: 400; }
+body.v21 .pair .val { grid-column: 2; grid-row: 1; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 body.v21 .pair .val.up, body.v21 .pair .dev.up { color: var(--up); }
 body.v21 .pair .val.down, body.v21 .pair .dev.down { color: var(--down); }
 body.v21 .pair .dev {

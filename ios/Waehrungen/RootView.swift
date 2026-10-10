@@ -204,8 +204,11 @@ struct CurrencyCard: View {
     private func pair(tag: String, value: Double?, delta: Double?) -> some View {
         VStack(spacing: 1) {
             HStack(spacing: 4) {
-                Text(tag).fontWeight(.regular).foregroundStyle(.secondary)
+                Text(tag)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.secondary)
                 Text(valueText(value, delta: delta))
+                    .font(.system(size: 13, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(forecastTone(delta))
             }
