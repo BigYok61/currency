@@ -921,7 +921,8 @@ body.v21 button.amt:focus { outline: none; }
 body.v21 button.amt:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
 body.v21 .cinv { margin-top: 1px; font-size: 12px; font-weight: 400; color: rgba(60,60,67,.55); font-variant-numeric: tabular-nums; }
-body.v21 .ccard.is-base:not(.is-conv) .crate { color: rgba(60,60,67,.55); font-weight: 500; }
+body.v21 .ccard.is-base .crate { color: #007aff; font-weight: 600; }
+body.v21.calc-editing .ccard.is-base:not(.is-editing) .crate { color: #1c1c1e; }
 body.v21 .ccard.is-editing { background: rgba(0,122,255,.12); }
 body.v21 .ccard.is-editing .crate,
 body.v21 .ccard.is-editing .unit,
@@ -1148,7 +1149,8 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .slot .t, body.v21 .pair .dev, body.v21 .ref-src, body.v21 .disclaimer, body.v21 .vorschau-label,
   body.v21 .alert-intro, body.v21 .tm-note, body.v21 .check small { color: rgba(235,235,245,.6); }
   body.v21 .csub.base-sub { color: #0a84ff; }
-  body.v21 .ccard.is-base:not(.is-conv) .crate { color: rgba(235,235,245,.6); }
+  body.v21 .ccard.is-base .crate { color: #0a84ff; }
+  body.v21.calc-editing .ccard.is-base:not(.is-editing) .crate { color: #f5f5f7; }
   body.v21 .ccard.is-editing { background: rgba(10,132,255,.22); }
   body.v21 .calc-pill { background: rgba(120,120,128,.28); }
   body.v21 .calc-pill button { color: rgba(235,235,245,.75); }

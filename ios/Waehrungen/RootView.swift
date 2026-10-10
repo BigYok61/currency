@@ -210,7 +210,7 @@ struct CurrencyCard: View {
     }
 
     private func amountColumn(unitRates: Bool, editing: Bool) -> some View {
-        let muted = unitRates && code == store.base
+        let hint = code == store.base && !store.convertEditing
         return VStack(alignment: .trailing, spacing: 1) {
             if editing {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -234,9 +234,9 @@ struct CurrencyCard: View {
                 }
             } else {
                 Text(store.primaryText(code, unitRates: unitRates))
-                    .font(.system(size: 17, weight: muted ? .medium : .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .monospacedDigit()
-                    .foregroundStyle(muted ? Color.secondary : Color.primary)
+                    .foregroundStyle(hint ? Color.blue : Color.primary)
                     .contentShape(Rectangle())
                     .onTapGesture { if !preview { store.beginConvert(code) } }
                     .accessibilityAddTraits(.isButton)
