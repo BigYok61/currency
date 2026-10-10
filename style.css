@@ -917,8 +917,14 @@ body.v21 .amt {
   text-align: right; cursor: pointer;
 }
 body.v21 div.amt { cursor: default; }
-body.v21 button.amt:focus { outline: none; }
-body.v21 button.amt:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
+body.v21 button.amt-btn {
+  margin: 0; padding: 0; border: none; background: none; color: inherit; font: inherit;
+  text-align: right; cursor: pointer;
+}
+body.v21 button.amt:focus,
+body.v21 button.amt-btn:focus { outline: none; }
+body.v21 button.amt:focus-visible,
+body.v21 button.amt-btn:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
 body.v21 .cinv { margin-top: 1px; font-size: 12px; font-weight: 400; color: rgba(60,60,67,.55); font-variant-numeric: tabular-nums; }
 body.v21 .ccard.is-base .crate { color: #007aff; font-weight: 600; }

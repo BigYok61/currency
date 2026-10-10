@@ -143,6 +143,7 @@ function applyConvertDraft(text) {
   if (n != null) convertAmount = n;
 }
 function finishConvert() {
+  if (!convertEditing) return;
   const n = parseAmount(convertDraft);
   if (n != null) convertAmount = n;
   convertEditing = false;
@@ -551,11 +552,10 @@ function cardHtml(c, opts) {
     actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
   const invSpan = isBase ? '' : `<span class="cinv">${esc(inverseLabel(c.code))}</span>`;
+  const amountBtn = `<button type="button" class="amt-btn" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span></button>`;
   const amount = editing
     ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span>${invSpan}</div>`
-    : (preview
-      ? `<div class="amt"><span class="crate">${esc(rateText(c.code, q.v))}</span>${invSpan}</div>`
-      : `<button type="button" class="amt" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span>${invSpan}</button>`);
+    : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}${invSpan}</div>`;
   const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
   return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
@@ -946,40 +946,46 @@ function bindScrub() {
 }
 function onDocClick(e) {
   const closer = e.target.closest('[data-close]');
-  if (closer) { closer.closest('dialog')?.close(); return; }
   const opt = e.target.closest('#viewDlg [data-opt]');
+  const range = e.target.closest('[data-range]');
+  const add = e.target.closest('[data-add]');
+  const reset = e.target.closest('[data-calc-reset]');
+  const amountBtn = e.target.closest('[data-amount]');
+  const inField = e.target.closest('[data-amount-input]');
+  const del = e.target.closest('[data-del]');
+  const move = e.target.closest('[data-move]');
+  const addCcy = e.target.closest('.add-ccy');
+  const baseBtn = e.target.closest('#baseBtn');
+  const inDialog = e.target.closest('dialog');
+  const fertig = e.target.closest('#calcDone');
+  if (amountBtn && !inField) { beginConvert(amountBtn.dataset.amount); return; }
+  if (convertEditing && !inField && !fertig && !reset && !inDialog) finishConvert();
+  if (closer) { closer.closest('dialog')?.close(); return; }
   if (opt && !opt.disabled) {
     setOpt(opt.dataset.opt, opt.getAttribute('aria-checked') !== 'true');
     return;
   }
-  const range = e.target.closest('[data-range]');
   if (range && range.dataset.range !== chartRange) {
     chartRange = range.dataset.range;
     writeViewOptions();
     render({ keepScroll: true });
     return;
   }
-  const add = e.target.closest('[data-add]');
   if (add) {
     addCurrency(add.dataset.add);
     $('addDlg').close();
     return;
   }
-  const reset = e.target.closest('[data-calc-reset]');
   if (reset) { resetConvert(); return; }
-  const amountBtn = e.target.closest('[data-amount]');
-  if (amountBtn && !e.target.closest('[data-amount-input]')) { beginConvert(amountBtn.dataset.amount); return; }
-  const del = e.target.closest('[data-del]');
   if (del) { deleteRow(del.dataset.del); return; }
-  const move = e.target.closest('[data-move]');
   if (move && !move.disabled) { moveRow(move.dataset.code, move.dataset.move); return; }
-  if (e.target.closest('.add-ccy')) {
+  if (addCcy) {
     addQuery = '';
     renderAdd();
     $('addDlg').showModal();
     return;
   }
-  if (e.target.closest('#baseBtn')) {
+  if (baseBtn) {
     renderBase();
     $('baseDlg').showModal();
   }
@@ -1027,6 +1033,26 @@ if (typeof document !== 'undefined') {
     }
   });
   document.addEventListener('click', onDocClick);
+  const scroller = document.getElementById('scroller');
+  if (scroller) {
+    let swipe = null;
+    scroller.addEventListener('touchstart', e => {
+      if (!convertEditing || e.touches.length !== 1) { swipe = null; return; }
+      const t = e.touches[0];
+      swipe = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+    scroller.addEventListener('touchend', e => {
+      const start = swipe;
+      swipe = null;
+      if (!start || !convertEditing) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (dy > 28 && Math.abs(dy) > Math.abs(dx)) finishConvert();
+    }, { passive: true });
+    scroller.addEventListener('touchcancel', () => { swipe = null; });
+  }
   $('viewBtn').addEventListener('click', () => { renderView(); $('viewDlg').showModal(); });
   $('timesBtn').addEventListener('click', () => { openTimes(); });
   $('alertsBtn').addEventListener('click', () => { openAlerts(); });

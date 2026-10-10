@@ -39,7 +39,10 @@ struct RootView: View {
                         if store.showConvertPill {
                             HStack(spacing: 6) {
                                 Text(store.convertPillText)
-                                Button { store.resetConvert() } label: {
+                                Button {
+                                    store.resetConvert()
+                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                } label: {
                                     Text("×")
                                         .font(.system(size: 15, weight: .semibold))
                                         .frame(width: 18, height: 18)
@@ -74,7 +77,15 @@ struct RootView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { await store.reload() }
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable {
+                guard !store.convertEditing else { return }
+                await store.reload()
+            }
+            .background(KeypadDismiss(editing: store.convertEditing) {
+                store.finishConvert()
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            })
             .navigationTitle("Währungen")
             .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
@@ -227,20 +238,24 @@ struct CurrencyCard: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .onAppear { DispatchQueue.main.async { amountFocused = true } }
+                        .onChange(of: amountFocused) { focused in
+                            if !focused && store.convertEditing && store.convertSource == code {
+                                store.finishConvert()
+                            }
+                        }
                     Text(code)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color.blue)
                         .accessibilityHidden(true)
                 }
             } else {
-                Text(store.primaryText(code, unitRates: unitRates))
-                    .font(.system(size: 17, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(hint ? Color.blue : Color.primary)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !preview { store.beginConvert(code) } }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("\(store.primaryText(code, unitRates: unitRates)) bearbeiten")
+                TappableAmount(
+                    text: store.primaryText(code, unitRates: unitRates),
+                    blue: hint,
+                    enabled: !preview
+                ) {
+                    store.beginConvert(code)
+                }
             }
             if code != store.base {
                 Text(store.secondaryText(code))
@@ -350,5 +365,146 @@ struct CurrencyCard: View {
         guard let value else { return "–" }
         let mark = arrow(delta)
         return mark.isEmpty ? formatRate(value) : "\(mark) \(formatRate(value))"
+    }
+}
+
+/// The idle and result amount. A real UILabel so a list tap can tell it apart from the row background.
+struct TappableAmount: UIViewRepresentable {
+    var text: String
+    var blue: Bool
+    var enabled: Bool
+    var onTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> AmountLabel {
+        let label = AmountLabel()
+        label.isUserInteractionEnabled = true
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap))
+        label.addGestureRecognizer(tap)
+        return label
+    }
+
+    func updateUIView(_ uiView: AmountLabel, context: Context) {
+        uiView.text = text
+        uiView.textColor = blue ? .systemBlue : .label
+        uiView.accessibilityLabel = "\(text) bearbeiten"
+        uiView.accessibilityTraits = .button
+        uiView.isAccessibilityElement = true
+        context.coordinator.onTap = onTap
+        context.coordinator.enabled = enabled
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: AmountLabel, context: Context) -> CGSize? {
+        let size = uiView.intrinsicContentSize
+        return CGSize(width: ceil(size.width), height: ceil(size.height))
+    }
+
+    final class Coordinator: NSObject {
+        var onTap: () -> Void = {}
+        var enabled = true
+        @objc func tap() { if enabled { onTap() } }
+    }
+}
+
+final class AmountLabel: UILabel {}
+
+/// Closes the keypad on a tap that is not another amount, and keeps pull-to-refresh off while it is open.
+private struct KeypadDismiss: UIViewRepresentable {
+    var editing: Bool
+    var onTapOutside: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.editing = editing
+        context.coordinator.onTapOutside = onTapOutside
+        DispatchQueue.main.async {
+            guard let scroll = Self.listScroll(from: uiView) else { return }
+            scroll.keyboardDismissMode = .interactive
+            context.coordinator.attach(to: scroll)
+            scroll.refreshControl?.isEnabled = !context.coordinator.editing && !context.coordinator.blockRefresh
+        }
+    }
+
+    private static func listScroll(from view: UIView) -> UIScrollView? {
+        var current: UIView? = view
+        while let node = current {
+            if let scroll = node as? UIScrollView { return scroll }
+            current = node.superview
+        }
+        var root: UIView = view
+        while let parent = root.superview { root = parent }
+        return firstTallScroll(in: root)
+    }
+
+    private static func firstTallScroll(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView, scroll.bounds.height > 200 { return scroll }
+        for sub in view.subviews {
+            if let found = firstTallScroll(in: sub) { return found }
+        }
+        return nil
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var editing = false
+        var blockRefresh = false
+        var onTapOutside: () -> Void = {}
+        weak var scroll: UIScrollView?
+
+        func attach(to scroll: UIScrollView) {
+            guard self.scroll !== scroll else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesBegan = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            tap.name = "wae.keypadDismiss"
+            scroll.addGestureRecognizer(tap)
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+            self.scroll = scroll
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard editing else { return false }
+            var view: UIView? = touch.view
+            while let current = view {
+                if current is UITextField || current is AmountLabel { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard editing, gesture.state == .ended else { return }
+            onTapOutside()
+        }
+
+        @objc func panned(_ pan: UIPanGestureRecognizer) {
+            guard let scroll else { return }
+            if pan.state == .began { blockRefresh = editing }
+            if blockRefresh {
+                scroll.refreshControl?.isEnabled = false
+                if pan.state == .ended || pan.state == .cancelled || pan.state == .failed {
+                    scroll.refreshControl?.endRefreshing()
+                    blockRefresh = false
+                    scroll.refreshControl?.isEnabled = !editing
+                }
+            }
+        }
     }
 }

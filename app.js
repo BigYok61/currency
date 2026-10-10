@@ -1554,6 +1554,7 @@ function bindPullToRefresh() {
   }
   function canStart(target) {
     if (refreshing || !target || !target.closest) return false;
+    if (document.body.classList.contains('calc-editing')) return false;
     if (document.querySelector('dialog[open]')) return false;
     if (sc.scrollTop > 1) return false;
     if (target.closest('.ccy-drag, button, a, input, select, textarea, label')) return false;

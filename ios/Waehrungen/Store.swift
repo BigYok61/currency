@@ -142,6 +142,7 @@ final class RatesStore: ObservableObject {
     }
 
     func finishConvert() {
+        guard convertEditing else { return }
         if let value = Self.parseAmount(convertDraft) {
             convertAmount = value
         }
