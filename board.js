@@ -332,25 +332,67 @@ function chartBlock(c, suffix) {
     : '';
   return `<div class="chart-block"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"><svg class="plot" viewBox="0 0 320 112" role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div><div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div><div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div></div>`;
 }
-function intervalBlock(c) {
+function knownSlotRates(code) {
+  const out = [];
+  for (const hr of HOURS) {
+    const hit = hourHit(code, hr);
+    if (hit && hit.v != null) out.push({ h: hr, v: hit.v });
+  }
+  return out;
+}
+function previewAnchor(code, hour) {
+  const known = knownSlotRates(code).filter(item => hour == null || item.h !== hour);
+  if (known.length) {
+    const target = hour == null ? 12 : hour;
+    known.sort((a, b) => Math.abs(a.h - target) - Math.abs(b.h - target));
+    return known[0].v;
+  }
+  const quote = quoteOf(currencyRecord(code));
+  return quote && quote.v != null ? quote.v : null;
+}
+function previewNudge(hour) {
+  if (hour === 7) return 0.0003;
+  if (hour === 17) return 0.0014;
+  return ((hour % 5) - 2) * 0.00035;
+}
+function intervalBlock(c, preview) {
   const rows = HOURS.map(hr => {
     const hit = hourHit(c.code, hr);
-    const text = hit ? rateText(c.code, hit.v) : '–';
+    let value = hit ? hit.v : null;
+    if (preview && value == null) {
+      const anchor = previewAnchor(c.code, hr);
+      if (anchor != null) value = anchor + previewNudge(hr);
+    }
+    const text = value == null ? '–' : rateText(c.code, value);
     return `<div class="slot"><span class="t">${pad(hr)}:00</span><span>${esc(text)}</span></div>`;
   }).join('');
   return `<div class="slots">${rows}</div>`;
 }
-function forecastBlock(c) {
-  const bits = forecastBits(c);
-  const dayVal = !bits || bits.todayV == null ? '–' : `${arrowOf(bits.devDay)} ${r(bits.todayV)}`.trim();
-  const weekVal = !bits || bits.weekV == null ? '–' : `${arrowOf(bits.devWeek)} ${r(bits.weekV)}`.trim();
-  const dayDev = bits ? fmtDev(bits.devDay) : '';
-  const weekDev = bits ? fmtDev(bits.devWeek) : '';
+function forecastBlock(c, preview) {
+  const bits = forecastBits(c) || {};
+  let todayV = bits.todayV;
+  let weekV = bits.weekV;
+  let devDay = bits.devDay;
+  let devWeek = bits.devWeek;
+  if (preview) {
+    const anchor = previewAnchor(c.code, null);
+    if (anchor != null && todayV == null) { todayV = anchor + 0.0006; devDay = 0.0006; }
+    if (anchor != null && weekV == null) { weekV = anchor - 0.0002; devWeek = -0.0002; }
+  }
+  const dayVal = todayV == null ? '–' : `${arrowOf(devDay)} ${r(todayV)}`.trim();
+  const weekVal = weekV == null ? '–' : `${arrowOf(devWeek)} ${r(weekV)}`.trim();
+  const dayDev = fmtDev(devDay);
+  const weekDev = fmtDev(devWeek);
   return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="pair"><span class="tag">heute</span><span class="val">${esc(dayVal)}</span><span class="dev">${esc(dayDev)}</span></span><span class="fc-sep">·</span><span class="pair"><span class="tag">7 Tage</span><span class="val">${esc(weekVal)}</span><span class="dev">${esc(weekDev)}</span></span></div>`;
 }
-function referenceBlock(c) {
+function referenceBlock(c, preview) {
   const hit = referenceBits(c);
-  const text = hit ? rateText(c.code, hit.v) : '–';
+  let value = hit ? hit.v : null;
+  if (preview && value == null) {
+    const anchor = previewAnchor(c.code, null);
+    if (anchor != null) value = anchor - 0.0005;
+  }
+  const text = value == null ? '–' : rateText(c.code, value);
   return `<div class="ref-row"><span>EZB-Referenzkurs</span><span>${esc(text)}</span></div><div class="ref-src">Quelle EZB</div>`;
 }
 function cardHtml(c, opts) {
@@ -363,9 +405,9 @@ function cardHtml(c, opts) {
   let blocks = '';
   if (!isBase) {
     if (showChart) blocks += chartBlock(c, preview ? 'p' : 'm');
-    if (showIntervals) blocks += intervalBlock(c);
-    if (showForecast) blocks += forecastBlock(c);
-    if (showReference) blocks += referenceBlock(c);
+    if (showIntervals) blocks += intervalBlock(c, preview);
+    if (showForecast) blocks += forecastBlock(c, preview);
+    if (showReference) blocks += referenceBlock(c, preview);
   }
   let actions = '';
   if (!preview && !isBase) {

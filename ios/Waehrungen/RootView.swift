@@ -122,7 +122,7 @@ struct CurrencyCard: View {
                 HStack {
                     Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
                     Spacer()
-                    Text(store.intervalValue(code, hour: hour).map { rateText($0) } ?? "–")
+                    Text(shownInterval(hour))
                 }
                 .font(.system(size: 13))
                 .monospacedDigit()
@@ -131,7 +131,7 @@ struct CurrencyCard: View {
     }
 
     private var forecast: some View {
-        let line = store.forecast(code)
+        let line = preview ? illustratedForecast() : store.forecast(code)
         return HStack(alignment: .top, spacing: 6) {
             Text("Prognose")
             pair(tag: "heute", value: line?.today, delta: line?.todayDelta)
@@ -159,7 +159,7 @@ struct CurrencyCard: View {
             HStack {
                 Text("EZB-Referenzkurs")
                 Spacer()
-                Text(store.reference(code).map { rateText($0) } ?? "–").monospacedDigit()
+                Text(shownReference()).monospacedDigit()
             }
             .font(.system(size: 13))
             Text("Quelle EZB").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -192,6 +192,48 @@ struct CurrencyCard: View {
                 )
                 .accessibilityLabel("\(CurrencyNames.name(code)) verschieben")
         }
+    }
+
+    private func shownInterval(_ hour: Int) -> String {
+        if let real = store.intervalValue(code, hour: hour) { return rateText(real) }
+        guard preview, let anchor = previewAnchor(excluding: hour) else { return "–" }
+        return rateText(anchor + previewNudge(hour))
+    }
+
+    private func illustratedForecast() -> ForecastLine? {
+        let line = store.forecast(code)
+        guard let anchor = previewAnchor(excluding: nil) else { return line }
+        var today = line?.today
+        var week = line?.week
+        var todayDelta = line?.todayDelta
+        var weekDelta = line?.weekDelta
+        if today == nil { today = anchor + 0.0006; todayDelta = 0.0006 }
+        if week == nil { week = anchor - 0.0002; weekDelta = -0.0002 }
+        return ForecastLine(today: today, week: week, todayDelta: todayDelta, weekDelta: weekDelta)
+    }
+
+    private func shownReference() -> String {
+        if let real = store.reference(code) { return rateText(real) }
+        guard preview, let anchor = previewAnchor(excluding: nil) else { return "–" }
+        return rateText(anchor - 0.0005)
+    }
+
+    private func previewAnchor(excluding hour: Int?) -> Double? {
+        let known = store.hours.compactMap { item -> (Int, Double)? in
+            if item == hour { return nil }
+            guard let value = store.intervalValue(code, hour: item) else { return nil }
+            return (item, value)
+        }
+        if let hour {
+            return known.min { abs($0.0 - hour) < abs($1.0 - hour) }?.1 ?? store.quote(code).value
+        }
+        return known.min { abs($0.0 - 12) < abs($1.0 - 12) }?.1 ?? store.quote(code).value
+    }
+
+    private func previewNudge(_ hour: Int) -> Double {
+        if hour == 7 { return 0.0003 }
+        if hour == 17 { return 0.0014 }
+        return Double((hour % 5) - 2) * 0.00035
     }
 
     private func rateText(_ value: Double?) -> String {
