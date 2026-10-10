@@ -21,11 +21,23 @@ const prettyFmt = new Intl.DateTimeFormat('de-CH', { day: 'numeric', month: 'sho
 const plots = new Map();
 let boardGen = 0;
 let alertsPage = 'list';
+let alertSaveTimer = 0;
+let pendingAlertForm = null;
 let addQuery = '';
 
-function cardRate(v) {
-  if (v == null || !(Math.abs(v) > EPS)) return null;
-  return 1 / v;
+const QUOTE_LOT = { JPY: 100, KRW: 100, HUF: 100, IDR: 100, ISK: 100 };
+function quoteLot(code) {
+  return QUOTE_LOT[code] || 1;
+}
+/** Price of one bank lot in the reporting currency. `perUnit` is already reporting currency per 1 foreign unit. */
+function directPrice(code, perUnit) {
+  if (perUnit == null || !(Math.abs(perUnit) > EPS)) return null;
+  return perUnit * quoteLot(code);
+}
+function lotCaption(code) {
+  const lot = quoteLot(code);
+  const sym = currencySymbol(code);
+  return lot === 1 ? `${code} · ${sym}` : `${lot} ${code} · ${sym}`;
 }
 function fmtDev(d) {
   if (d == null || Number.isNaN(d)) return '';
@@ -40,18 +52,158 @@ function arrowOf(d) {
   if (d < -EPS) return '↓';
   return '→';
 }
+function forecastTone(d) {
+  if (d == null || Number.isNaN(d)) return '';
+  if (d > EPS) return ' up';
+  if (d < -EPS) return ' down';
+  return '';
+}
 function prettyDay(day) {
   if (!day) return '';
   return prettyFmt.format(new Date(`${day}T12:00:00Z`));
 }
-function rateText(code, v) {
+function rateText(_code, v) {
   if (v == null) return '–';
-  const unit = code === baseCurrency ? baseCurrency : code;
-  return `${r(v)} ${unit}`;
+  return `${r(v)} ${baseCurrency}`;
 }
-function invText(raw) {
-  if (raw == null) return '–';
-  return `${r(raw)} ${baseCurrency}`;
+function inverseLine(code, perUnit) {
+  if (!code || code === baseCurrency || perUnit == null || !(Math.abs(perUnit) > EPS)) return '';
+  return `${r(1 / perUnit)} ${code}`;
+}
+const moneyFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pillFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+let convertSource = baseCurrency;
+let convertAmount = 1;
+let convertDraft = '1';
+let convertEditing = false;
+let convertReplace = false;
+function parseAmount(text) {
+  let s = String(text == null ? '' : text).trim().replace(/['’\s\u00a0\u202f]/g, '');
+  if (!s) return null;
+  const dots = (s.match(/\./g) || []).length;
+  const commas = (s.match(/,/g) || []).length;
+  if (dots && commas) {
+    if (s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g, '');
+    else s = s.replace(/\./g, '').replace(',', '.');
+  } else if (commas === 1) s = s.replace(',', '.');
+  else if (commas > 1) s = s.replace(/,/g, '');
+  else if (dots > 1) s = s.replace(/\./g, '');
+  if (s.endsWith('.')) s = s.slice(0, -1);
+  if (!s || s === '-') return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+function draftString(n) {
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(4).replace(/\.?0+$/, '');
+}
+function basePer(code) {
+  const q = quoteOf(currencyRecord(code));
+  return q && q.raw != null ? q.raw : null;
+}
+function valueInBase() {
+  const per = basePer(convertSource);
+  return per == null ? null : convertAmount * per;
+}
+function convertValue(code) {
+  const total = valueInBase();
+  const per = basePer(code);
+  if (total == null || per == null || !(Math.abs(per) > EPS)) return null;
+  return total / per;
+}
+function showsUnitRates() {
+  const v = valueInBase();
+  return v == null ? convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7 : Math.abs(v - 1) < 5e-7;
+}
+function isDefaultConvert() {
+  return convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7;
+}
+function moneyText(n) {
+  return n == null || Number.isNaN(n) ? '–' : moneyFmt.format(n);
+}
+function amountLabel(code, unitRates) {
+  if (unitRates) {
+    const q = quoteOf(currencyRecord(code));
+    return rateText(code, q ? q.v : null);
+  }
+  const v = convertValue(code);
+  return v == null ? '–' : `${moneyText(v)} ${code}`;
+}
+function inverseLabel(code) {
+  if (code === baseCurrency) return '';
+  const q = quoteOf(currencyRecord(code));
+  if (!q || q.raw == null) return '–';
+  return inverseLine(code, q.raw) || '–';
+}
+function beginConvert(code) {
+  if (convertEditing && convertSource === code) {
+    const input = document.querySelector('[data-amount-input]');
+    if (input) input.focus();
+    return;
+  }
+  let next;
+  if (convertSource === code) next = convertAmount;
+  else if (showsUnitRates()) {
+    const q = quoteOf(currencyRecord(code));
+    next = q && q.raw != null && Math.abs(q.raw) > EPS ? 1 / q.raw : 1;
+  } else next = convertValue(code) ?? 1;
+  convertSource = code;
+  convertAmount = next;
+  convertDraft = draftString(next);
+  convertReplace = true;
+  convertEditing = true;
+  render({ keepScroll: true, keepCaret: true });
+}
+function applyConvertDraft(text) {
+  convertDraft = text;
+  if (!String(text).trim()) { convertAmount = 0; return; }
+  const n = parseAmount(text);
+  if (n != null) convertAmount = n;
+}
+function finishConvert() {
+  if (!convertEditing) return;
+  const n = parseAmount(convertDraft);
+  if (n != null) convertAmount = n;
+  convertEditing = false;
+  convertReplace = false;
+  render({ keepScroll: true });
+}
+function onConvertInput(value) {
+  const hadPill = !isDefaultConvert();
+  const hadRates = showsUnitRates();
+  applyConvertDraft(value);
+  const input = document.querySelector('[data-amount-input]');
+  const caret = input ? input.selectionStart : null;
+  if (hadPill !== !isDefaultConvert() || hadRates !== showsUnitRates()) {
+    render({ keepScroll: true, keepCaret: true });
+    return;
+  }
+  document.querySelectorAll('.ccard').forEach(card => {
+    const code = card.dataset.code;
+    const editing = convertEditing && convertSource === code;
+    card.classList.toggle('is-conv', !showsUnitRates());
+    card.classList.toggle('is-editing', editing);
+    const inv = card.querySelector('.cinv');
+    if (inv) inv.textContent = inverseLabel(code);
+    if (!editing) {
+      const crate = card.querySelector('.crate');
+      if (crate) crate.textContent = amountLabel(code, showsUnitRates());
+    }
+  });
+  const pill = document.querySelector('.calc-pill span');
+  if (pill) pill.textContent = `${pillFmt.format(convertAmount)} ${convertSource} umgerechnet`;
+  if (input && caret != null && document.activeElement !== input) {
+    input.focus();
+    input.setSelectionRange(caret, caret);
+  }
+}
+function resetConvert() {
+  convertSource = baseCurrency;
+  convertAmount = 1;
+  convertDraft = '1';
+  convertEditing = false;
+  convertReplace = false;
+  render({ keepScroll: true });
 }
 function readListOrder() {
   try {
@@ -100,10 +252,37 @@ function alarmHint(code) {
   times.sort();
   return `<span class="fired">${FIRED_BELL}<span class="fired-time">${esc(times[0])}</span></span>`;
 }
+function dayMoveText(delta, pct) {
+  const body = Math.abs(pct).toFixed(2);
+  const sign = pct > 0.005 ? '+' : pct < -0.005 ? '−' : '';
+  return `${arrowOf(delta)} ${signedRate(delta)} ${baseCurrency} (${sign}${body} %)`.trim();
+}
+/** Change from the user's start hour today, or the first stored rate that day, to the shown price. */
+function dayMove(c) {
+  if (!c || c.code === baseCurrency) return null;
+  const q = quoteOf(c);
+  if (q.v == null || !(Math.abs(q.v) > EPS)) return null;
+  const today = zurichToday();
+  let day = q.day || today;
+  let hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
+  if (!hours.length) {
+    for (let i = 1; i < 12; i++) {
+      day = addDays(today, -i);
+      hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
+      if (hours.length) break;
+    }
+  }
+  if (!hours.length) return null;
+  const openHour = hours.includes(schedule.start) ? schedule.start : hours[0];
+  const open = directPrice(c.code, shown(c, day, openHour));
+  if (open == null || !(Math.abs(open) > EPS)) return null;
+  const delta = q.v - open;
+  return { delta, text: dayMoveText(delta, delta / open * 100), cls: forecastTone(delta) };
+}
 function quoteOf(c) {
   if (c.code === baseCurrency) return { v: 1, raw: 1 };
   const liveRaw = shownLive(c);
-  if (liveRaw != null) return { v: cardRate(liveRaw), raw: liveRaw, live: true };
+  if (liveRaw != null) return { v: directPrice(c.code, liveRaw), raw: liveRaw, live: true };
   const today = zurichToday();
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
@@ -112,7 +291,7 @@ function quoteOf(c) {
     if (!hours.length) continue;
     const raw = shown(c, day, hours[0]);
     if (raw == null) continue;
-    return { v: cardRate(raw), raw, day, hour: hours[0] };
+    return { v: directPrice(c.code, raw), raw, day, hour: hours[0] };
   }
   return { v: null, raw: null };
 }
@@ -122,7 +301,7 @@ function hourHit(code, hour) {
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
     const raw = shown({ code }, day, hour);
-    if (raw != null) return { v: cardRate(raw), raw, day };
+    if (raw != null) return { v: directPrice(code, raw), raw, day };
   }
   return null;
 }
@@ -142,9 +321,9 @@ function forecastBits(c) {
   const weekFc = shownForecast(c, day, '7');
   const basisHour = dayFc.basis != null ? dayFc.basis : weekFc.basis;
   const basisRaw = basisHour != null ? shown(c, day, basisHour) : null;
-  const basis = cardRate(basisRaw);
-  const todayV = cardRate(dayFc.value);
-  const weekV = cardRate(weekFc.value);
+  const basis = directPrice(c.code, basisRaw);
+  const todayV = directPrice(c.code, dayFc.value);
+  const weekV = directPrice(c.code, weekFc.value);
   return {
     todayV,
     weekV,
@@ -158,7 +337,7 @@ function referenceBits(c) {
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
     const raw = shownEcb(c, day);
-    if (raw != null) return { v: cardRate(raw), raw, day };
+    if (raw != null) return { v: directPrice(c.code, raw), raw, day };
   }
   return null;
 }
@@ -180,7 +359,7 @@ function hourlyPoints(code, day) {
     if (code === baseCurrency) return { day, hour: hr, raw: 1, v: 1, label: `${pad(hr)}:00` };
     const raw = val({ code }, day, hr);
     if (raw == null) return null;
-    return { day, hour: hr, raw, v: cardRate(raw), label: `${pad(hr)}:00` };
+    return { day, hour: hr, raw, v: directPrice(code, raw), label: `${pad(hr)}:00` };
   }).filter(Boolean);
 }
 function remotePoints(code) {
@@ -203,7 +382,7 @@ function remotePoints(code) {
       if (!(den > 0)) continue;
       perBase = rawChf / den;
     }
-    const v = cardRate(perBase);
+    const v = directPrice(code, perBase);
     if (v == null) continue;
     out.push({ day, raw: perBase, v, label: prettyDay(day) });
   }
@@ -231,7 +410,7 @@ function chartPoints(code) {
     } else {
       const raw = dayRaw(code, day);
       if (raw == null) continue;
-      const v = cardRate(raw);
+      const v = directPrice(code, raw);
       if (v == null) continue;
       local.push({ day, raw, v, label: prettyDay(day) });
     }
@@ -289,6 +468,26 @@ function pathFrom(samples) {
   for (let i = 1; i < samples.length; i++) d += ` L ${samples[i].x.toFixed(2)} ${samples[i].y.toFixed(2)}`;
   return d;
 }
+function downsamplePoints(points, max) {
+  const n = points.length;
+  if (n <= max || max < 2) return points;
+  let high = 0;
+  let low = 0;
+  for (let i = 1; i < n; i++) {
+    const v = points[i].v;
+    if (v > points[high].v) high = i;
+    if (v < points[low].v) low = i;
+  }
+  const keep = new Set([0, n - 1, high, low]);
+  const slots = max - 1;
+  for (let step = 0; step <= slots; step++) keep.add(Math.round(step * (n - 1) / slots));
+  if (keep.size > max) {
+    const required = new Set([0, n - 1, high, low]);
+    const extras = [...keep].filter(i => !required.has(i)).sort((a, b) => a - b);
+    while (keep.size > max && extras.length) keep.delete(extras.splice(Math.floor(extras.length / 2), 1)[0]);
+  }
+  return [...keep].sort((a, b) => a - b).map(i => points[i]);
+}
 function plotXY(points) {
   const vals = points.map(p => p.v);
   let min = Math.min(...vals);
@@ -297,20 +496,28 @@ function plotXY(points) {
   const padY = (max - min) * 0.16;
   min -= padY;
   max += padY;
-  const left = 4;
-  const right = 316;
-  const yTop = 8;
-  const height = 96;
+  const left = 0;
+  const right = 317.5;
+  const yTop = 26;
+  const height = 64;
   const width = right - left;
-  return points.map((p, i) => ({
+  const mapped = points.map((p, i) => ({
     ...p,
     x: points.length === 1 ? (left + right) / 2 : left + (i / (points.length - 1)) * width,
     y: yTop + (1 - (p.v - min) / (max - min)) * height,
   }));
+  mapped.floor = yTop + height;
+  return mapped;
 }
-function chartBlock(c, suffix) {
-  const points = chartPoints(c.code);
-  if (points.length < 1) return '<p class="ref-src">Keine Kurse in diesem Zeitraum.</p>';
+function chartBlock(c, suffix, given) {
+  const points = given == null ? chartPoints(c.code) : given;
+  const detail = suffix === 'd';
+  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
+  const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
+  if (points.length < 1) {
+    const empty = '<p class="ref-src">Keine Kurse in diesem Zeitraum.</p>';
+    return detail ? `<div class="chart-block is-detail">${empty}${bar}</div>` : empty;
+  }
   const plotted = plotXY(points);
   const id = `grad${suffix}${c.code}`;
   plots.set(`${suffix}${c.code}`, plotted);
@@ -318,19 +525,26 @@ function chartBlock(c, suffix) {
   const last = plotted[plotted.length - 1];
   const tone = last.v - first.v;
   const color = tone > EPS ? UP : tone < -EPS ? DOWN : FLAT;
-  const samples = monotoneSamples(plotted);
+  const samples = monotoneSamples(downsamplePoints(plotted, 240));
   const line = pathFrom(samples);
-  const area = `${line} L ${last.x.toFixed(2)} 108 L ${first.x.toFixed(2)} 108 Z`;
+  const area = `${line} L ${last.x.toFixed(2)} ${plotted.floor} L ${first.x.toFixed(2)} ${plotted.floor} Z`;
   const hi = Math.max(...points.map(p => p.v));
   const lo = Math.min(...points.map(p => p.v));
-  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
-  const dot = plotted.length > 1
-    ? `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="6" fill="${color}" opacity="0.18"/><circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`
-    : `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`;
+  const endDot = `<span class="end-dot" style="left:${(last.x / 320 * 100).toFixed(2)}%;top:${(last.y / 112 * 100).toFixed(2)}%;background:${color}"></span>`;
   const baseline = plotted.length > 1
-    ? `<line x1="4" x2="316" y1="${first.y.toFixed(2)}" y2="${first.y.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`
+    ? `<line x1="0" x2="320" y1="${first.y.toFixed(2)}" y2="${first.y.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`
     : '';
-  return `<div class="chart-block"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"><svg class="plot" viewBox="0 0 320 112" role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div><div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div><div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div></div>`;
+  const preview = suffix === 'p';
+  const caption = esc(rangeCaption());
+  const period = detail ? '' : (preview
+    ? `<span class="chart-period">${caption}</span>`
+    : `<button type="button" class="chart-period" data-chart="${esc(c.code)}">${caption}</button>`);
+  const open = detail || preview ? '' : ` data-chart="${esc(c.code)}"`;
+  const stretch = detail ? ' preserveAspectRatio="none"' : '';
+  return `<div class="chart-block${detail ? ' is-detail' : ''}"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.08"/><stop offset="65%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>${endDot}<div class="scale"><div class="scale-top">${period}<span>Hoch ${esc(r(hi))}</span></div><span class="scale-lo">Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
+}
+function rangeCaption() {
+  return CHART_RANGES.find(item => item.id === chartRange)?.caption || '1 Monat';
 }
 function knownSlotRates(code) {
   const out = [];
@@ -383,7 +597,10 @@ function forecastBlock(c, preview) {
   const weekVal = weekV == null ? '–' : `${arrowOf(devWeek)} ${r(weekV)}`.trim();
   const dayDev = fmtDev(devDay);
   const weekDev = fmtDev(devWeek);
-  return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="pair"><span class="tag">heute</span><span class="val">${esc(dayVal)}</span><span class="dev">${esc(dayDev)}</span></span><span class="fc-sep">·</span><span class="pair"><span class="tag">7 Tage</span><span class="val">${esc(weekVal)}</span><span class="dev">${esc(weekDev)}</span></span></div>`;
+  const dayTone = forecastTone(devDay);
+  const weekTone = forecastTone(devWeek);
+  const stack = (tag, val, dev, tone) => `<span class="fc-bit"><span class="tag">${tag}</span><span class="vstack"><span class="val${tone}">${esc(val)}</span><span class="dev${tone}">${esc(dev)}</span></span></span>`;
+  return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="fc-gap"></span>${stack('heute', dayVal, dayDev, dayTone)}<span class="fc-sep">·</span>${stack('7 Tage', weekVal, weekDev, weekTone)}</div>`;
 }
 function referenceBlock(c, preview) {
   const hit = referenceBits(c);
@@ -393,7 +610,7 @@ function referenceBlock(c, preview) {
     if (anchor != null) value = anchor - 0.0005;
   }
   const text = value == null ? '–' : rateText(c.code, value);
-  return `<div class="ref-row"><span>EZB-Referenzkurs</span><span>${esc(text)}</span></div><div class="ref-src">Quelle EZB</div>`;
+  return `<div class="ref-row"><span>EZB-Referenzkurs</span><span>${esc(text)}</span></div>`;
 }
 function cardHtml(c, opts) {
   const preview = !!(opts && opts.preview);
@@ -409,13 +626,27 @@ function cardHtml(c, opts) {
     if (showForecast) blocks += forecastBlock(c, preview);
     if (showReference) blocks += referenceBlock(c, preview);
   }
+  const unitRates = preview || showsUnitRates();
+  const editing = !preview && convertEditing && convertSource === c.code;
   let actions = '';
   if (!preview && !isBase) {
     const upDis = index <= 0 ? ' disabled' : '';
     const dnDis = index < 0 || index >= rows.length - 1 ? ' disabled' : '';
     actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
-  return `<article class="ccard${isBase ? ' is-base' : ''}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright"><div class="crate">${esc(rateText(c.code, q.v))}</div><div class="cinv">${esc(invText(q.raw))}</div></div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
+  const invText = esc(inverseLabel(c.code));
+  const invSpan = isBase ? '' : (preview
+    ? `<span class="cinv">${invText}</span>`
+    : `<button type="button" class="cinv" data-amount="${esc(c.code)}" aria-label="${invText} bearbeiten">${invText}</button>`);
+  const move = isBase ? null : dayMove(c);
+  const chgSpan = move ? `<span class="cchg${move.cls}">${esc(move.text)}</span>` : '';
+  const amountBtn = `<button type="button" class="amt-btn" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span></button>`;
+  const amount = editing
+    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span></div>`
+    : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}</div>`;
+  const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
+  const sub = esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code));
+  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div></div><div class="cright">${amount}</div></div><div class="cmeta"><div class="${subCls}">${sub}</div>${chgSpan}${invSpan}</div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
   if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
@@ -429,14 +660,32 @@ function queueHistory(rows, gen) {
   Promise.all(codes.map(code => ensureHistory(code, range))).then(() => {
     if (gen !== boardGen || chartRange !== range) return;
     render({ keepScroll: true });
+    if (chartDetail && $('chartDlg')?.open) paintChartDetail();
   });
   return true;
 }
 function paintPreview() {
   const slot = document.getElementById('preview');
   if (!slot) return;
-  const eur = currencyRecord('EUR');
-  slot.innerHTML = cardHtml(eur, { preview: true });
+  slot.classList.add('is-list');
+  const rows = boardRows();
+  const base = rows.find(c => c.code === baseCurrency) || currencyRecord(baseCurrency);
+  const foreign = rows.filter(c => c.code !== baseCurrency).slice(0, 2);
+  slot.innerHTML = [base, ...foreign].map(c => cardHtml(c, { preview: true })).join('');
+  requestAnimationFrame(() => fitPreview(slot));
+}
+function fitPreview(slot) {
+  if (!slot || !slot.isConnected) return;
+  slot.style.maxHeight = '';
+  slot.classList.remove('is-clipped');
+  const dlg = slot.closest('dialog');
+  if (!dlg) return;
+  const limit = Math.min(window.innerHeight * 0.9, 720);
+  const chrome = dlg.scrollHeight - slot.offsetHeight;
+  if (dlg.scrollHeight <= limit + 1) return;
+  const room = Math.max(160, limit - chrome - 4);
+  slot.style.maxHeight = `${room}px`;
+  slot.classList.toggle('is-clipped', slot.scrollHeight > slot.clientHeight + 1);
 }
 function render(opts = {}) {
   const gen = ++boardGen;
@@ -453,9 +702,19 @@ function render(opts = {}) {
   const rows = boardRows();
   const pending = queueHistory(rows, gen);
   const cards = rows.map(c => cardHtml(c)).join('');
-  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Kurse zu ${esc(baseCurrency)}</button></div>${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
+  const pill = isDefaultConvert() ? '' : `<div class="calc-pill"><span>${esc(pillFmt.format(convertAmount))} ${esc(convertSource)} umgerechnet</span><button type="button" data-calc-reset aria-label="Umrechnung zurücksetzen">×</button></div>`;
+  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Preis in ${esc(baseCurrency)}</button></div>${pill}${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
   board.dataset.charts = pending ? 'loading' : 'ready';
+  document.body.classList.toggle('calc-editing', convertEditing);
   if (opts && opts.keepScroll && sc) sc.scrollTop = kept;
+  if (opts && opts.keepCaret && convertEditing) {
+    const input = board.querySelector('[data-amount-input]');
+    if (input) {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }
+  }
   const updated = document.getElementById('updated');
   if (updated) updated.textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
   const source = document.getElementById('source');
@@ -484,6 +743,50 @@ function bindSwipe(dlg) {
 }
 function checkRow(opt, label, on, extra) {
   return `<button type="button" class="check" role="checkbox" data-opt="${opt}" aria-checked="${on ? 'true' : 'false'}"><span class="box">${on ? CHECK_MARK : ''}</span><span>${label}${extra || ''}</span></button>`;
+}
+let chartDetail = null;
+function openChart(code) {
+  chartDetail = code;
+  const dlg = $('chartDlg');
+  if (!dlg) return;
+  dlg.classList.add('sheet');
+  paintChartDetail();
+  bindSwipe(dlg);
+  if (!dlg.open) dlg.showModal();
+}
+function paintChartDetail() {
+  const dlg = $('chartDlg');
+  const c = currencyRecord(chartDetail);
+  if (!dlg || !c) return;
+  const q = quoteOf(c) || {};
+  const points = chartPoints(c.code);
+  const price = q.v == null ? '–' : rateText(c.code, q.v);
+  const inv = inverseLine(c.code, q.raw);
+  const move = periodMove(points);
+  const today = dayMove(c);
+  const todayLine = today ? `<div class="chart-change${today.cls}">${esc(today.text)}</div>` : '';
+  const change = move ? `<div class="chart-change${move.delta > EPS ? ' up' : move.delta < -EPS ? ' down' : ''}">${esc(move.text)}</div>` : '';
+  const stats = move ? `<div class="chart-stats"><div><span>Eröffnung</span><span>${esc(rateText(c.code, move.open))}</span></div><div><span>Hoch</span><span>${esc(rateText(c.code, move.hi))}</span></div><div><span>Tief</span><span>${esc(rateText(c.code, move.lo))}</span></div><div><span>Schluss</span><span>${esc(rateText(c.code, move.close))}</span></div></div>` : '';
+  dlg.setAttribute('aria-label', `Grafik ${ccyName(c)}`);
+  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${todayLine}${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd', points)}${stats}`;
+}
+function periodMove(points) {
+  if (!points || points.length < 2 || !(Math.abs(points[0].v) > EPS)) return null;
+  const open = points[0].v;
+  const close = points[points.length - 1].v;
+  const delta = close - open;
+  const pct = delta / open * 100;
+  const hi = Math.max(...points.map(p => p.v));
+  const lo = Math.min(...points.map(p => p.v));
+  const pctBody = Math.abs(pct).toFixed(2);
+  const pctSign = pct > 0.005 ? '+' : pct < -0.005 ? '−' : '';
+  const text = `${signedRate(delta)} (${pctSign}${pctBody} %) · ${rangeCaption()}`;
+  return { open, close, delta, hi, lo, text };
+}
+function signedRate(v) {
+  if (v > EPS) return `+${r(v)}`;
+  if (v < -EPS) return `−${r(Math.abs(v))}`;
+  return r(v);
 }
 function renderView() {
   const dlg = $('viewDlg');
@@ -532,23 +835,33 @@ function renderAlerts() {
   dlg.classList.add('sheet');
   if (alertsPage === 'setup') { renderSetup(); return; }
   const master = alertsMasterOn();
-  dlg.innerHTML = `${sheetHead('FX-Alarme', `<button type="button" class="switch" id="alMaster" role="switch" aria-checked="${master ? 'true' : 'false'}" aria-label="Alle Alarme"></button>`)}<p class="alert-intro">${ALERT_INTRO}</p><div class="pair-row"><button type="button" class="pair-btn" id="alSetup">Währungsalarme einrichten</button><button type="button" class="pair-btn" id="alTest">Test-Push senden</button></div>${alertCards()}<p id="alMsg" class="msg" hidden></p><div class="sheet-save"><button type="button" class="primary" id="alSave">Speichern</button></div>`;
+  dlg.innerHTML = `${sheetHead('FX-Alarme', `<button type="button" class="switch" id="alMaster" role="switch" aria-checked="${master ? 'true' : 'false'}" aria-label="Alle Alarme"></button>`)}<p class="alert-intro">${ALERT_INTRO}</p><div class="pair-row"><button type="button" class="pair-btn" id="alSetup">Währungsalarme einrichten</button><button type="button" class="pair-btn" id="alTest">Test-Push senden</button></div>${alertCards()}<p id="alMsg" class="msg" hidden></p>`;
   bindSwipe(dlg);
   $('alMaster').onclick = () => {
     const next = $('alMaster').getAttribute('aria-checked') !== 'true';
     setAlertsMaster(next);
     renderAlerts();
+    scheduleAlertSave();
   };
   dlg.querySelectorAll('.alcard .switch').forEach(sw => {
     sw.onclick = () => {
       if (!alertsMasterOn()) return;
       const on = sw.getAttribute('aria-checked') !== 'true';
       sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      scheduleAlertSave();
     };
   });
-  $('alSetup').onclick = () => { alertsPage = 'setup'; renderSetup(); };
+  dlg.querySelectorAll('.alcard input').forEach(inp => {
+    inp.addEventListener('input', () => scheduleAlertSave());
+  });
+  $('alSetup').onclick = () => {
+    const form = snapshotAlerts();
+    if (form && !form.error) queueAlertForm(form);
+    alertsPage = 'setup';
+    renderSetup();
+    postPendingAlerts();
+  };
   $('alTest').onclick = () => { sendTest(); };
-  $('alSave').onclick = () => { saveAlertSheet(); };
 }
 function renderSetup() {
   const dlg = $('alerts');
@@ -577,22 +890,38 @@ function readAlertCards() {
   }
   return { vals };
 }
-async function saveAlertSheet() {
-  const form = readAlertCards();
+function snapshotAlerts() {
+  if (!$('alerts')?.querySelector('.alcard')) return null;
+  return readAlertCards();
+}
+function queueAlertForm(form) {
+  try { localStorage.setItem('wu.alertDraft', JSON.stringify(form.vals)); } catch { /* diese Sitzung */ }
+  pendingAlertForm = form;
+}
+function scheduleAlertSave() {
+  const form = snapshotAlerts();
+  if (!form) return;
   if (form.error) { alertMsg(form.error); return; }
-  const btn = $('alSave');
-  if (btn) btn.disabled = true;
-  alertMsg('Speichere …', true);
+  alertMsg('', true);
+  queueAlertForm(form);
+  clearTimeout(alertSaveTimer);
+  alertSaveTimer = setTimeout(() => { postPendingAlerts(); }, 400);
+}
+async function postPendingAlerts() {
+  clearTimeout(alertSaveTimer);
+  alertSaveTimer = 0;
+  const form = pendingAlertForm;
+  if (!form || form.error) return true;
+  pendingAlertForm = null;
   try {
-    try { localStorage.setItem('wu.alertDraft', JSON.stringify(form.vals)); } catch { /* diese Sitzung */ }
     const serverVals = {};
     for (const code of ['USD', 'EUR']) if (form.vals[code]) serverVals[code] = form.vals[code];
     if (Object.keys(serverVals).length) await applyAlertForm(serverVals);
-    renderAlerts();
-    alertMsg('Gespeichert.', true);
+    return true;
   } catch (e) {
-    if (btn) btn.disabled = false;
+    pendingAlertForm = form;
     alertMsg(`Speichern fehlgeschlagen: ${e.message}`);
+    return false;
   }
 }
 async function sendTest() {
@@ -600,8 +929,22 @@ async function sendTest() {
   if (onList) {
     const form = readAlertCards();
     if (form.error) { alertMsg(form.error); return; }
-    try { await applyAlertForm(form.vals); } catch (e) { alertMsg(`Test-Push fehlgeschlagen: ${e.message}`); return; }
+    queueAlertForm(form);
+  } else if (!pendingAlertForm) {
+    const vals = {};
+    for (const code of alarmCodes()) {
+      const entry = alarmEntry(code);
+      const down = Math.round(Number(entry.down) * 100) / 100;
+      const up = Math.round(Number(entry.up) * 100) / 100;
+      if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) {
+        alertMsg(`Ungültige Schwelle bei ${code} (0.01–20 %).`);
+        return;
+      }
+      vals[code] = { enabled: !!(alertsMasterOn() && entry.enabled), down, up };
+    }
+    queueAlertForm({ vals });
   }
+  if (!(await postPendingAlerts())) return;
   alertMsg('Sende Test-Push …', true);
   try {
     const { id } = ensureAlertIdentity();
@@ -636,13 +979,12 @@ function renderTimes() {
     const hours = state.step == null ? HOURS.slice() : expandSchedule(state.start, state.end, state.step);
     const pills = hours.map(hr => `<span class="pill">${pad(hr)}:00</span>`).join('');
     const seg = INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === state.step ? 'true' : 'false'}">${n} h</button>`).join('');
-    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<p class="tm-note">Gilt nur für die Anzeige auf diesem Gerät.</p><div class="tm"><div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p id="tmMsg" class="msg" hidden></p><div class="sheet-save"><button type="button" class="primary" id="tmSave">Speichern</button></div>`;
-    $('tmStart').onchange = () => { state.start = Number($('tmStart').value); draw(); };
-    $('tmEnd').onchange = () => { state.end = Number($('tmEnd').value); draw(); };
+    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<p class="tm-note">Gilt nur für die Anzeige auf diesem Gerät.</p><div class="tm"><div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p id="tmMsg" class="msg" hidden></p>`;
+    $('tmStart').onchange = () => { state.start = Number($('tmStart').value); draw(); saveTimes(state); };
+    $('tmEnd').onchange = () => { state.end = Number($('tmEnd').value); draw(); saveTimes(state); };
     dlg.querySelectorAll('.segbtn').forEach(btn => {
-      btn.onclick = () => { state.step = Number(btn.dataset.step); draw(); };
+      btn.onclick = () => { state.step = Number(btn.dataset.step); draw(); saveTimes(state); };
     });
-    $('tmSave').onclick = () => saveTimes(state);
   };
   draw();
   bindSwipe(dlg);
@@ -655,12 +997,10 @@ function saveTimes(state) {
   } else {
     const pattern = expandSchedule(state.start, state.end, state.step);
     if (!pattern.length) { tmMsg('Beginn muss vor dem Ende liegen.'); return; }
-    try { writeView(state); } catch { /* Anzeige gilt für diese Sitzung */ }
+    try { writeView({ start: state.start, end: state.end, intervalHours: state.step }); } catch { /* Anzeige gilt für diese Sitzung */ }
     applyTimesConfig({ version: 2, start: pad(state.start), end: pad(state.end), intervalHours: state.step });
   }
   render({ keepScroll: true });
-  renderTimes();
-  tmMsg('Gespeichert.', true);
 }
 async function openTimes() {
   const dlg = $('times');
@@ -723,6 +1063,13 @@ function moveRow(code, dir) {
 }
 function deleteRow(code) {
   if (code === baseCurrency) return;
+  if (code === convertSource) {
+    convertSource = baseCurrency;
+    convertAmount = 1;
+    convertDraft = '1';
+    convertEditing = false;
+    convertReplace = false;
+  }
   const next = boardRows().filter(c => c.code !== code);
   writeListOrder(next);
   hideCurrency(code);
@@ -742,7 +1089,8 @@ function bindScrub() {
     if (!pts || pts.length < 2 || !svg) return;
     const rect = svg.getBoundingClientRect();
     if (rect.width <= 0) return;
-    const x = ((clientX - rect.left) / rect.width) * 320;
+    const vb = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : { width: 320, height: 112 };
+    const x = ((clientX - rect.left) / rect.width) * vb.width;
     let best = pts[0];
     let dist = Math.abs(best.x - x);
     for (const p of pts) {
@@ -756,15 +1104,15 @@ function bindScrub() {
     rule.style.left = `${localX}px`;
     const when = best.hour != null ? `${prettyDay(best.day)} ${pad(best.hour)}:00` : (best.label || prettyDay(best.day));
     bubble.hidden = false;
-    bubble.innerHTML = `<b>${esc(rateText(frame.dataset.code, best.v))}</b><span>${esc(when)}</span><span>${esc(invText(best.raw))}</span>`;
+    bubble.innerHTML = `<b>${esc(rateText(frame.dataset.code, best.v))}</b><span>${esc(when)}</span><span>${esc(inverseLine(frame.dataset.code, best.raw) || '–')}</span>`;
     const bw = bubble.offsetWidth || 110;
     let left = localX + 8;
     if (left + bw > rect.width - 4) left = Math.max(4, localX - bw - 8);
     bubble.style.left = `${left}px`;
-    bubble.style.top = `${Math.min(rect.height - 36, Math.max(4, (best.y / 112) * rect.height))}px`;
+    bubble.style.top = `${Math.min(rect.height - 36, Math.max(4, (best.y / (vb.height || 112)) * rect.height))}px`;
   };
   document.addEventListener('pointerdown', e => {
-    const frame = e.target.closest?.('.chart-frame');
+    const frame = e.target.closest?.('#chartDlg .chart-frame');
     if (!frame) return;
     gesture = { id: e.pointerId, frame };
     show(frame, e.clientX);
@@ -772,8 +1120,8 @@ function bindScrub() {
   document.addEventListener('pointermove', e => {
     if (gesture && gesture.id === e.pointerId) { show(gesture.frame, e.clientX); return; }
     if (e.pointerType !== 'mouse' || gesture) return;
-    const frame = e.target.closest?.('.chart-frame');
-    document.querySelectorAll('.chart-frame').forEach(other => { if (other !== frame) hide(other); });
+    const frame = e.target.closest?.('#chartDlg .chart-frame');
+    document.querySelectorAll('#chartDlg .chart-frame').forEach(other => { if (other !== frame) hide(other); });
     if (frame) show(frame, e.clientX);
   });
   const end = e => {
@@ -787,36 +1135,53 @@ function bindScrub() {
 }
 function onDocClick(e) {
   const closer = e.target.closest('[data-close]');
-  if (closer) { closer.closest('dialog')?.close(); return; }
   const opt = e.target.closest('#viewDlg [data-opt]');
+  const range = e.target.closest('[data-range]');
+  const add = e.target.closest('[data-add]');
+  const reset = e.target.closest('[data-calc-reset]');
+  const chartBtn = e.target.closest('[data-chart]');
+  const amountBtn = e.target.closest('[data-amount]');
+  const inField = e.target.closest('[data-amount-input]');
+  const del = e.target.closest('[data-del]');
+  const move = e.target.closest('[data-move]');
+  const addCcy = e.target.closest('.add-ccy');
+  const baseBtn = e.target.closest('#baseBtn');
+  const inDialog = e.target.closest('dialog');
+  const fertig = e.target.closest('#calcDone');
+  if (chartBtn && !e.target.closest('#preview') && !e.target.closest('#chartDlg')) {
+    if (convertEditing) finishConvert();
+    openChart(chartBtn.dataset.chart);
+    return;
+  }
+  if (amountBtn && !inField) { beginConvert(amountBtn.dataset.amount); return; }
+  if (convertEditing && !inField && !fertig && !reset && !inDialog) finishConvert();
+  if (closer) { closer.closest('dialog')?.close(); return; }
   if (opt && !opt.disabled) {
     setOpt(opt.dataset.opt, opt.getAttribute('aria-checked') !== 'true');
     return;
   }
-  const range = e.target.closest('[data-range]');
   if (range && range.dataset.range !== chartRange) {
     chartRange = range.dataset.range;
     writeViewOptions();
     render({ keepScroll: true });
+    if (chartDetail && $('chartDlg')?.open) paintChartDetail();
     return;
   }
-  const add = e.target.closest('[data-add]');
   if (add) {
     addCurrency(add.dataset.add);
     $('addDlg').close();
     return;
   }
-  const del = e.target.closest('[data-del]');
+  if (reset) { resetConvert(); return; }
   if (del) { deleteRow(del.dataset.del); return; }
-  const move = e.target.closest('[data-move]');
   if (move && !move.disabled) { moveRow(move.dataset.code, move.dataset.move); return; }
-  if (e.target.closest('.add-ccy')) {
+  if (addCcy) {
     addQuery = '';
     renderAdd();
     $('addDlg').showModal();
     return;
   }
-  if (e.target.closest('#baseBtn')) {
+  if (baseBtn) {
     renderBase();
     $('baseDlg').showModal();
   }
@@ -824,13 +1189,81 @@ function onDocClick(e) {
 
 if (typeof document !== 'undefined') {
   document.body.classList.add('v21');
+  const calcDock = document.createElement('div');
+  calcDock.className = 'calc-dock';
+  calcDock.hidden = true;
+  calcDock.innerHTML = '<button type="button" id="calcDone">Fertig</button>';
+  document.body.appendChild(calcDock);
+  calcDock.querySelector('#calcDone').addEventListener('click', () => finishConvert());
+  const setBaseSaved = setBaseCurrency;
+  setBaseCurrency = function (code) {
+    setBaseSaved(code);
+    convertSource = baseCurrency;
+    convertAmount = 1;
+    convertDraft = '1';
+    convertEditing = false;
+    convertReplace = false;
+  };
+  const syncDock = () => { calcDock.hidden = !convertEditing; };
+  const renderList = render;
+  render = function (opts) { renderList(opts); syncDock(); };
   bindScrub();
+  document.addEventListener('beforeinput', e => {
+    const input = e.target;
+    if (!input.matches || !input.matches('[data-amount-input]') || !convertReplace) return;
+    convertReplace = false;
+    if (e.inputType === 'insertText' && e.data) {
+      e.preventDefault();
+      input.value = e.data;
+      onConvertInput(input.value);
+    }
+  });
+  document.addEventListener('input', e => {
+    if (!e.target.matches || !e.target.matches('[data-amount-input]')) return;
+    onConvertInput(e.target.value);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-amount-input]')) {
+      e.preventDefault();
+      finishConvert();
+    }
+  });
   document.addEventListener('click', onDocClick);
+  const scroller = document.getElementById('scroller');
+  if (scroller) {
+    let swipe = null;
+    scroller.addEventListener('touchstart', e => {
+      if (!convertEditing || e.touches.length !== 1) { swipe = null; return; }
+      const t = e.touches[0];
+      swipe = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+    scroller.addEventListener('touchend', e => {
+      const start = swipe;
+      swipe = null;
+      if (!start || !convertEditing) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (dy > 28 && Math.abs(dy) > Math.abs(dx)) finishConvert();
+    }, { passive: true });
+    scroller.addEventListener('touchcancel', () => { swipe = null; });
+  }
   $('viewBtn').addEventListener('click', () => { renderView(); $('viewDlg').showModal(); });
+  window.addEventListener('resize', () => {
+    const slot = document.getElementById('preview');
+    if (slot && $('viewDlg')?.open) fitPreview(slot);
+  });
   $('timesBtn').addEventListener('click', () => { openTimes(); });
   $('alertsBtn').addEventListener('click', () => { openAlerts(); });
   $('viewDlg').addEventListener('close', () => { /* Ansicht bleibt live gespeichert */ });
-  $('alerts').addEventListener('close', () => { alertsPage = 'list'; });
+  $('alerts').addEventListener('close', () => {
+    const form = snapshotAlerts();
+    if (form && !form.error) queueAlertForm(form);
+    else if (form && form.error) pendingAlertForm = null;
+    alertsPage = 'list';
+    postPendingAlerts();
+  });
   render();
   if (typeof runtimePromise !== 'undefined' && runtimePromise) {
     runtimePromise.then(() => loadAlerts()).then(() => render({ keepScroll: true })).catch(() => {});

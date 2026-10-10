@@ -700,12 +700,12 @@ function cancelDrag() {
   }
 }
 const CHART_RANGES = [
-  { id: '1T', label: 'Tag', aria: 'Tag', days: 1 },
-  { id: '1W', label: 'Woche', aria: 'Woche', days: 7 },
-  { id: '1M', label: 'Monat', aria: 'Monat', days: 30 },
-  { id: '1J', label: 'Jahr', aria: 'Jahr', days: 360 },
-  { id: '5J', label: '5 Jahre', aria: '5 Jahre', days: 1825 },
-  { id: '10J', label: '10 Jahre', aria: '10 Jahre', days: 3650 },
+  { id: '1T', label: 'Tag', aria: 'Tag', caption: '1 Tag', days: 1 },
+  { id: '1W', label: 'Woche', aria: 'Woche', caption: '1 Woche', days: 7 },
+  { id: '1M', label: 'Monat', aria: 'Monat', caption: '1 Monat', days: 30 },
+  { id: '1J', label: 'Jahr', aria: 'Jahr', caption: '1 Jahr', days: 360 },
+  { id: '5J', label: '5 Jahre', aria: '5 Jahre', caption: '5 Jahre', days: 1825 },
+  { id: '10J', label: '10 Jahre', aria: '10 Jahre', caption: '10 Jahre', days: 3650 },
 ];
 const HISTORY_ORIGIN = 'https://waehrungen.bigyok61.workers.dev';
 /** CHF je 1 Einheit, Schlüssel code|range. Eine Basisumstellung rechnet daraus, ohne neu zu laden. */
@@ -1263,7 +1263,7 @@ function renderCompact(rows, today) {
     const ecbV = ecbHit && ecbHit.v;
     const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenzkurs' : `EZB-Referenzkurs`;
     let extra = '';
-    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span><span class="ecb-src">Quelle EZB</span></p>`;
+    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
     extra += forecastQuoteHtml(c, today);
     const rateTitle = [delta.title, inv].filter(Boolean).join('\n');
     bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${rateTitle ? ` title="${esc(rateTitle)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p>${inv ? `<p class="quote-inv">${esc(inv)}</p>` : ''}<p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
@@ -1554,6 +1554,7 @@ function bindPullToRefresh() {
   }
   function canStart(target) {
     if (refreshing || !target || !target.closest) return false;
+    if (document.body.classList.contains('calc-editing')) return false;
     if (document.querySelector('dialog[open]')) return false;
     if (sc.scrollTop > 1) return false;
     if (target.closest('.ccy-drag, button, a, input, select, textarea, label')) return false;
@@ -1701,7 +1702,7 @@ function syncBaseButton() {
   const btn = document.getElementById('baseBtn');
   if (!btn) return;
   const name = ccyName({ code: baseCurrency });
-  btn.textContent = `in ${baseCurrency}`;
+  btn.textContent = `Preis in ${baseCurrency}`;
   btn.setAttribute('aria-label', `Berichtswährung ${name}`);
 }
 function renderBase() {
@@ -1968,7 +1969,7 @@ function readAlertForm(dlg) {
     if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
     else {
       const v = parseFloat(String(inp.value).replace(',', '.'));
-      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).` };
+      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/${baseCurrency} (0.01–20 %).` };
       o[inp.dataset.k] = Math.round(v * 100) / 100;
     }
   }
@@ -2002,7 +2003,7 @@ function renderCloudAlerts() {
     <div class="row"><a class="btnlink" href="${esc(href)}" target="_blank" rel="noopener">Thema abonnieren</a><button id="alTest" type="button">Test-Push senden</button></div>`;
   for (const code of ALERT_CODES) {
     const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<section class="alcard"><h3>${code}/CHF</h3>
+    h += `<section class="alcard"><h3>${code}/${esc(baseCurrency)}</h3>
       <label class="alfield"><span>Aktiv</span><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''}></label>
       <label class="alfield"><span>Fällt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}"> %</span></label>
       <label class="alfield"><span>Steigt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}"> %</span></label>
@@ -2068,7 +2069,7 @@ function renderAlerts() {
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
     const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<tr><td>${code}/CHF</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
+    h += `<tr><td>${code}/${esc(baseCurrency)}</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${sentLabel(sent, code)}</td></tr>`;
   }
@@ -2528,7 +2529,7 @@ document.addEventListener('keydown', e => {
   cancelDrag();
   render({ keepScroll: true, focusDrag: code });
 });
-document.getElementById('reload').addEventListener('click', () => {
+document.getElementById('reload')?.addEventListener('click', () => {
   spinReload();
   load();
 });

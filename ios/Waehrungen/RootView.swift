@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var store: RatesStore
@@ -21,16 +22,44 @@ struct RootView: View {
                                 }
                             }
                             .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 8))
+                            .listRowBackground(
+                                Color(uiColor: .secondarySystemGroupedBackground)
+                                    .overlay(store.convertEditing && store.convertSource == code ? Color.blue.opacity(0.12) : Color.clear)
+                            )
                     }
                 } header: {
-                    HStack {
-                        Text("Währung")
-                        Spacer()
-                        Text("Kurse zu \(store.base)")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Währung")
+                            Spacer()
+                            Text("Preis in \(store.base)")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        if store.showConvertPill {
+                            HStack(spacing: 6) {
+                                Text(store.convertPillText)
+                                Button {
+                                    store.resetConvert()
+                                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                } label: {
+                                    Text("×")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .frame(width: 18, height: 18)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Umrechnung zurücksetzen")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .padding(.leading, 12)
+                            .padding(.trailing, 6)
+                            .padding(.vertical, 4)
+                            .background(Color(uiColor: .secondarySystemFill), in: Capsule())
+                            .textCase(nil)
+                        }
                     }
-                    .font(.subheadline)
                     .textCase(nil)
-                    .foregroundStyle(.secondary)
                 }
                 Section {
                     Button { showAdd = true } label: {
@@ -48,19 +77,25 @@ struct RootView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .refreshable { await store.reload() }
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable {
+                guard !store.convertEditing else { return }
+                await store.reload()
+            }
+            .background(KeypadDismiss(editing: store.convertEditing) {
+                store.finishConvert()
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            })
             .navigationTitle("Währungen")
             .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
-                        .accessibilityLabel("Ansicht")
-                    Button { showTimes = true } label: { Image(systemName: "clock") }
-                        .accessibilityLabel("Erfassungszeiten und Intervalle")
-                    Button { showAlerts = true } label: { Image(systemName: "bell") }
-                        .accessibilityLabel("FX-Alarme")
-                    Button { Task { await store.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                        .accessibilityLabel("Aktualisieren")
+                headerTools
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fertig") {
+                        store.finishConvert()
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
                 }
             }
         }
@@ -68,6 +103,34 @@ struct RootView: View {
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
+    }
+
+    @ToolbarContentBuilder
+    private var headerTools: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+                headerButtons
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                headerButtons
+            }
+        }
+    }
+
+    private var headerButtons: some View {
+        HStack(spacing: 22) {
+            Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
+                .accessibilityLabel("Ansicht")
+            Button { showTimes = true } label: { Image(systemName: "clock") }
+                .accessibilityLabel("Erfassungszeiten und Intervalle")
+            Button { showAlerts = true } label: { Image(systemName: "bell") }
+                .accessibilityLabel("FX-Alarme")
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 19))
+        .foregroundStyle(Color.blue)
     }
 
     private var sourceBar: some View {
@@ -79,10 +142,22 @@ struct RootView: View {
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
         .padding(.bottom, 4)
-        .background(.background)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Rectangle().fill(Color(uiColor: .systemGroupedBackground).opacity(0.95))
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 1 / UIScreen.main.scale)
+        }
     }
 }
 
@@ -91,12 +166,14 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @State private var dragOffset: CGFloat = 0
+    @FocusState private var amountFocused: Bool
 
     var body: some View {
-        let quote = store.quote(code)
+        let unitRates = preview || store.showsUnitRates
+        let editing = !preview && store.convertEditing && store.convertSource == code
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
                         if let time = store.fired[code] {
@@ -106,25 +183,35 @@ struct CurrencyCard: View {
                             Text(time).font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     }
-                    Text(code == store.base ? "\(store.base) · Berichtswährung" : "\(code) · \(CurrencyNames.symbol(code))")
+                    Spacer(minLength: 8)
+                    priceLabel(unitRates: unitRates, editing: editing)
+                    if code != store.base && !preview { handle }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
                         .font(.system(size: 13))
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
+                        .lineLimit(1)
+                        .frame(width: code == store.base ? nil : 76, alignment: .leading)
+                    if code != store.base, let day = store.dayChange(code) {
+                        Text(day.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(dayChangeTone(day.delta))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if code != store.base {
+                        Spacer(minLength: 0)
+                    }
+                    if code != store.base { inverseLabel }
+                    if code != store.base && !preview {
+                        Color.clear.frame(width: 22, height: 1)
+                    }
                 }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(rateText(quote.value))
-                        .font(.system(size: 17, weight: code == store.base ? .medium : .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(code == store.base ? Color.secondary : Color.primary)
-                    Text(invText(quote.raw))
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                if code != store.base && !preview { handle }
             }
             if code != store.base {
-                if store.showChart { ChartBlock(code: code).environmentObject(store) }
+                if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
                 if store.showIntervals { intervals }
                 if store.showForecast { forecast }
                 if store.showReference { reference }
@@ -149,38 +236,110 @@ struct CurrencyCard: View {
 
     private var forecast: some View {
         let line = preview ? illustratedForecast() : store.forecast(code)
-        return HStack(alignment: .top, spacing: 6) {
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("Prognose")
+                .font(.system(size: 13, weight: .medium))
+            Spacer(minLength: 8)
             pair(tag: "heute", value: line?.today, delta: line?.todayDelta)
-            Text("·").foregroundStyle(.secondary)
+            Text("·")
+                .font(.system(size: 11, weight: .regular))
             pair(tag: "7 Tage", value: line?.week, delta: line?.weekDelta)
         }
-        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.secondary)
     }
 
     private func pair(tag: String, value: Double?, delta: Double?) -> some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 4) {
-                Text(tag).fontWeight(.regular).foregroundStyle(.secondary)
-                Text(valueText(value, delta: delta)).monospacedDigit()
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(tag)
+                .font(.system(size: 11, weight: .regular))
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(valueText(value, delta: delta))
+                    .font(.system(size: 11, weight: .regular))
+                    .monospacedDigit()
+                Text(formatDelta(delta))
+                    .font(.system(size: 9, weight: .regular))
+                    .monospacedDigit()
             }
-            Text(formatDelta(delta))
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
         }
     }
 
     private var reference: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack {
-                Text("EZB-Referenzkurs")
-                Spacer()
-                Text(shownReference()).monospacedDigit()
-            }
-            .font(.system(size: 13))
-            Text("Quelle EZB").font(.system(size: 11)).foregroundStyle(.secondary)
+        HStack {
+            Text("EZB-Referenzkurs")
+            Spacer()
+            Text(shownReference()).monospacedDigit()
         }
+        .font(.system(size: 13))
+    }
+
+    private func priceLabel(unitRates: Bool, editing: Bool) -> some View {
+        let hint = code == store.base && (preview || !store.convertEditing)
+        return Group {
+            if editing {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    TextField("0", text: draftBinding)
+                        .focused($amountFocused)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .font(.system(size: 17, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.blue)
+                        .frame(minWidth: 36)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .onAppear { DispatchQueue.main.async { amountFocused = true } }
+                        .onChange(of: amountFocused) { _, focused in
+                            if !focused && store.convertEditing && store.convertSource == code {
+                                store.finishConvert()
+                            }
+                        }
+                    Text(code)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.blue)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                TappableAmount(
+                    text: store.primaryText(code, unitRates: unitRates),
+                    blue: hint,
+                    enabled: !preview
+                ) {
+                    store.beginConvert(code)
+                }
+            }
+        }
+    }
+
+    private var inverseLabel: some View {
+        TappableAmount(
+            text: store.secondaryText(code),
+            blue: true,
+            enabled: !preview,
+            fontSize: 12,
+            weight: .regular
+        ) {
+            store.beginConvert(code)
+            amountFocused = true
+        }
+    }
+
+    private var draftBinding: Binding<String> {
+        Binding(
+            get: { store.convertDraft },
+            set: { new in
+                var next = new
+                if store.convertReplace {
+                    store.convertReplace = false
+                    let old = store.convertDraft
+                    if next.hasPrefix(old), next.count == old.count + 1 {
+                        next = String(next.suffix(1))
+                    }
+                }
+                store.applyDraft(next)
+            }
+        )
     }
 
     private var handle: some View {
@@ -252,18 +411,160 @@ struct CurrencyCard: View {
 
     private func rateText(_ value: Double?) -> String {
         guard let value else { return "–" }
-        let unit = code == store.base ? store.base : code
-        return "\(formatRate(value)) \(unit)"
-    }
-
-    private func invText(_ raw: Double?) -> String {
-        guard let raw else { return "–" }
-        return "\(formatRate(raw)) \(store.base)"
+        return "\(formatRate(value)) \(store.base)"
     }
 
     private func valueText(_ value: Double?, delta: Double?) -> String {
         guard let value else { return "–" }
         let mark = arrow(delta)
         return mark.isEmpty ? formatRate(value) : "\(mark) \(formatRate(value))"
+    }
+}
+
+/// The idle and result amount. A real UILabel so a list tap can tell it apart from the row background.
+struct TappableAmount: UIViewRepresentable {
+    var text: String
+    var blue: Bool
+    var enabled: Bool
+    var fontSize: CGFloat = 17
+    var weight: UIFont.Weight = .semibold
+    var onTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> AmountLabel {
+        let label = AmountLabel()
+        label.isUserInteractionEnabled = true
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.font = .monospacedDigitSystemFont(ofSize: context.coordinator.fontSize, weight: context.coordinator.weight)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap))
+        label.addGestureRecognizer(tap)
+        return label
+    }
+
+    func updateUIView(_ uiView: AmountLabel, context: Context) {
+        uiView.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: weight)
+        uiView.text = text
+        uiView.textColor = blue ? .systemBlue : .label
+        uiView.accessibilityLabel = "\(text) bearbeiten"
+        uiView.accessibilityTraits = .button
+        uiView.isAccessibilityElement = true
+        context.coordinator.onTap = onTap
+        context.coordinator.enabled = enabled
+        context.coordinator.fontSize = fontSize
+        context.coordinator.weight = weight
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: AmountLabel, context: Context) -> CGSize? {
+        let size = uiView.intrinsicContentSize
+        return CGSize(width: ceil(size.width), height: ceil(size.height))
+    }
+
+    final class Coordinator: NSObject {
+        var onTap: () -> Void = {}
+        var enabled = true
+        var fontSize: CGFloat = 17
+        var weight: UIFont.Weight = .semibold
+        @objc func tap() { if enabled { onTap() } }
+    }
+}
+
+final class AmountLabel: UILabel {}
+
+/// Closes the keypad on a tap that is not another amount, and keeps pull-to-refresh off while it is open.
+private struct KeypadDismiss: UIViewRepresentable {
+    var editing: Bool
+    var onTapOutside: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.editing = editing
+        context.coordinator.onTapOutside = onTapOutside
+        DispatchQueue.main.async {
+            guard let scroll = Self.listScroll(from: uiView) else { return }
+            scroll.keyboardDismissMode = .interactive
+            context.coordinator.attach(to: scroll)
+            scroll.refreshControl?.isEnabled = !context.coordinator.editing && !context.coordinator.blockRefresh
+        }
+    }
+
+    private static func listScroll(from view: UIView) -> UIScrollView? {
+        var current: UIView? = view
+        while let node = current {
+            if let scroll = node as? UIScrollView { return scroll }
+            current = node.superview
+        }
+        var root: UIView = view
+        while let parent = root.superview { root = parent }
+        return firstTallScroll(in: root)
+    }
+
+    private static func firstTallScroll(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView, scroll.bounds.height > 200 { return scroll }
+        for sub in view.subviews {
+            if let found = firstTallScroll(in: sub) { return found }
+        }
+        return nil
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var editing = false
+        var blockRefresh = false
+        var onTapOutside: () -> Void = {}
+        weak var scroll: UIScrollView?
+
+        func attach(to scroll: UIScrollView) {
+            guard self.scroll !== scroll else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesBegan = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            tap.name = "wae.keypadDismiss"
+            scroll.addGestureRecognizer(tap)
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+            self.scroll = scroll
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard editing else { return false }
+            var view: UIView? = touch.view
+            while let current = view {
+                if current is UITextField || current is AmountLabel { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard editing, gesture.state == .ended else { return }
+            onTapOutside()
+        }
+
+        @objc func panned(_ pan: UIPanGestureRecognizer) {
+            guard let scroll else { return }
+            if pan.state == .began { blockRefresh = editing }
+            if blockRefresh {
+                scroll.refreshControl?.isEnabled = false
+                if pan.state == .ended || pan.state == .cancelled || pan.state == .failed {
+                    scroll.refreshControl?.endRefreshing()
+                    blockRefresh = false
+                    scroll.refreshControl?.isEnabled = !editing
+                }
+            }
+        }
     }
 }

@@ -20,12 +20,24 @@ final class RatesStore: ObservableObject {
     @Published var alertsMaster = true
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
+    @Published var alertId = ""
+    @Published var alertSyncError: String?
     @Published var fired: [String: String] = [:]
     @Published var updated = ""
     @Published var errorText = ""
+    /// Session-only converter. Never written to UserDefaults; a launch starts at 1 of the reporting currency.
+    @Published var convertSource = "CHF"
+    @Published var convertAmount = 1.0
+    @Published var convertDraft = "1"
+    @Published var convertEditing = false
+    var convertReplace = false
 
     private var days: [String: DayFile] = [:]
     private var historyCache: [String: [RatePoint]] = [:]
+    private var alertSyncTask: Task<Void, Never>?
+    private var alertSyncGeneration = 0
+    /// Local thresholds are newer than the last successful Worker POST. A later GET must not overwrite them.
+    private var alertsDirty = false
     private let defaults = UserDefaults.standard
 
     struct AlarmThreshold: Codable {
@@ -86,7 +98,173 @@ final class RatesStore: ObservableObject {
         if defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
             applyFirstInstall()
         }
-        if topic.isEmpty { topic = "wae-" + Self.hex(16) }
+        ensureAlertIdentity()
+        convertSource = base
+    }
+
+    var isDefaultConvert: Bool {
+        convertSource == base && abs(convertAmount - 1) < 0.0000005
+    }
+
+    var showConvertPill: Bool { !isDefaultConvert }
+
+    /// True while the entered money is still exactly 1 of the reporting currency, so the list keeps the unit rates.
+    var showsUnitRates: Bool {
+        guard let value = valueInBase() else { return isDefaultConvert }
+        return abs(value - 1) < 0.0000005
+    }
+
+    var convertPillText: String {
+        "\(Self.formatPill(convertAmount)) \(convertSource) umgerechnet"
+    }
+
+    func beginConvert(_ code: String) {
+        if convertEditing && convertSource == code { return }
+        let next: Double
+        if convertSource == code {
+            next = convertAmount
+        } else if showsUnitRates {
+            if let per = reportingPerUnit(code), per > 0 { next = 1 / per }
+            else { next = 1 }
+        } else {
+            next = converted(code) ?? 1
+        }
+        convertSource = code
+        convertAmount = next
+        convertDraft = Self.draftString(next)
+        convertReplace = true
+        convertEditing = true
+    }
+
+    func applyDraft(_ text: String) {
+        convertDraft = text
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            convertAmount = 0
+            return
+        }
+        if let value = Self.parseAmount(text) {
+            convertAmount = value
+        }
+    }
+
+    func finishConvert() {
+        guard convertEditing else { return }
+        if let value = Self.parseAmount(convertDraft) {
+            convertAmount = value
+        }
+        convertEditing = false
+        convertReplace = false
+    }
+
+    func resetConvert() {
+        convertSource = base
+        convertAmount = 1
+        convertDraft = "1"
+        convertEditing = false
+        convertReplace = false
+    }
+
+    /// Units of the reporting currency for 1 unit of `code`, using the latest CHF mid on both sides.
+    func reportingPerUnit(_ code: String) -> Double? {
+        if code == base { return 1 }
+        guard let own = chfPerUnit(code), let den = chfPerUnit(base), abs(den) > 0.00005 else { return nil }
+        return own / den
+    }
+
+    func valueInBase() -> Double? {
+        guard let per = reportingPerUnit(convertSource) else { return nil }
+        return convertAmount * per
+    }
+
+    func converted(_ code: String) -> Double? {
+        guard let total = valueInBase(), let per = reportingPerUnit(code), abs(per) > 0.00005 else { return nil }
+        return total / per
+    }
+
+    func primaryText(_ code: String, unitRates: Bool) -> String {
+        if unitRates {
+            guard let value = quote(code).value else { return "–" }
+            return "\(formatRate(value)) \(base)"
+        }
+        guard let value = converted(code) else { return "–" }
+        return "\(Self.formatMoney(value)) \(code)"
+    }
+
+    /// Foreign units per 1 unit of the reporting currency. Stays the per-unit inverse while converting.
+    func secondaryText(_ code: String) -> String {
+        if code == base { return "" }
+        guard let per = quote(code).raw, abs(per) > 0.00005 else { return "–" }
+        return "\(formatRate(1 / per)) \(code)"
+    }
+
+    private func chfPerUnit(_ code: String) -> Double? {
+        if code == "CHF" { return 1 }
+        let today = Self.todayKey()
+        for offset in 0..<12 {
+            guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
+            let hours = slots.keys.compactMap(Int.init).sorted(by: >)
+            for hour in hours {
+                if let raw = slots[String(format: "%02d", hour)]?[code], raw > 0 { return raw }
+            }
+        }
+        return nil
+    }
+
+    static func parseAmount(_ text: String) -> Double? {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let drop: [Character] = ["'", "’", " ", "\u{00a0}", "\u{202f}"]
+        s = String(s.filter { !drop.contains($0) })
+        guard !s.isEmpty else { return nil }
+        let dots = s.filter { $0 == "." }.count
+        let commas = s.filter { $0 == "," }.count
+        if dots > 0 && commas > 0 {
+            if let lastDot = s.lastIndex(of: "."), let lastComma = s.lastIndex(of: ",") {
+                if lastDot > lastComma {
+                    s = s.replacingOccurrences(of: ",", with: "")
+                } else {
+                    s = s.replacingOccurrences(of: ".", with: "")
+                    s = s.replacingOccurrences(of: ",", with: ".")
+                }
+            }
+        } else if commas == 1 {
+            s = s.replacingOccurrences(of: ",", with: ".")
+        } else if commas > 1 {
+            s = s.replacingOccurrences(of: ",", with: "")
+        } else if dots > 1 {
+            s = s.replacingOccurrences(of: ".", with: "")
+        }
+        if s.hasSuffix(".") { s.removeLast() }
+        guard !s.isEmpty, s != "-", let value = Double(s), value.isFinite, value >= 0 else { return nil }
+        return value
+    }
+
+    static func draftString(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.numberStyle = .decimal
+        fmt.usesGroupingSeparator = false
+        fmt.minimumFractionDigits = 0
+        fmt.maximumFractionDigits = 4
+        fmt.decimalSeparator = "."
+        return fmt.string(from: NSNumber(value: value)) ?? "1"
+    }
+
+    static func formatMoney(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.numberStyle = .decimal
+        fmt.minimumFractionDigits = 2
+        fmt.maximumFractionDigits = 2
+        return fmt.string(from: NSNumber(value: value)) ?? "–"
+    }
+
+    static func formatPill(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.numberStyle = .decimal
+        fmt.minimumFractionDigits = 0
+        fmt.maximumFractionDigits = 4
+        return fmt.string(from: NSNumber(value: value)) ?? draftString(value)
     }
 
     func reload() async {
@@ -108,7 +286,8 @@ final class RatesStore: ObservableObject {
 
     func loadHistoryIfNeeded() async {
         guard showChart, span != .day, span != .week else { return }
-        let codes = visible.filter { $0 != base }
+        var codes = visible.filter { $0 != base }
+        if base != "CHF" { codes.append(base) }
         let span = self.span
         for code in codes {
             let key = "\(code)|\(span.query)"
@@ -128,8 +307,8 @@ final class RatesStore: ObservableObject {
             let file = try JSONDecoder().decode(HistoryFile.self, from: data)
             let points = file.points.compactMap { row -> RatePoint? in
                 guard row.count >= 2, case .text(let day) = row[0], case .number(let raw) = row[1], raw > 0 else { return nil }
-                guard let value = cardRate(raw), let date = Self.dayDate(day) else { return nil }
-                return RatePoint(day: day, hour: nil, value: value, raw: raw, date: date)
+                guard let date = Self.dayDate(day) else { return nil }
+                return RatePoint(day: day, hour: nil, value: raw, raw: raw, date: date)
             }
             historyCache["\(code)|\(span.query)"] = points
         } catch { /* lokale Reihe bleibt die Anzeige */ }
@@ -137,18 +316,35 @@ final class RatesStore: ObservableObject {
 
     func quote(_ code: String) -> Quote {
         if code == base { return Quote(value: 1, raw: 1) }
+        guard let per = reportingPerUnit(code), let value = directPrice(code, per) else { return Quote(value: nil, raw: nil) }
+        return Quote(value: value, raw: per)
+    }
+
+    /// Move from the user's start hour on the quoted day, or that day's first stored rate, to the shown price.
+    func dayChange(_ code: String) -> (text: String, delta: Double)? {
+        guard code != base, let close = quote(code).value, abs(close) > 0.00005 else { return nil }
+        guard let open = dayOpen(code), abs(open) > 0.00005 else { return nil }
+        let delta = close - open
+        let text = dayChangeText(delta, percent: delta / open * 100, currency: base)
+        return (text, delta)
+    }
+
+    private func dayOpen(_ code: String) -> Double? {
         let today = Self.todayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
-            let hours = slots.keys.compactMap(Int.init).sorted(by: >)
-            for hour in hours {
+            let hours = slots.keys.compactMap(Int.init).filter { hour in
                 let key = String(format: "%02d", hour)
-                if let raw = slots[key]?[code] {
-                    return Quote(value: cardRate(raw), raw: raw)
-                }
-            }
+                return (slots[key]?[code] ?? 0) > 0
+            }.sorted()
+            guard let first = hours.first else { continue }
+            let openHour = hours.contains(timeStart) ? timeStart : first
+            let key = String(format: "%02d", openHour)
+            guard let chf = slots[key]?[code], chf > 0,
+                  let per = reportingFromCHF(chf, day: day, hourKey: key) else { return nil }
+            return directPrice(code, per)
         }
-        return Quote(value: nil, raw: nil)
+        return nil
     }
 
     func intervalValue(_ code: String, hour: Int) -> Double? {
@@ -157,7 +353,9 @@ final class RatesStore: ObservableObject {
         let key = String(format: "%02d", hour)
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset) else { continue }
-            if let raw = days[day]?.slots?[key]?[code] { return cardRate(raw) }
+            guard let chf = days[day]?.slots?[key]?[code], chf > 0 else { continue }
+            guard let per = reportingFromCHF(chf, day: day, hourKey: key) else { continue }
+            return directPrice(code, per)
         }
         return nil
     }
@@ -177,10 +375,11 @@ final class RatesStore: ObservableObject {
         }
         guard found, let day = days[dayKey] else { return nil }
         let basisHour = day.forecastBasis?[code] ?? day.forecast7Basis?[code]
-        let basisRaw = basisHour.flatMap { day.slots?[String(format: "%02d", $0)]?[code] }
-        let basis = cardRate(basisRaw)
-        let todayV = cardRate(day.forecast?[code])
-        let weekV = cardRate(day.forecast7?[code])
+        let basisKey = basisHour.map { String(format: "%02d", $0) }
+        let basisChf = basisHour.flatMap { day.slots?[String(format: "%02d", $0)]?[code] }
+        let basis = directPrice(code, basisChf.flatMap { reportingFromCHF($0, day: dayKey, hourKey: basisKey) })
+        let todayV = directPrice(code, forecastInReporting(day.forecast?[code], day: day))
+        let weekV = directPrice(code, forecastInReporting(day.forecast7?[code], day: day))
         return ForecastLine(
             today: todayV,
             week: weekV,
@@ -194,7 +393,16 @@ final class RatesStore: ObservableObject {
         let today = Self.todayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset) else { continue }
-            if let raw = days[day]?.ecb?[code] { return cardRate(raw) }
+            guard let chf = days[day]?.ecb?[code], chf > 0 else { continue }
+            let per: Double?
+            if base == "CHF" {
+                per = chf
+            } else if let den = days[day]?.ecb?[base] ?? chfPerUnit(base), abs(den) > 0.00005 {
+                per = chf / den
+            } else {
+                per = nil
+            }
+            if let price = directPrice(code, per) { return price }
         }
         return nil
     }
@@ -205,7 +413,10 @@ final class RatesStore: ObservableObject {
         }
         let remote = historyCache["\(code)|\(span.query)"] ?? []
         let local = dailySeries(code, daysBack: span.dayCount)
-        if code != base, remote.count > local.count { return remote }
+        if code != base, remote.count > local.count {
+            let mapped = remote.compactMap { pricedRemote(code, $0) }
+            if mapped.count > local.count { return mapped }
+        }
         return local
     }
 
@@ -222,6 +433,7 @@ final class RatesStore: ObservableObject {
     func remove(_ code: String) {
         guard code != base else { return }
         hidden.insert(code)
+        if code == convertSource { resetConvert() }
         saveLocal()
     }
 
@@ -232,6 +444,161 @@ final class RatesStore: ObservableObject {
     }
 
     func saveView() { saveLocal() }
+
+    /// Stable device id (64 hex) and ntfy topic (`wae-` + 32 hex). Separate from the web app's topic.
+    func ensureAlertIdentity() {
+        var changed = false
+        if !Self.validTopic(topic) {
+            topic = "wae-" + Self.hex(16)
+            changed = true
+        }
+        if !Self.validAlertId(alertId) {
+            alertId = Self.hex(32)
+            changed = true
+        }
+        if changed { saveLocal() }
+    }
+
+    /// Reads this device's subscription. A missing subscription is not an error.
+    func loadRemoteAlerts() async -> String? {
+        ensureAlertIdentity()
+        do {
+            guard let remote = try await fetchAlerts() else { return nil }
+            if alertsDirty { return nil }
+            if let remoteTopic = remote.topic, Self.validTopic(remoteTopic) {
+                topic = remoteTopic
+            }
+            for code in Self.alertCodes {
+                guard let level = remote.currencies?[code] else { continue }
+                thresholds[code] = AlarmThreshold(enabled: level.enabled, down: level.down, up: level.up)
+            }
+            saveLocal()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Stores the current switches locally and registers USD and EUR with the Worker.
+    func registerAlerts() async throws {
+        ensureAlertIdentity()
+        let payload = try alertPayload()
+        saveLocal()
+        let body = try JSONEncoder().encode(payload)
+        _ = try await alertCall(method: "POST", body: body)
+    }
+
+    /// Posts the current USD/EUR subscription after edits settle.
+    func scheduleAlertSync() {
+        alertsDirty = true
+        alertSyncError = nil
+        alertSyncGeneration += 1
+        let generation = alertSyncGeneration
+        alertSyncTask?.cancel()
+        alertSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self, generation == self.alertSyncGeneration else { return }
+            await self.performAlertSync(generation: generation)
+        }
+    }
+
+    /// Cancels a pending debounce and registers immediately. No-op when nothing changed.
+    func flushAlertSync() async {
+        alertSyncGeneration += 1
+        let generation = alertSyncGeneration
+        alertSyncTask?.cancel()
+        alertSyncTask = nil
+        await performAlertSync(generation: generation)
+    }
+
+    private func performAlertSync(generation: Int) async {
+        guard alertsDirty else { return }
+        do {
+            try await registerAlerts()
+            guard generation == alertSyncGeneration else { return }
+            alertsDirty = false
+            alertSyncError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard generation == alertSyncGeneration else { return }
+            alertSyncError = error.localizedDescription
+        }
+    }
+
+    func sendRemoteTestPush() async throws {
+        alertSyncGeneration += 1
+        alertSyncTask?.cancel()
+        alertSyncTask = nil
+        try await registerAlerts()
+        alertsDirty = false
+        alertSyncError = nil
+        _ = try await alertCall(method: "POST", test: true, body: nil)
+    }
+
+    private func fetchAlerts() async throws -> RemoteAlerts? {
+        do {
+            let data = try await alertCall(method: "GET", body: nil)
+            return try JSONDecoder().decode(RemoteAlerts.self, from: data)
+        } catch AlertSyncError.missing {
+            return nil
+        }
+    }
+
+    /// Worker cron only evaluates USD and EUR. Other codes stay on the device. Master off keeps the subscription and stores `enabled: false`, the same as the web sheet.
+    private func alertPayload() throws -> AlertUpload {
+        func level(_ code: String) throws -> AlertUpload.Level {
+            let entry = threshold(for: code)
+            let down = (entry.down * 100).rounded() / 100
+            let up = (entry.up * 100).rounded() / 100
+            guard down > 0, down <= 20, up > 0, up <= 20 else { throw AlertSyncError.invalidThreshold(code) }
+            let enabled = alertsMaster && visible.contains(code) && entry.enabled
+            return AlertUpload.Level(enabled: enabled, down: down, up: up)
+        }
+        return AlertUpload(
+            topic: topic,
+            start: timeStart,
+            currencies: AlertUpload.Pair(USD: try level("USD"), EUR: try level("EUR"))
+        )
+    }
+
+    private func alertCall(method: String, test: Bool = false, body: Data?) async throws -> Data {
+        let suffix = test ? "/test" : ""
+        guard let url = URL(string: "\(Self.origin.absoluteString)/api/alerts/\(alertId)\(suffix)") else {
+            throw AlertSyncError.network
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        request.httpMethod = method
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw AlertSyncError.network
+        }
+        guard let http = response as? HTTPURLResponse else { throw AlertSyncError.network }
+        if http.statusCode == 404 && method == "GET" { throw AlertSyncError.missing }
+        guard (200..<300).contains(http.statusCode) else {
+            let detail = (try? JSONDecoder().decode(AlertErrorBody.self, from: data))?.error
+            let text = (detail?.isEmpty == false) ? detail! : "HTTP \(http.statusCode)"
+            throw AlertSyncError.server(text)
+        }
+        return data
+    }
+
+    static let alertCodes = ["USD", "EUR"]
+
+    static func validAlertId(_ id: String) -> Bool {
+        id.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+
+    static func validTopic(_ topic: String) -> Bool {
+        topic.range(of: "^wae-[a-f0-9]{32}$", options: .regularExpression) != nil
+    }
 
     func saveTimes(start: Int, end: Int, step: Int?) {
         if let step, let hours = Self.expand(start: start, end: end, step: step), !hours.isEmpty {
@@ -253,6 +620,7 @@ final class RatesStore: ObservableObject {
     func setThreshold(_ value: AlarmThreshold, for code: String) {
         thresholds[code] = value
         saveLocal()
+        scheduleAlertSync()
     }
 
     var catalog: [String] {
@@ -274,8 +642,11 @@ final class RatesStore: ObservableObject {
                     if code == base {
                         guard slots[key]?["EUR"] != nil || slots[key]?["USD"] != nil, let date = Self.dayDate(day, hour: hour) else { continue }
                         points.append(RatePoint(day: day, hour: hour, value: 1, raw: 1, date: date))
-                    } else if let raw = slots[key]?[code], let value = cardRate(raw), let date = Self.dayDate(day, hour: hour) {
-                        points.append(RatePoint(day: day, hour: hour, value: value, raw: raw, date: date))
+                    } else if let chf = slots[key]?[code], chf > 0,
+                              let per = reportingFromCHF(chf, day: day, hourKey: key),
+                              let value = directPrice(code, per),
+                              let date = Self.dayDate(day, hour: hour) {
+                        points.append(RatePoint(day: day, hour: hour, value: value, raw: per, date: date))
                     }
                 }
             }
@@ -300,8 +671,11 @@ final class RatesStore: ObservableObject {
                 guard let date = Self.dayDate(day, hour: hour) else { return nil }
                 return RatePoint(day: day, hour: hour, value: 1, raw: 1, date: date)
             }
-            guard let raw = slots[key]?[code], let value = cardRate(raw), let date = Self.dayDate(day, hour: hour) else { return nil }
-            return RatePoint(day: day, hour: hour, value: value, raw: raw, date: date)
+            guard let chf = slots[key]?[code], chf > 0,
+                  let per = reportingFromCHF(chf, day: day, hourKey: key),
+                  let value = directPrice(code, per),
+                  let date = Self.dayDate(day, hour: hour) else { return nil }
+            return RatePoint(day: day, hour: hour, value: value, raw: per, date: date)
         }
     }
 
@@ -315,13 +689,52 @@ final class RatesStore: ObservableObject {
                 if days[day]?.slots?["12"]?["EUR"] != nil || days[day]?.ecb?["EUR"] != nil, let date = Self.dayDate(day) {
                     points.append(RatePoint(day: day, hour: nil, value: 1, raw: 1, date: date))
                 }
-            } else if let raw = lastRaw(code, day), let value = cardRate(raw), let date = Self.dayDate(day) {
-                points.append(RatePoint(day: day, hour: nil, value: value, raw: raw, date: date))
+            } else if let chf = lastRaw(code, day),
+                      let per = reportingFromCHF(chf, day: day, hourKey: nil),
+                      let value = directPrice(code, per),
+                      let date = Self.dayDate(day) {
+                points.append(RatePoint(day: day, hour: nil, value: value, raw: per, date: date))
             }
             guard let next = Self.addDays(day, 1) else { break }
             day = next
         }
         return points
+    }
+
+    /// Reporting currency per 1 foreign unit, from a CHF mid and the reporting currency's CHF mid.
+    private func reportingFromCHF(_ chf: Double, day: String, hourKey: String?) -> Double? {
+        if base == "CHF" { return chf }
+        guard let den = chfMid(base, day: day, hourKey: hourKey), abs(den) > 0.00005 else { return nil }
+        return chf / den
+    }
+
+    private func chfMid(_ code: String, day: String, hourKey: String?) -> Double? {
+        if code == "CHF" { return 1 }
+        if let hourKey, let raw = days[day]?.slots?[hourKey]?[code], raw > 0 { return raw }
+        if let raw = lastRaw(code, day), raw > 0 { return raw }
+        return chfPerUnit(code)
+    }
+
+    /// A stored history point is CHF per 1 unit. Map it onto the direct quote in the reporting currency.
+    private func pricedRemote(_ code: String, _ point: RatePoint) -> RatePoint? {
+        let per: Double?
+        if base == "CHF" {
+            per = point.raw
+        } else if let den = historyCache["\(base)|\(span.query)"]?.first(where: { $0.day == point.day })?.raw, abs(den) > 0.00005 {
+            per = point.raw / den
+        } else {
+            per = nil
+        }
+        guard let per, let value = directPrice(code, per) else { return nil }
+        return RatePoint(day: point.day, hour: nil, value: value, raw: per, date: point.date)
+    }
+
+    private func forecastInReporting(_ chf: Double?, day: DayFile) -> Double? {
+        guard let chf, chf > 0 else { return nil }
+        if base == "CHF" { return chf }
+        let den = day.forecast?[base] ?? day.forecast7?[base] ?? chfPerUnit(base)
+        guard let den, abs(den) > 0.00005 else { return nil }
+        return chf / den
     }
 
     private func lastRaw(_ code: String, _ day: String) -> Double? {
@@ -385,6 +798,7 @@ final class RatesStore: ObservableObject {
             thresholds = map
         }
         topic = defaults.string(forKey: "wu.alertTopic") ?? ""
+        alertId = defaults.string(forKey: "wu.alertId") ?? ""
     }
 
     private func saveLocal() {
@@ -404,6 +818,7 @@ final class RatesStore: ObservableObject {
         defaults.set(alertsMaster, forKey: "wu.alertsMaster")
         if let data = try? JSONEncoder().encode(thresholds) { defaults.set(data, forKey: "wu.thresholds") }
         defaults.set(topic, forKey: "wu.alertTopic")
+        defaults.set(alertId, forKey: "wu.alertId")
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {
@@ -429,7 +844,7 @@ final class RatesStore: ObservableObject {
         return fmt.string(from: next)
     }
 
-    static func dayDate(_ key: String, hour: Int? = nil) -> Date? {
+    nonisolated static func dayDate(_ key: String, hour: Int? = nil) -> Date? {
         var parts = DateComponents()
         let bits = key.split(separator: "-")
         guard bits.count == 3, let y = Int(bits[0]), let m = Int(bits[1]), let d = Int(bits[2]) else { return nil }
@@ -443,5 +858,57 @@ final class RatesStore: ObservableObject {
 
     static func hex(_ bytes: Int) -> String {
         (0..<bytes).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+    }
+}
+
+private struct AlertUpload: Encodable {
+    var topic: String
+    var start: Int
+    var currencies: Pair
+
+    struct Pair: Encodable {
+        var USD: Level
+        var EUR: Level
+    }
+
+    struct Level: Encodable {
+        var enabled: Bool
+        var down: Double
+        var up: Double
+    }
+}
+
+private struct RemoteAlerts: Decodable {
+    var topic: String?
+    var currencies: [String: Level]?
+
+    struct Level: Decodable {
+        var enabled: Bool
+        var down: Double
+        var up: Double
+    }
+}
+
+private struct AlertErrorBody: Decodable {
+    var error: String?
+}
+
+private enum AlertSyncError: LocalizedError {
+    case invalidThreshold(String)
+    case server(String)
+    case network
+    case missing
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidThreshold(let code):
+            return "Ungültige Schwelle bei \(code) (0.01–20 %)."
+        case .server(let message):
+            return message
+        case .network:
+            return "Die Alarme konnten nicht erreicht werden."
+        case .missing:
+            return "nicht vorhanden"
+        }
     }
 }
