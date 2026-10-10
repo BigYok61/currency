@@ -18,7 +18,6 @@ struct ChartBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            periodLabel
             if points.count >= 2 {
                 plot(height: 112, scrubbing: false)
                     .contentShape(Rectangle())
@@ -35,29 +34,13 @@ struct ChartBlock: View {
         }
     }
 
-    private var periodLabel: some View {
-        Group {
-            if preview {
-                Text(store.span.caption)
-            } else {
-                Button { openDetail() } label: {
-                    Text(store.span.caption)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(Color.blue)
-        .accessibilityLabel("Zeitraum \(store.span.caption)")
-    }
-
     private func openDetail() {
         guard !preview else { return }
         showDetail = true
     }
 
     private func plot(height: CGFloat, scrubbing: Bool) -> some View {
-        InlinePlot(points: points, tone: tone, height: height, scrubbing: scrubbing, code: code, base: store.base)
+        InlinePlot(points: points, tone: tone, height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, onOpen: openDetail)
     }
 
     private var dateRow: some View {
@@ -192,6 +175,9 @@ private struct InlinePlot: View {
     let scrubbing: Bool
     let code: String
     let base: String
+    var periodCaption: String? = nil
+    var periodPreview: Bool = false
+    var onOpen: (() -> Void)? = nil
     @State private var scrub: RatePoint?
 
     var body: some View {
@@ -250,12 +236,31 @@ private struct InlinePlot: View {
         }
         .frame(height: height)
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .topTrailing) {
-            Text("Hoch \(formatRate(hi))")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .allowsHitTesting(false)
+        .overlay(alignment: .top) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let periodCaption {
+                    Group {
+                        if periodPreview {
+                            Text(periodCaption)
+                        } else {
+                            Button { onOpen?() } label: {
+                                Text(periodCaption)
+                            }
+                            .buttonStyle(.plain)
+                            .allowsHitTesting(true)
+                        }
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+                    .accessibilityLabel("Zeitraum \(periodCaption)")
+                }
+                Spacer(minLength: 4)
+                Text("Hoch \(formatRate(hi))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .allowsHitTesting(periodCaption != nil && !periodPreview)
         }
         .overlay(alignment: .bottomTrailing) {
             Text("Tief \(formatRate(lo))")

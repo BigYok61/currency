@@ -449,8 +449,8 @@ function plotXY(points) {
   max += padY;
   const left = 0;
   const right = 317.5;
-  const yTop = 18;
-  const height = 74;
+  const yTop = 26;
+  const height = 64;
   const width = right - left;
   return points.map((p, i) => ({
     ...p,
@@ -487,7 +487,7 @@ function chartBlock(c, suffix) {
   const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
   const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
   const stretch = detail ? ' preserveAspectRatio="none"' : '';
-  return `<div class="chart-block${detail ? ' is-detail' : ''}">${period}<div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>${endDot}<div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
+  return `<div class="chart-block${detail ? ' is-detail' : ''}"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>${endDot}<div class="scale"><div class="scale-top">${period}<span>Hoch ${esc(r(hi))}</span></div><span class="scale-lo">Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
 }
 function rangeCaption() {
   return CHART_RANGES.find(item => item.id === chartRange)?.caption || '1 Monat';

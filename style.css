@@ -1031,11 +1031,12 @@ body.v21 .ref-row { display: flex; justify-content: space-between; gap: 12px; ma
 body.v21 .ref-src { margin-top: 1px; font-size: 11px; color: rgba(60,60,67,.55); }
 body.v21 .chart-block { margin-top: 4px; }
 body.v21 .chart-period {
-  display: inline-flex; align-items: center; margin: 0 0 2px; padding: 0; border: none;
+  display: inline-flex; align-items: center; margin: 0; padding: 0; border: none;
   background: none; color: #007aff; font: inherit; font-size: 12px; font-weight: 600;
-  line-height: 1.2; letter-spacing: -.01em; cursor: pointer; appearance: none;
+  line-height: 1.15; letter-spacing: -.01em; cursor: pointer; appearance: none;
+  pointer-events: auto;
 }
-body.v21 span.chart-period { cursor: default; }
+body.v21 span.chart-period { cursor: default; pointer-events: none; }
 body.v21 .chart-row { display: block; }
 body.v21 .chart-frame { position: relative; width: 100%; cursor: pointer; touch-action: pan-y; }
 body.v21 #chartDlg .chart-frame { cursor: crosshair; touch-action: none; }
@@ -1078,9 +1079,14 @@ body.v21 #chartDlg.sheet {
 }
 body.v21 .scale {
   position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
-  align-items: flex-end; pointer-events: none; text-align: right;
+  align-items: stretch; pointer-events: none; text-align: right;
   font-size: 10px; line-height: 1.15; color: #8e8e93; font-variant-numeric: tabular-nums;
 }
+body.v21 .scale-top {
+  display: flex; justify-content: flex-end; align-items: baseline; gap: 8px;
+}
+body.v21 .scale-top .chart-period { margin-right: auto; text-align: left; }
+body.v21 .scale-lo { align-self: flex-end; }
 body.v21 .chart-dates {
   display: flex; justify-content: space-between; gap: 8px; margin-top: 2px;
   font-size: 10px; color: #8e8e93; font-variant-numeric: tabular-nums;
