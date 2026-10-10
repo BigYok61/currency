@@ -159,3 +159,15 @@ func arrow(_ value: Double?) -> String {
     if value < -0.00005 { return "↓" }
     return "→"
 }
+
+/// Intraday move next to the price: arrow, amount in the reporting currency, and percent.
+func dayChangeText(_ delta: Double, percent: Double, currency: String) -> String {
+    let pct = NumberFormatter()
+    pct.locale = Locale(identifier: "de_CH")
+    pct.minimumFractionDigits = 2
+    pct.maximumFractionDigits = 2
+    pct.numberStyle = .decimal
+    let body = pct.string(from: NSNumber(value: abs(percent))) ?? String(format: "%.2f", abs(percent))
+    let sign = percent > 0.005 ? "+" : percent < -0.005 ? "−" : ""
+    return "\(arrow(delta)) \(formatDelta(delta)) \(currency) (\(sign)\(body) %)"
+}

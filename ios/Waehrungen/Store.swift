@@ -314,6 +314,33 @@ final class RatesStore: ObservableObject {
         return Quote(value: value, raw: per)
     }
 
+    /// Move from the user's start hour on the quoted day, or that day's first stored rate, to the shown price.
+    func dayChange(_ code: String) -> (text: String, delta: Double)? {
+        guard code != base, let close = quote(code).value, abs(close) > 0.00005 else { return nil }
+        guard let open = dayOpen(code), abs(open) > 0.00005 else { return nil }
+        let delta = close - open
+        let text = dayChangeText(delta, percent: delta / open * 100, currency: base)
+        return (text, delta)
+    }
+
+    private func dayOpen(_ code: String) -> Double? {
+        let today = Self.todayKey()
+        for offset in 0..<12 {
+            guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
+            let hours = slots.keys.compactMap(Int.init).filter { hour in
+                let key = String(format: "%02d", hour)
+                return (slots[key]?[code] ?? 0) > 0
+            }.sorted()
+            guard let first = hours.first else { continue }
+            let openHour = hours.contains(timeStart) ? timeStart : first
+            let key = String(format: "%02d", openHour)
+            guard let chf = slots[key]?[code], chf > 0,
+                  let per = reportingFromCHF(chf, day: day, hourKey: key) else { return nil }
+            return directPrice(code, per)
+        }
+        return nil
+    }
+
     func intervalValue(_ code: String, hour: Int) -> Double? {
         if code == base { return 1 }
         let today = Self.todayKey()

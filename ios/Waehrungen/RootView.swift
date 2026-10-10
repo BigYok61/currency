@@ -147,8 +147,8 @@ struct CurrencyCard: View {
         let unitRates = preview || store.showsUnitRates
         let editing = !preview && store.convertEditing && store.convertSource == code
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
                         if let time = store.fired[code] {
@@ -158,13 +158,29 @@ struct CurrencyCard: View {
                             Text(time).font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     }
+                    Spacer(minLength: 8)
+                    priceLabel(unitRates: unitRates, editing: editing)
+                    if code != store.base && !preview { handle }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
                         .font(.system(size: 13))
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if code != store.base, let day = store.dayChange(code) {
+                        Text(day.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(dayChangeTone(day.delta))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    if code != store.base { inverseLabel }
+                    if code != store.base && !preview {
+                        Color.clear.frame(width: 22, height: 1)
+                    }
                 }
-                Spacer(minLength: 8)
-                amountColumn(unitRates: unitRates, editing: editing)
-                if code != store.base && !preview { handle }
             }
             if code != store.base {
                 if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
@@ -199,6 +215,7 @@ struct CurrencyCard: View {
             pair(tag: "7 Tage", value: line?.week, delta: line?.weekDelta)
         }
         .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.secondary)
     }
 
     private func pair(tag: String, value: Double?, delta: Double?) -> some View {
@@ -206,32 +223,14 @@ struct CurrencyCard: View {
             HStack(spacing: 4) {
                 Text(tag)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
                 Text(valueText(value, delta: delta))
                     .font(.system(size: 13, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(forecastTone(delta))
             }
             Text(formatDelta(delta))
                 .font(.system(size: 9))
-                .foregroundStyle(forecastDeviationTone(delta))
                 .monospacedDigit()
         }
-    }
-
-    /// Same green and red as the chart line. A flat move stays the row color.
-    private func forecastTone(_ delta: Double?) -> Color {
-        guard let delta else { return .primary }
-        if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-        if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-        return .primary
-    }
-
-    private func forecastDeviationTone(_ delta: Double?) -> Color {
-        guard let delta else { return .secondary }
-        if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-        if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-        return .secondary
     }
 
     private var reference: some View {
@@ -246,9 +245,9 @@ struct CurrencyCard: View {
         }
     }
 
-    private func amountColumn(unitRates: Bool, editing: Bool) -> some View {
+    private func priceLabel(unitRates: Bool, editing: Bool) -> some View {
         let hint = code == store.base && (preview || !store.convertEditing)
-        return VStack(alignment: .trailing, spacing: 1) {
+        return Group {
             if editing {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     TextField("0", text: draftBinding)
@@ -283,18 +282,19 @@ struct CurrencyCard: View {
                     store.beginConvert(code)
                 }
             }
-            if code != store.base {
-                TappableAmount(
-                    text: store.secondaryText(code),
-                    blue: true,
-                    enabled: !preview,
-                    fontSize: 12,
-                    weight: .regular
-                ) {
-                    store.beginConvert(code)
-                    amountFocused = true
-                }
-            }
+        }
+    }
+
+    private var inverseLabel: some View {
+        TappableAmount(
+            text: store.secondaryText(code),
+            blue: true,
+            enabled: !preview,
+            fontSize: 12,
+            weight: .regular
+        ) {
+            store.beginConvert(code)
+            amountFocused = true
         }
     }
 

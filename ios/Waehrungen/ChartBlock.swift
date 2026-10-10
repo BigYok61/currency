@@ -87,6 +87,13 @@ struct ChartDetailSheet: View {
                             .foregroundStyle(.primary)
                             .monospacedDigit()
                     }
+                    if let day = store.dayChange(code) {
+                        Text(day.text)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(dayChangeTone(day.delta))
+                            .monospacedDigit()
+                            .padding(.top, 2)
+                    }
                     if let move = periodMove {
                         Text(move.text)
                             .font(.system(size: 15, weight: .semibold))
@@ -289,6 +296,12 @@ private struct InlinePlot: View {
     private func nearest(to date: Date) -> RatePoint? {
         points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
     }
+}
+
+func dayChangeTone(_ delta: Double) -> Color {
+    if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+    if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
+    return .secondary
 }
 
 private enum ChartFormat {

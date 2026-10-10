@@ -250,6 +250,33 @@ function alarmHint(code) {
   times.sort();
   return `<span class="fired">${FIRED_BELL}<span class="fired-time">${esc(times[0])}</span></span>`;
 }
+function dayMoveText(delta, pct) {
+  const body = Math.abs(pct).toFixed(2);
+  const sign = pct > 0.005 ? '+' : pct < -0.005 ? '−' : '';
+  return `${arrowOf(delta)} ${signedRate(delta)} ${baseCurrency} (${sign}${body} %)`.trim();
+}
+/** Change from the user's start hour today, or the first stored rate that day, to the shown price. */
+function dayMove(c) {
+  if (!c || c.code === baseCurrency) return null;
+  const q = quoteOf(c);
+  if (q.v == null || !(Math.abs(q.v) > EPS)) return null;
+  const today = zurichToday();
+  let day = q.day || today;
+  let hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
+  if (!hours.length) {
+    for (let i = 1; i < 12; i++) {
+      day = addDays(today, -i);
+      hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
+      if (hours.length) break;
+    }
+  }
+  if (!hours.length) return null;
+  const openHour = hours.includes(schedule.start) ? schedule.start : hours[0];
+  const open = directPrice(c.code, shown(c, day, openHour));
+  if (open == null || !(Math.abs(open) > EPS)) return null;
+  const delta = q.v - open;
+  return { delta, text: dayMoveText(delta, delta / open * 100), cls: forecastTone(delta) };
+}
 function quoteOf(c) {
   if (c.code === baseCurrency) return { v: 1, raw: 1 };
   const liveRaw = shownLive(c);
@@ -583,12 +610,15 @@ function cardHtml(c, opts) {
   const invSpan = isBase ? '' : (preview
     ? `<span class="cinv">${invText}</span>`
     : `<button type="button" class="cinv" data-amount="${esc(c.code)}" aria-label="${invText} bearbeiten">${invText}</button>`);
+  const move = isBase ? null : dayMove(c);
+  const chgSpan = move ? `<span class="cchg${move.cls}">${esc(move.text)}</span>` : '';
   const amountBtn = `<button type="button" class="amt-btn" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span></button>`;
   const amount = editing
-    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span>${invSpan}</div>`
-    : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}${invSpan}</div>`;
+    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span></div>`
+    : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}</div>`;
   const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
-  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code))}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
+  const sub = esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code));
+  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div></div><div class="cright">${amount}</div></div><div class="cmeta"><div class="${subCls}">${sub}</div>${chgSpan}${invSpan}</div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
   if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
@@ -704,10 +734,12 @@ function paintChartDetail() {
   const price = q.v == null ? '–' : rateText(c.code, q.v);
   const inv = inverseLine(c.code, q.raw);
   const move = periodMove(points);
+  const today = dayMove(c);
+  const todayLine = today ? `<div class="chart-change${today.cls}">${esc(today.text)}</div>` : '';
   const change = move ? `<div class="chart-change${move.delta > EPS ? ' up' : move.delta < -EPS ? ' down' : ''}">${esc(move.text)}</div>` : '';
   const stats = move ? `<div class="chart-stats"><div><span>Eröffnung</span><span>${esc(rateText(c.code, move.open))}</span></div><div><span>Hoch</span><span>${esc(rateText(c.code, move.hi))}</span></div><div><span>Tief</span><span>${esc(rateText(c.code, move.lo))}</span></div><div><span>Schluss</span><span>${esc(rateText(c.code, move.close))}</span></div></div>` : '';
   dlg.setAttribute('aria-label', `Grafik ${ccyName(c)}`);
-  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}${stats}`;
+  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${todayLine}${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}${stats}`;
 }
 function periodMove(points) {
   if (!points || points.length < 2 || !(Math.abs(points[0].v) > EPS)) return null;
