@@ -127,7 +127,13 @@ struct RootView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
         .padding(.bottom, 4)
-        .background(.bar, ignoresSafeAreaEdges: .bottom)
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                Rectangle().fill(Color(uiColor: .systemGroupedBackground).opacity(0.95))
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(Color(uiColor: .separator))

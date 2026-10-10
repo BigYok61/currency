@@ -905,9 +905,7 @@ body.v21 footer {
   margin: 0;
   padding: 6px max(16px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   border-top: .5px solid rgba(60,60,67,.29);
-  background: rgba(242,242,247,.92);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: #f2f2f7;
   font-size: 11px;
   line-height: 1.35;
   text-align: center;
@@ -1273,7 +1271,7 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .calc-pill button { color: rgba(235,235,245,.75); }
   body.v21 .calc-dock { background: rgba(28,28,30,.96); border-top-color: rgba(84,84,88,.65); }
   body.v21 footer {
-    background: rgba(28,28,30,.88);
+    background: #000;
     color: rgba(235,235,245,.6);
     border-top-color: rgba(84,84,88,.65);
   }
