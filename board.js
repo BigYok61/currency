@@ -577,16 +577,25 @@ function queueHistory(rows, gen) {
 function paintPreview() {
   const slot = document.getElementById('preview');
   if (!slot) return;
-  const bare = !showChart && !showIntervals && !showForecast && !showReference;
-  slot.classList.toggle('is-list', bare);
-  if (!bare) {
-    slot.innerHTML = cardHtml(currencyRecord('EUR'), { preview: true });
-    return;
-  }
+  slot.classList.add('is-list');
   const rows = boardRows();
   const base = rows.find(c => c.code === baseCurrency) || currencyRecord(baseCurrency);
   const foreign = rows.filter(c => c.code !== baseCurrency).slice(0, 2);
   slot.innerHTML = [base, ...foreign].map(c => cardHtml(c, { preview: true })).join('');
+  requestAnimationFrame(() => fitPreview(slot));
+}
+function fitPreview(slot) {
+  if (!slot || !slot.isConnected) return;
+  slot.style.maxHeight = '';
+  slot.classList.remove('is-clipped');
+  const dlg = slot.closest('dialog');
+  if (!dlg) return;
+  const limit = Math.min(window.innerHeight * 0.9, 720);
+  const chrome = dlg.scrollHeight - slot.offsetHeight;
+  if (dlg.scrollHeight <= limit + 1) return;
+  const room = Math.max(160, limit - chrome - 4);
+  slot.style.maxHeight = `${room}px`;
+  slot.classList.toggle('is-clipped', slot.scrollHeight > slot.clientHeight + 1);
 }
 function render(opts = {}) {
   const gen = ++boardGen;
@@ -1062,6 +1071,10 @@ if (typeof document !== 'undefined') {
     scroller.addEventListener('touchcancel', () => { swipe = null; });
   }
   $('viewBtn').addEventListener('click', () => { renderView(); $('viewDlg').showModal(); });
+  window.addEventListener('resize', () => {
+    const slot = document.getElementById('preview');
+    if (slot && $('viewDlg')?.open) fitPreview(slot);
+  });
   $('timesBtn').addEventListener('click', () => { openTimes(); });
   $('alertsBtn').addEventListener('click', () => { openAlerts(); });
   $('viewDlg').addEventListener('close', () => { /* Ansicht bleibt live gespeichert */ });

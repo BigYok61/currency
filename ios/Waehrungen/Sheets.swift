@@ -21,8 +21,7 @@ private struct SheetColumn: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? subviews.first?.sizeThatFits(.unspecified).width ?? 0
-        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)).height ?? 0
-        return CGSize(width: width, height: max(ideal, minHeight))
+        return CGSize(width: width, height: minHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -92,37 +91,81 @@ struct AnsichtSheet: View {
         .buttonStyle(.plain)
     }
 
-    /// Nothing ticked: the reporting currency, then the first two foreign rows still on the user's list.
-    private var barePreview: Bool {
-        !store.showChart && !store.showIntervals && !store.showForecast && !store.showReference
-    }
-
+    /// Reporting currency, then the first two foreign rows still on the user's list. Blocks follow the ticked options.
     private var previewCodes: [String] {
         [store.base] + store.visible.filter { $0 != store.base }.prefix(2)
     }
 
-    @ViewBuilder
     private var preview: some View {
-        if barePreview {
-            VStack(spacing: 0) {
-                ForEach(Array(previewCodes.enumerated()), id: \.element) { index, code in
-                    CurrencyCard(code: code, preview: true)
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
-                        .padding(.leading, 20)
-                        .padding(.trailing, 8)
-                    if index < previewCodes.count - 1 {
-                        Divider().padding(.leading, 20)
+        FadingPreview(codes: previewCodes)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct PreviewMetrics: Equatable {
+    var height: CGFloat = 0
+    var minY: CGFloat = 0
+}
+
+private struct PreviewMetricsKey: PreferenceKey {
+    static var defaultValue = PreviewMetrics()
+    static func reduce(value: inout PreviewMetrics, nextValue: () -> PreviewMetrics) { value = nextValue() }
+}
+
+/// The same list as the main screen. When the next currency runs past the card, it clips under a soft fade.
+private struct FadingPreview: View {
+    let codes: [String]
+    @State private var contentHeight: CGFloat = 0
+    @State private var contentTop: CGFloat = 0
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(codes.enumerated()), id: \.element) { index, code in
+                        CurrencyCard(code: code, preview: true)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
+                            .padding(.leading, 20)
+                            .padding(.trailing, 8)
+                        if index < codes.count - 1 {
+                            Divider().padding(.leading, 20)
+                        }
                     }
                 }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: PreviewMetricsKey.self,
+                            value: PreviewMetrics(height: proxy.size.height, minY: proxy.frame(in: .named("ansichtPreview")).minY)
+                        )
+                    }
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        } else {
-            CurrencyCard(code: "EUR", preview: true)
-                .padding(12)
-                .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
+            .coordinateSpace(name: "ansichtPreview")
+            .onPreferenceChange(PreviewMetricsKey.self) { value in
+                contentHeight = value.height
+                contentTop = value.minY
+            }
+            .overlay(alignment: .bottom) {
+                if contentHeight + contentTop > geo.size.height + 8 {
+                    LinearGradient(
+                        colors: [
+                            Color(uiColor: .secondarySystemGroupedBackground).opacity(0),
+                            Color(uiColor: .secondarySystemGroupedBackground)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 44)
+                    .allowsHitTesting(false)
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: shape)
+            .clipShape(shape)
         }
     }
 }

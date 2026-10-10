@@ -1077,7 +1077,12 @@ body.v21 .thumb {
 body.v21 .thumb .name { font-size: 15px; }
 body.v21 .thumb .crate { font-size: 16px; }
 body.v21 .thumb.is-list {
-  padding: 0; border-radius: 12px; box-shadow: none; overflow: hidden;
+  position: relative; padding: 0; border-radius: 12px; box-shadow: none; overflow: hidden;
+}
+body.v21 .thumb.is-list.is-clipped::after {
+  content: ""; position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 44px;
+  pointer-events: none; border-radius: 0 0 12px 12px;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), #fff 86%);
 }
 body.v21 .thumb.is-list .ccard { padding: 11px 16px 12px 20px; }
 body.v21 .thumb.is-list .name { font-size: 16px; }
@@ -1175,5 +1180,6 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .grabber { background: rgba(235,235,245,.3); }
   body.v21 button.sheet-x { background: rgba(120,120,128,.32); color: rgba(235,235,245,.85); }
   body.v21 .thumb, body.v21 .alcard, body.v21 .ntfy-diagram { background: #2c2c2e; }
+  body.v21 .thumb.is-list.is-clipped::after { background: linear-gradient(to bottom, rgba(44,44,46,0), #2c2c2e 86%); }
   body.v21 a.store-btn { background: #fff; color: #000; }
 }
