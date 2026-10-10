@@ -172,6 +172,7 @@ private struct FadingPreview: View {
 
 struct TimesSheet: View {
     @EnvironmentObject private var store: RatesStore
+    @Environment(\.dismiss) private var dismiss
     @State private var start = 7
     @State private var end = 17
     @State private var step: Int?
@@ -224,6 +225,7 @@ struct TimesSheet: View {
                         Spacer()
                         Button("Speichern") {
                             store.saveTimes(start: start, end: end, step: step)
+                            dismiss()
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -261,6 +263,7 @@ struct TimesSheet: View {
 
 struct AlertsSheet: View {
     @EnvironmentObject private var store: RatesStore
+    @Environment(\.dismiss) private var dismiss
     @State private var page = "list"
     @State private var message = ""
 
@@ -316,8 +319,11 @@ struct AlertsSheet: View {
                 if !message.isEmpty { Text(message).font(.footnote) }
                 HStack {
                     Spacer()
-                    Button("Speichern") { message = "Gespeichert."; store.saveView() }
-                        .buttonStyle(.borderedProminent)
+                    Button("Speichern") {
+                        store.saveView()
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(16)

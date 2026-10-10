@@ -863,8 +863,7 @@ async function saveAlertSheet() {
     const serverVals = {};
     for (const code of ['USD', 'EUR']) if (form.vals[code]) serverVals[code] = form.vals[code];
     if (Object.keys(serverVals).length) await applyAlertForm(serverVals);
-    renderAlerts();
-    alertMsg('Gespeichert.', true);
+    $('alerts').close();
   } catch (e) {
     if (btn) btn.disabled = false;
     alertMsg(`Speichern fehlgeschlagen: ${e.message}`);
@@ -930,12 +929,11 @@ function saveTimes(state) {
   } else {
     const pattern = expandSchedule(state.start, state.end, state.step);
     if (!pattern.length) { tmMsg('Beginn muss vor dem Ende liegen.'); return; }
-    try { writeView(state); } catch { /* Anzeige gilt für diese Sitzung */ }
+    try { writeView({ start: state.start, end: state.end, intervalHours: state.step }); } catch { /* Anzeige gilt für diese Sitzung */ }
     applyTimesConfig({ version: 2, start: pad(state.start), end: pad(state.end), intervalHours: state.step });
   }
   render({ keepScroll: true });
-  renderTimes();
-  tmMsg('Gespeichert.', true);
+  $('times').close();
 }
 async function openTimes() {
   const dlg = $('times');
