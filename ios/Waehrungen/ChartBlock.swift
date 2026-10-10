@@ -84,7 +84,7 @@ struct ChartDetailSheet: View {
                         .monospacedDigit()
                         .padding(.top, 4)
                     if points.count >= 2, let move {
-                        InlinePlot(points: points, tone: tone, height: 320, scrubbing: true, code: code, base: store.base)
+                        InlinePlot(points: points, tone: tone, height: 80, scrubbing: true, code: code, base: store.base)
                             .padding(.top, 14)
                         HStack {
                             Text(ChartFormat.pretty(points.first?.day))
