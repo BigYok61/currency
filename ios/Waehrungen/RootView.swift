@@ -242,10 +242,12 @@ struct CurrencyCard: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("\(store.primaryText(code, unitRates: unitRates)) bearbeiten")
             }
-            Text(store.secondaryText(code, unitRates: unitRates))
-                .font(.system(size: 12))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            if code != store.base {
+                Text(store.secondaryText(code))
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -112,13 +112,10 @@ function amountLabel(code, unitRates) {
   const v = convertValue(code);
   return v == null ? '–' : `${moneyText(v)} ${code}`;
 }
-function inverseLabel(code, unitRates) {
-  if (unitRates) {
-    const q = quoteOf(currencyRecord(code));
-    return invText(q ? q.raw : null);
-  }
-  const v = valueInBase();
-  return v == null ? '–' : `${moneyText(v)} ${baseCurrency}`;
+function inverseLabel(code) {
+  if (code === baseCurrency) return '';
+  const q = quoteOf(currencyRecord(code));
+  return invText(q ? q.raw : null);
 }
 function beginConvert(code) {
   if (convertEditing && convertSource === code) {
@@ -168,7 +165,7 @@ function onConvertInput(value) {
     card.classList.toggle('is-conv', !showsUnitRates());
     card.classList.toggle('is-editing', editing);
     const inv = card.querySelector('.cinv');
-    if (inv) inv.textContent = inverseLabel(code, showsUnitRates());
+    if (inv) inv.textContent = inverseLabel(code);
     if (!editing) {
       const crate = card.querySelector('.crate');
       if (crate) crate.textContent = amountLabel(code, showsUnitRates());
@@ -553,11 +550,12 @@ function cardHtml(c, opts) {
     const dnDis = index < 0 || index >= rows.length - 1 ? ' disabled' : '';
     actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
+  const invSpan = isBase ? '' : `<span class="cinv">${esc(inverseLabel(c.code))}</span>`;
   const amount = editing
-    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span><span class="cinv">${esc(inverseLabel(c.code, showsUnitRates()))}</span></div>`
+    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span>${invSpan}</div>`
     : (preview
-      ? `<div class="amt"><span class="crate">${esc(rateText(c.code, q.v))}</span><span class="cinv">${esc(invText(q.raw))}</span></div>`
-      : `<button type="button" class="amt" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span><span class="cinv">${esc(inverseLabel(c.code, unitRates))}</span></button>`);
+      ? `<div class="amt"><span class="crate">${esc(rateText(c.code, q.v))}</span>${invSpan}</div>`
+      : `<button type="button" class="amt" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span>${invSpan}</button>`);
   const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
   return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }

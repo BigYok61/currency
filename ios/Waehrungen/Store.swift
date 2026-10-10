@@ -183,13 +183,11 @@ final class RatesStore: ObservableObject {
         return "\(Self.formatMoney(value)) \(code)"
     }
 
-    func secondaryText(_ code: String, unitRates: Bool) -> String {
-        if unitRates {
-            guard let raw = quote(code).raw else { return "–" }
-            return "\(formatRate(raw)) \(base)"
-        }
-        guard let value = valueInBase() else { return "–" }
-        return "\(Self.formatMoney(value)) \(base)"
+    /// Per-unit inverse, unchanged while converting. The reporting-currency row has no second line.
+    func secondaryText(_ code: String) -> String {
+        if code == base { return "" }
+        guard let raw = quote(code).raw else { return "–" }
+        return "\(formatRate(raw)) \(base)"
     }
 
     private func chfPerUnit(_ code: String) -> Double? {
