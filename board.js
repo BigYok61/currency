@@ -583,7 +583,7 @@ function referenceBlock(c, preview) {
     if (anchor != null) value = anchor - 0.0005;
   }
   const text = value == null ? '–' : rateText(c.code, value);
-  return `<div class="ref-row"><span>EZB-Referenzkurs</span><span>${esc(text)}</span></div><div class="ref-src">Quelle EZB</div>`;
+  return `<div class="ref-row"><span>EZB-Referenzkurs</span><span>${esc(text)}</span></div>`;
 }
 function cardHtml(c, opts) {
   const preview = !!(opts && opts.preview);

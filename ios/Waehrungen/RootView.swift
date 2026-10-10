@@ -241,15 +241,12 @@ struct CurrencyCard: View {
     }
 
     private var reference: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack {
-                Text("EZB-Referenzkurs")
-                Spacer()
-                Text(shownReference()).monospacedDigit()
-            }
-            .font(.system(size: 13))
-            Text("Quelle EZB").font(.system(size: 11)).foregroundStyle(.secondary)
+        HStack {
+            Text("EZB-Referenzkurs")
+            Spacer()
+            Text(shownReference()).monospacedDigit()
         }
+        .font(.system(size: 13))
     }
 
     private func priceLabel(unitRates: Bool, editing: Bool) -> some View {

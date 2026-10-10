@@ -1263,7 +1263,7 @@ function renderCompact(rows, today) {
     const ecbV = ecbHit && ecbHit.v;
     const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenzkurs' : `EZB-Referenzkurs`;
     let extra = '';
-    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span><span class="ecb-src">Quelle EZB</span></p>`;
+    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
     extra += forecastQuoteHtml(c, today);
     const rateTitle = [delta.title, inv].filter(Boolean).join('\n');
     bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${rateTitle ? ` title="${esc(rateTitle)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p>${inv ? `<p class="quote-inv">${esc(inv)}</p>` : ''}<p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
