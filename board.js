@@ -473,9 +473,7 @@ function chartBlock(c, suffix) {
   const area = `${line} L ${last.x.toFixed(2)} 108 L ${first.x.toFixed(2)} 108 Z`;
   const hi = Math.max(...points.map(p => p.v));
   const lo = Math.min(...points.map(p => p.v));
-  const dot = plotted.length > 1
-    ? `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="6" fill="${color}" opacity="0.18"/><circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`
-    : `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`;
+  const endDot = `<span class="end-dot" style="left:${(last.x / 320 * 100).toFixed(2)}%;top:${(last.y / 112 * 100).toFixed(2)}%;background:${color}"></span>`;
   const baseline = plotted.length > 1
     ? `<line x1="0" x2="320" y1="${first.y.toFixed(2)}" y2="${first.y.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`
     : '';
@@ -489,7 +487,7 @@ function chartBlock(c, suffix) {
   const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
   const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
   const stretch = detail ? ' preserveAspectRatio="none"' : '';
-  return `<div class="chart-block${detail ? ' is-detail' : ''}">${period}<div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg><div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
+  return `<div class="chart-block${detail ? ' is-detail' : ''}">${period}<div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>${endDot}<div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
 }
 function rangeCaption() {
   return CHART_RANGES.find(item => item.id === chartRange)?.caption || '1 Monat';
@@ -703,15 +701,31 @@ function paintChartDetail() {
   if (!dlg || !c) return;
   const q = quoteOf(c) || {};
   const points = chartPoints(c.code);
-  let tone = FLAT;
-  if (points.length >= 2) {
-    const delta = points[points.length - 1].v - points[0].v;
-    tone = delta > EPS ? UP : delta < -EPS ? DOWN : FLAT;
-  }
   const price = q.v == null ? '–' : rateText(c.code, q.v);
   const inv = inverseLine(c.code, q.raw);
+  const move = periodMove(points);
+  const change = move ? `<div class="chart-change${move.delta > EPS ? ' up' : move.delta < -EPS ? ' down' : ''}">${esc(move.text)}</div>` : '';
+  const stats = move ? `<div class="chart-stats"><div><span>Eröffnung</span><span>${esc(rateText(c.code, move.open))}</span></div><div><span>Hoch</span><span>${esc(rateText(c.code, move.hi))}</span></div><div><span>Tief</span><span>${esc(rateText(c.code, move.lo))}</span></div><div><span>Schluss</span><span>${esc(rateText(c.code, move.close))}</span></div></div>` : '';
   dlg.setAttribute('aria-label', `Grafik ${ccyName(c)}`);
-  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price" style="color:${tone}">${esc(price)}</div>${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}`;
+  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}${stats}`;
+}
+function periodMove(points) {
+  if (!points || points.length < 2 || !(Math.abs(points[0].v) > EPS)) return null;
+  const open = points[0].v;
+  const close = points[points.length - 1].v;
+  const delta = close - open;
+  const pct = delta / open * 100;
+  const hi = Math.max(...points.map(p => p.v));
+  const lo = Math.min(...points.map(p => p.v));
+  const pctBody = Math.abs(pct).toFixed(2);
+  const pctSign = pct > 0.005 ? '+' : pct < -0.005 ? '−' : '';
+  const text = `${signedRate(delta)} (${pctSign}${pctBody} %) · ${rangeCaption()}`;
+  return { open, close, delta, hi, lo, text };
+}
+function signedRate(v) {
+  if (v > EPS) return `+${r(v)}`;
+  if (v < -EPS) return `−${r(Math.abs(v))}`;
+  return r(v);
 }
 function renderView() {
   const dlg = $('viewDlg');

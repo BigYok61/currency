@@ -85,22 +85,40 @@ struct ChartDetailSheet: View {
         return .gray
     }
 
+    private var periodMove: (text: String, tone: Color, open: Double, close: Double, high: Double, low: Double)? {
+        guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
+        let delta = last - first
+        let percent = delta / first * 100
+        let high = points.map(\.value).max() ?? last
+        let low = points.map(\.value).min() ?? last
+        return (ChartFormat.change(delta, percent: percent, caption: store.span.caption), tone, first, last, high, low)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
                     if let value = store.quote(code).value {
                         Text("\(formatRate(value)) \(store.base)")
                             .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(tone)
+                            .foregroundStyle(.primary)
                             .monospacedDigit()
+                    }
+                    if let move = periodMove {
+                        Text(move.text)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(move.tone)
+                            .monospacedDigit()
+                            .padding(.top, 2)
                     }
                     Text(store.secondaryText(code))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color.blue)
                         .monospacedDigit()
-                    if points.count >= 2 {
-                        InlinePlot(points: points, tone: tone, height: 260, scrubbing: true, code: code, base: store.base)
+                        .padding(.top, 4)
+                    if points.count >= 2, let move = periodMove {
+                        InlinePlot(points: points, tone: tone, height: 320, scrubbing: true, code: code, base: store.base)
+                            .padding(.top, 14)
                         HStack {
                             Text(ChartFormat.pretty(points.first?.day))
                             Spacer()
@@ -109,20 +127,34 @@ struct ChartDetailSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .padding(.top, 4)
+                        Picker("Zeitraum", selection: $store.span) {
+                            ForEach(ChartSpan.allCases) { item in
+                                Text(item.rawValue).tag(item)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.top, 8)
+                        .onChange(of: store.span) { _ in
+                            store.saveView()
+                            Task { await store.loadHistoryIfNeeded() }
+                        }
+                        VStack(spacing: 0) {
+                            statRow("Eröffnung", move.open)
+                            Divider().padding(.leading, 14)
+                            statRow("Hoch", move.high)
+                            Divider().padding(.leading, 14)
+                            statRow("Tief", move.low)
+                            Divider().padding(.leading, 14)
+                            statRow("Schluss", move.close)
+                        }
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.top, 16)
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                    }
-                    Picker("Zeitraum", selection: $store.span) {
-                        ForEach(ChartSpan.allCases) { item in
-                            Text(item.rawValue).tag(item)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: store.span) { _ in
-                        store.saveView()
-                        Task { await store.loadHistoryIfNeeded() }
+                            .padding(.top, 12)
                     }
                 }
                 .padding(16)
@@ -136,6 +168,19 @@ struct ChartDetailSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
+    }
+
+    private func statRow(_ label: String, _ value: Double) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text("\(formatRate(value)) \(store.base)")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .font(.system(size: 16))
+        .padding(.horizontal, 14)
+        .frame(minHeight: 40)
     }
 }
 
@@ -162,7 +207,7 @@ private struct InlinePlot: View {
                 LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(tone)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .butt, lineJoin: .round))
             }
             if let first = points.first {
                 RuleMark(y: .value("Beginn", first.value))
@@ -172,7 +217,7 @@ private struct InlinePlot: View {
             if let last = points.last {
                 PointMark(x: .value("Zeit", last.date), y: .value("Kurs", last.value))
                     .foregroundStyle(tone)
-                    .symbolSize(28)
+                    .symbolSize(14)
             }
         }
         .chartXAxis(.hidden)
@@ -249,6 +294,17 @@ private enum ChartFormat {
         fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
         fmt.dateFormat = "d. MMM yyyy"
         return fmt.string(from: date)
+    }
+
+    static func change(_ delta: Double, percent: Double, caption: String) -> String {
+        let pct = NumberFormatter()
+        pct.locale = Locale(identifier: "de_CH")
+        pct.minimumFractionDigits = 2
+        pct.maximumFractionDigits = 2
+        pct.numberStyle = .decimal
+        let body = pct.string(from: NSNumber(value: abs(percent))) ?? String(format: "%.2f", abs(percent))
+        let sign = percent > 0.0005 ? "+" : percent < -0.0005 ? "−" : ""
+        return "\(formatDelta(delta)) (\(sign)\(body) %) · \(caption)"
     }
 
     static func bubbleDate(_ point: RatePoint) -> String {
