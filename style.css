@@ -996,13 +996,13 @@ body.v21 .fc-sep { color: rgba(60,60,67,.45); padding-top: 1px; }
 body.v21 .ref-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13px; }
 body.v21 .ref-src { margin-top: 1px; font-size: 11px; color: rgba(60,60,67,.55); }
 body.v21 .chart-block { margin-top: 4px; }
-body.v21 .chart-row { display: flex; align-items: stretch; gap: 6px; }
-body.v21 .chart-frame { position: relative; flex: 1; min-width: 0; touch-action: none; }
-body.v21 .plot { display: block; width: 100%; height: auto; }
+body.v21 .chart-row { display: block; }
+body.v21 .chart-frame { position: relative; width: 100%; touch-action: none; }
+body.v21 .plot { display: block; width: 100%; height: auto; overflow: visible; }
 body.v21 .scale {
-  width: 68px; flex: none; display: flex; flex-direction: column; justify-content: space-between;
-  padding: 2px 0; text-align: right; font-size: 10px; line-height: 1.15;
-  color: #8e8e93; font-variant-numeric: tabular-nums;
+  position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
+  align-items: flex-end; pointer-events: none; text-align: right;
+  font-size: 10px; line-height: 1.15; color: #8e8e93; font-variant-numeric: tabular-nums;
 }
 body.v21 .chart-dates {
   display: flex; justify-content: space-between; gap: 8px; margin-top: 2px;

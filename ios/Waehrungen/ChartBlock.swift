@@ -39,62 +39,70 @@ struct ChartBlock: View {
     private var chart: some View {
         let hi = points.map(\.value).max() ?? 0
         let lo = points.map(\.value).min() ?? 0
-        return HStack(alignment: .center, spacing: 6) {
-            Chart {
-                ForEach(points) { point in
-                    AreaMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
-                        .interpolationMethod(.monotone)
-                        .foregroundStyle(LinearGradient(colors: [tone.opacity(0.17), tone.opacity(0)], startPoint: .top, endPoint: .bottom))
-                    LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
-                        .interpolationMethod(.monotone)
-                        .foregroundStyle(tone)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                }
-                if let first = points.first {
-                    RuleMark(y: .value("Beginn", first.value))
-                        .foregroundStyle(Color.gray.opacity(0.7))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                }
-                if let last = points.last {
-                    PointMark(x: .value("Zeit", last.date), y: .value("Kurs", last.value))
-                        .foregroundStyle(tone)
-                        .symbolSize(28)
+        let span = max(hi - lo, 0.004)
+        let pad = span * 0.42
+        return Chart {
+            ForEach(points) { point in
+                AreaMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(LinearGradient(colors: [tone.opacity(0.17), tone.opacity(0)], startPoint: .top, endPoint: .bottom))
+                LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(tone)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            if let first = points.first {
+                RuleMark(y: .value("Beginn", first.value))
+                    .foregroundStyle(Color.gray.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+            if let last = points.last {
+                PointMark(x: .value("Zeit", last.date), y: .value("Kurs", last.value))
+                    .foregroundStyle(tone)
+                    .symbolSize(28)
+            }
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartXScale(range: .plotDimension(startPadding: 0, endPadding: 3))
+        .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                        guard let plotFrame = proxy.plotFrame else { return }
+                        let origin = geo[plotFrame].origin
+                        let x = value.location.x - origin.x
+                        if let date = proxy.value(atX: x, as: Date.self) {
+                            scrub = nearest(to: date)
+                        }
+                    }.onEnded { _ in scrub = nil })
+                if let scrub, let plotFrame = proxy.plotFrame, let x = proxy.position(forX: scrub.date) {
+                    let frame = geo[plotFrame]
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.35))
+                        .frame(width: 1, height: frame.height)
+                        .position(x: frame.minX + x, y: frame.midY)
+                    bubble(scrub)
+                        .position(x: min(frame.maxX - 54, max(frame.minX + 54, frame.minX + x + 8)), y: frame.minY + 28)
                 }
             }
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    Rectangle().fill(.clear).contentShape(Rectangle())
-                        .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                            guard let plotFrame = proxy.plotFrame else { return }
-                            let origin = geo[plotFrame].origin
-                            let x = value.location.x - origin.x
-                            if let date = proxy.value(atX: x, as: Date.self) {
-                                scrub = nearest(to: date)
-                            }
-                        }.onEnded { _ in scrub = nil })
-                    if let scrub, let plotFrame = proxy.plotFrame, let x = proxy.position(forX: scrub.date) {
-                        let frame = geo[plotFrame]
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.35))
-                            .frame(width: 1, height: frame.height)
-                            .position(x: frame.minX + x, y: frame.midY)
-                        bubble(scrub)
-                            .position(x: min(frame.maxX - 54, max(frame.minX + 54, frame.minX + x + 8)), y: frame.minY + 28)
-                    }
-                }
-            }
-            .frame(height: 112)
-            VStack {
-                Text("Hoch \(formatRate(hi))")
-                Spacer()
-                Text("Tief \(formatRate(lo))")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-            .frame(width: 68, height: 112)
+        }
+        .frame(height: 112)
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .topTrailing) {
+            Text("Hoch \(formatRate(hi))")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Text("Tief \(formatRate(lo))")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .allowsHitTesting(false)
         }
     }
 
