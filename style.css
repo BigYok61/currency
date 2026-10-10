@@ -936,7 +936,7 @@ body.v21 .fired { display: inline-flex; align-items: center; gap: 3px; }
 body.v21 .fired-bell { display: block; flex: none; }
 body.v21 .fired-time { font-size: 11px; font-weight: 400; color: rgba(60,60,67,.55); letter-spacing: -.01em; }
 body.v21 .cmeta {
-  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; column-gap: 8px;
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; column-gap: 8px;
   align-items: baseline; margin-top: 1px; min-width: 0;
 }
 body.v21 .csub {
@@ -960,7 +960,7 @@ body.v21 button.amt-btn:focus { outline: none; }
 body.v21 button.amt:focus-visible,
 body.v21 button.amt-btn:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
-body.v21 .cmeta .cchg { grid-column: 2; justify-self: start; margin-left: 0; }
+body.v21 .cmeta .cchg { grid-column: 2; justify-self: start; margin: 0; text-align: left; width: max-content; max-width: 100%; }
 body.v21 .cinv { grid-column: 3; justify-self: end; margin-top: 0; padding: 0; border: none; background: none; font: inherit; font-size: 12px; font-weight: 400; color: #007aff; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; }
 body.v21 span.cinv { cursor: default; }
 body.v21 .cchg {

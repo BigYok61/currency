@@ -173,7 +173,7 @@ struct CurrencyCard: View {
                         .font(.system(size: 13))
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
                         .lineLimit(1)
-                        .frame(width: code == store.base ? nil : 80, alignment: .leading)
+                        .frame(width: code == store.base ? nil : 76, alignment: .leading)
                     if code != store.base, let day = store.dayChange(code) {
                         Text(day.text)
                             .font(.system(size: 12))
