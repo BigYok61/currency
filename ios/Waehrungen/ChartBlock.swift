@@ -194,7 +194,7 @@ private struct InlinePlot: View {
             ForEach(drawn) { point in
                 AreaMark(x: .value("Zeit", point.date), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
-                    .foregroundStyle(LinearGradient(colors: [tone.opacity(0.17), tone.opacity(0)], startPoint: .top, endPoint: .bottom))
+                    .foregroundStyle(LinearGradient(stops: [.init(color: tone.opacity(0.08), location: 0), .init(color: tone.opacity(0), location: 0.65)], startPoint: .top, endPoint: .bottom))
                 LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(tone)
