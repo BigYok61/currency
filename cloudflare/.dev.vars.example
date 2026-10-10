@@ -1,0 +1,3 @@
+# Kopie nach .dev.vars für `npx wrangler dev`. .dev.vars wird nicht committed.
+# 1 = Test-Push und Alarme nur protokollieren, nichts an ntfy senden.
+FX_DRY=1

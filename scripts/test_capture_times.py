@@ -44,8 +44,10 @@ class ExpandSchedule(unittest.TestCase):
 
     def test_string_step_and_invalid(self):
         self.assertEqual(cap.parse_step("24"), 24)
+        self.assertEqual(cap.parse_step(5), 5)
+        self.assertEqual(cap.expand_schedule(7, 17, 5), [7, 12, 17])
         self.assertIsNone(cap.parse_step(True))
-        self.assertIsNone(cap.parse_step(5))
+        self.assertIsNone(cap.parse_step(6))
         self.assertIsNone(cap.expand_schedule(20, 6, 2))
 
     def test_close_is_captured_grid_hours_stay_on_the_pattern(self):
@@ -58,7 +60,8 @@ class ExpandSchedule(unittest.TestCase):
         self.assertEqual(hours_for({"version": 2, "start": "06", "end": "20", "intervalHours": 12})[2], [6, 16, 18])
         self.assertEqual(hours_for({"version": 2, "start": "06", "end": "20", "intervalHours": 24})[2], [6, 16])
         self.assertEqual(hours_for({"version": 2, "start": "08", "end": "20", "intervalHours": 24})[2], [8, 16])
-        self.assertEqual(hours_for({"version": 2, "start": "06", "end": "20", "intervalHours": 5, "hours": [9]})[2], [9, 16])
+        self.assertEqual(hours_for({"version": 2, "start": "06", "end": "20", "intervalHours": 5, "hours": [9]})[2], [6, 11, 16])
+        self.assertEqual(hours_for({"version": 2, "start": "07", "end": "17", "intervalHours": 5})[1], [7, 12, 17])
 
     def test_basis_hour_prefers_start_then_grid_then_legacy(self):
         from datetime import date
