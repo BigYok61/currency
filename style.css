@@ -1024,13 +1024,13 @@ body.v21 .fc-line {
   color: rgba(60,60,67,.6);
 }
 body.v21 .fc-k { padding-top: 0; font-size: 13px; font-weight: 500; }
-body.v21 .pair { display: grid; grid-template-columns: auto auto; column-gap: 4px; align-items: start; }
-body.v21 .pair .tag { grid-column: 1; grid-row: 1; color: inherit; font-size: 11px; font-weight: 400; }
-body.v21 .pair .val { grid-column: 2; grid-row: 1; color: inherit; font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
-body.v21 .pair .dev {
-  grid-column: 2; grid-row: 2; justify-self: center; margin-top: 1px;
-  font-size: 9px; font-weight: 400; line-height: 1.1; color: inherit;
-  font-variant-numeric: tabular-nums;
+body.v21 .fc-bit { display: inline-flex; align-items: baseline; gap: 4px; }
+body.v21 .fc-line .tag { color: inherit; font-size: 11px; font-weight: 400; }
+body.v21 .vstack { display: inline-flex; flex-direction: column; align-items: flex-end; }
+body.v21 .vstack .val { color: inherit; font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+body.v21 .vstack .dev {
+  margin-top: 1px; font-size: 9px; font-weight: 400; line-height: 1.1; color: inherit;
+  font-variant-numeric: tabular-nums; text-align: right;
 }
 body.v21 .fc-sep { color: inherit; padding-top: 0; font-size: 11px; font-weight: 400; }
 body.v21 .ref-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13px; }
@@ -1253,7 +1253,7 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 { --canvas: #000000; }
   body.v21 #viewBtn, body.v21 #timesBtn, body.v21 #alertsBtn, body.v21 #reload { color: #0a84ff; background: rgba(120,120,128,.28); }
   body.v21 .cap, body.v21 .cap-base, body.v21 .csub, body.v21 .fired-time,
-  body.v21 .slot .t, body.v21 .fc-line, body.v21 .pair .tag, body.v21 .pair .val, body.v21 .pair .dev, body.v21 .fc-sep, body.v21 .ref-src, body.v21 .disclaimer, body.v21 .vorschau-label,
+  body.v21 .slot .t, body.v21 .fc-line, body.v21 .fc-line .tag, body.v21 .vstack .val, body.v21 .vstack .dev, body.v21 .fc-sep, body.v21 .ref-src, body.v21 .disclaimer, body.v21 .vorschau-label,
   body.v21 .alert-intro, body.v21 .tm-note, body.v21 .check small { color: rgba(235,235,245,.6); }
   body.v21 .csub.base-sub { color: #0a84ff; }
   body.v21 .cinv, body.v21 .chart-period, body.v21 .chart-inv { color: #0a84ff; }

@@ -226,17 +226,17 @@ struct CurrencyCard: View {
     }
 
     private func pair(tag: String, value: Double?, delta: Double?) -> some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 4) {
-                Text(tag)
-                    .font(.system(size: 11, weight: .regular))
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(tag)
+                .font(.system(size: 11, weight: .regular))
+            VStack(alignment: .trailing, spacing: 1) {
                 Text(valueText(value, delta: delta))
                     .font(.system(size: 11, weight: .regular))
                     .monospacedDigit()
+                Text(formatDelta(delta))
+                    .font(.system(size: 9, weight: .regular))
+                    .monospacedDigit()
             }
-            Text(formatDelta(delta))
-                .font(.system(size: 9, weight: .regular))
-                .monospacedDigit()
         }
     }
 

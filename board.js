@@ -572,7 +572,8 @@ function forecastBlock(c, preview) {
   const weekDev = fmtDev(devWeek);
   const dayTone = forecastTone(devDay);
   const weekTone = forecastTone(devWeek);
-  return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="pair"><span class="tag">heute</span><span class="val${dayTone}">${esc(dayVal)}</span><span class="dev${dayTone}">${esc(dayDev)}</span></span><span class="fc-sep">·</span><span class="pair"><span class="tag">7 Tage</span><span class="val${weekTone}">${esc(weekVal)}</span><span class="dev${weekTone}">${esc(weekDev)}</span></span></div>`;
+  const stack = (tag, val, dev, tone) => `<span class="fc-bit"><span class="tag">${tag}</span><span class="vstack"><span class="val${tone}">${esc(val)}</span><span class="dev${tone}">${esc(dev)}</span></span></span>`;
+  return `<div class="fc-line"><span class="fc-k">Prognose</span>${stack('heute', dayVal, dayDev, dayTone)}<span class="fc-sep">·</span>${stack('7 Tage', weekVal, weekDev, weekTone)}</div>`;
 }
 function referenceBlock(c, preview) {
   const hit = referenceBits(c);
