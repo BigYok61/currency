@@ -935,9 +935,15 @@ body.v21 .name { font-size: 16px; font-weight: 600; letter-spacing: -.02em; line
 body.v21 .fired { display: inline-flex; align-items: center; gap: 3px; }
 body.v21 .fired-bell { display: block; flex: none; }
 body.v21 .fired-time { font-size: 11px; font-weight: 400; color: rgba(60,60,67,.55); letter-spacing: -.01em; }
-body.v21 .cmeta { display: flex; align-items: baseline; gap: 8px; margin-top: 1px; min-width: 0; }
-body.v21 .csub { margin-top: 0; font-size: 13px; font-weight: 400; color: rgba(60,60,67,.6); letter-spacing: -.01em; flex: none; }
-body.v21 .csub.base-sub { color: #007aff; }
+body.v21 .cmeta {
+  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; column-gap: 8px;
+  align-items: baseline; margin-top: 1px; min-width: 0;
+}
+body.v21 .csub {
+  grid-column: 1; margin-top: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 400; color: rgba(60,60,67,.6); letter-spacing: -.01em;
+}
+body.v21 .csub.base-sub { grid-column: 1 / -1; overflow: visible; color: #007aff; }
 body.v21 .cright { text-align: right; flex: none; }
 body.v21 .amt {
   display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
@@ -954,13 +960,13 @@ body.v21 button.amt-btn:focus { outline: none; }
 body.v21 button.amt:focus-visible,
 body.v21 button.amt-btn:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
-body.v21 .cmeta .cchg { margin-left: auto; }
-body.v21 .cinv { margin-top: 0; padding: 0; border: none; background: none; font: inherit; font-size: 12px; font-weight: 400; color: #007aff; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; flex: none; }
+body.v21 .cmeta .cchg { grid-column: 2; justify-self: start; margin-left: 0; }
+body.v21 .cinv { grid-column: 3; justify-self: end; margin-top: 0; padding: 0; border: none; background: none; font: inherit; font-size: 12px; font-weight: 400; color: #007aff; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; }
 body.v21 span.cinv { cursor: default; }
 body.v21 .cchg {
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
   font-size: 12px; font-weight: 400; line-height: 1.15;
-  color: rgba(60,60,67,.6); font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: rgba(60,60,67,.6); font-variant-numeric: tabular-nums lining-nums; white-space: nowrap;
 }
 body.v21 .cchg.up { color: #34C759; }
 body.v21 .cchg.down { color: #FF3B30; }

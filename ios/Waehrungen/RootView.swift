@@ -173,7 +173,7 @@ struct CurrencyCard: View {
                         .font(.system(size: 13))
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
                         .lineLimit(1)
-                    Spacer(minLength: 8)
+                        .frame(width: code == store.base ? nil : 80, alignment: .leading)
                     if code != store.base, let day = store.dayChange(code) {
                         Text(day.text)
                             .font(.system(size: 12))
@@ -181,6 +181,9 @@ struct CurrencyCard: View {
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if code != store.base {
+                        Spacer(minLength: 0)
                     }
                     if code != store.base { inverseLabel }
                     if code != store.base && !preview {
