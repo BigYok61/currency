@@ -214,13 +214,14 @@ struct CurrencyCard: View {
 
     private var forecast: some View {
         let line = preview ? illustratedForecast() : store.forecast(code)
-        return HStack(alignment: .top, spacing: 6) {
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("Prognose")
+                .font(.system(size: 13, weight: .medium))
             pair(tag: "heute", value: line?.today, delta: line?.todayDelta)
-            Text("·").foregroundStyle(.secondary)
+            Text("·")
+                .font(.system(size: 11, weight: .regular))
             pair(tag: "7 Tage", value: line?.week, delta: line?.weekDelta)
         }
-        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(.secondary)
     }
 
@@ -228,13 +229,13 @@ struct CurrencyCard: View {
         VStack(spacing: 1) {
             HStack(spacing: 4) {
                 Text(tag)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 11, weight: .regular))
                 Text(valueText(value, delta: delta))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 11, weight: .regular))
                     .monospacedDigit()
             }
             Text(formatDelta(delta))
-                .font(.system(size: 9))
+                .font(.system(size: 9, weight: .regular))
                 .monospacedDigit()
         }
     }
