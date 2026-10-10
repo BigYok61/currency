@@ -911,10 +911,46 @@ body.v21 .fired-time { font-size: 11px; font-weight: 400; color: rgba(60,60,67,.
 body.v21 .csub { margin-top: 1px; font-size: 13px; font-weight: 400; color: rgba(60,60,67,.6); letter-spacing: -.01em; }
 body.v21 .csub.base-sub { color: #007aff; }
 body.v21 .cright { text-align: right; flex: none; }
+body.v21 .amt {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  margin: 0; padding: 0; border: none; background: none; color: inherit; font: inherit;
+  text-align: right; cursor: pointer;
+}
+body.v21 div.amt { cursor: default; }
+body.v21 button.amt:focus { outline: none; }
+body.v21 button.amt:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
 body.v21 .cinv { margin-top: 1px; font-size: 12px; font-weight: 400; color: rgba(60,60,67,.55); font-variant-numeric: tabular-nums; }
-body.v21 .ccard.is-base .crate,
-body.v21 .ccard.is-base .cinv { color: rgba(60,60,67,.55); font-weight: 500; }
+body.v21 .ccard.is-base:not(.is-conv) .crate { color: rgba(60,60,67,.55); font-weight: 500; }
+body.v21 .ccard.is-editing { background: rgba(0,122,255,.12); }
+body.v21 .ccard.is-editing .crate,
+body.v21 .ccard.is-editing .unit,
+body.v21 .ccard.is-editing input { color: #007aff; }
+body.v21 .crate input {
+  width: 6.5em; margin: 0; padding: 0; border: none; outline: none; background: transparent;
+  text-align: right; font: inherit; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: #007aff;
+}
+body.v21 .crate .unit { margin-left: 4px; }
+body.v21 .calc-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0 16px 8px; padding: 4px 8px 4px 12px; border-radius: 999px;
+  background: rgba(120,120,128,.16); font-size: 13px; font-weight: 590; letter-spacing: -.01em;
+}
+body.v21 .calc-pill button {
+  border: none; background: none; color: rgba(60,60,67,.75);
+  font: inherit; font-size: 16px; font-weight: 600; line-height: 1; padding: 0 2px; cursor: pointer;
+}
+body.v21 .calc-dock {
+  position: fixed; z-index: 6; left: 0; right: 0; bottom: 0;
+  display: flex; justify-content: flex-end; align-items: center;
+  min-height: 44px; padding: 4px 16px calc(4px + env(safe-area-inset-bottom));
+  background: rgba(242,242,247,.96); border-top: .5px solid rgba(60,60,67,.22);
+}
+body.v21 .calc-dock button {
+  border: none; background: none; color: #007aff; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
+}
+body.v21.calc-editing .scrollport { padding-bottom: 52px; }
 body.v21 .blocks { margin-top: 8px; }
 body.v21 .cactions { display: flex; align-items: center; gap: 2px; flex: none; }
 body.v21 .row-btn {
@@ -1112,7 +1148,11 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .slot .t, body.v21 .pair .dev, body.v21 .ref-src, body.v21 .disclaimer, body.v21 .vorschau-label,
   body.v21 .alert-intro, body.v21 .tm-note, body.v21 .check small { color: rgba(235,235,245,.6); }
   body.v21 .csub.base-sub { color: #0a84ff; }
-  body.v21 .ccard.is-base .crate, body.v21 .ccard.is-base .cinv { color: rgba(235,235,245,.6); }
+  body.v21 .ccard.is-base:not(.is-conv) .crate { color: rgba(235,235,245,.6); }
+  body.v21 .ccard.is-editing { background: rgba(10,132,255,.22); }
+  body.v21 .calc-pill { background: rgba(120,120,128,.28); }
+  body.v21 .calc-pill button { color: rgba(235,235,245,.75); }
+  body.v21 .calc-dock { background: rgba(28,28,30,.96); border-top-color: rgba(84,84,88,.65); }
   body.v21 .ccard + .ccard::before, body.v21 .check + .check::before { background: rgba(84,84,88,.65); }
   body.v21 .rangebar button[aria-pressed="true"] { background: #007aff; color: #fff; }
   body.v21 dialog.sheet { background: #1c1c1e; color: #f5f5f7; }

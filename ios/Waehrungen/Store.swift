@@ -23,6 +23,12 @@ final class RatesStore: ObservableObject {
     @Published var fired: [String: String] = [:]
     @Published var updated = ""
     @Published var errorText = ""
+    /// Session-only converter. Never written to UserDefaults; a launch starts at 1 of the reporting currency.
+    @Published var convertSource = "CHF"
+    @Published var convertAmount = 1.0
+    @Published var convertDraft = "1"
+    @Published var convertEditing = false
+    var convertReplace = false
 
     private var days: [String: DayFile] = [:]
     private var historyCache: [String: [RatePoint]] = [:]
@@ -87,6 +93,173 @@ final class RatesStore: ObservableObject {
             applyFirstInstall()
         }
         if topic.isEmpty { topic = "wae-" + Self.hex(16) }
+        convertSource = base
+    }
+
+    var isDefaultConvert: Bool {
+        convertSource == base && abs(convertAmount - 1) < 0.0000005
+    }
+
+    var showConvertPill: Bool { !isDefaultConvert }
+
+    /// True while the entered money is still exactly 1 of the reporting currency, so the list keeps the unit rates.
+    var showsUnitRates: Bool {
+        guard let value = valueInBase() else { return isDefaultConvert }
+        return abs(value - 1) < 0.0000005
+    }
+
+    var convertPillText: String {
+        "\(Self.formatPill(convertAmount)) \(convertSource) umgerechnet"
+    }
+
+    func beginConvert(_ code: String) {
+        if convertEditing && convertSource == code { return }
+        let next: Double
+        if convertSource == code {
+            next = convertAmount
+        } else if showsUnitRates {
+            if let per = reportingPerUnit(code), per > 0 { next = 1 / per }
+            else { next = quote(code).value ?? 1 }
+        } else {
+            next = converted(code) ?? 1
+        }
+        convertSource = code
+        convertAmount = next
+        convertDraft = Self.draftString(next)
+        convertReplace = true
+        convertEditing = true
+    }
+
+    func applyDraft(_ text: String) {
+        convertDraft = text
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            convertAmount = 0
+            return
+        }
+        if let value = Self.parseAmount(text) {
+            convertAmount = value
+        }
+    }
+
+    func finishConvert() {
+        if let value = Self.parseAmount(convertDraft) {
+            convertAmount = value
+        }
+        convertEditing = false
+        convertReplace = false
+    }
+
+    func resetConvert() {
+        convertSource = base
+        convertAmount = 1
+        convertDraft = "1"
+        convertEditing = false
+        convertReplace = false
+    }
+
+    /// Units of the reporting currency for 1 unit of `code`, using the latest CHF mid on both sides.
+    func reportingPerUnit(_ code: String) -> Double? {
+        if code == base { return 1 }
+        guard let own = chfPerUnit(code), let den = chfPerUnit(base), abs(den) > 0.00005 else { return nil }
+        return own / den
+    }
+
+    func valueInBase() -> Double? {
+        guard let per = reportingPerUnit(convertSource) else { return nil }
+        return convertAmount * per
+    }
+
+    func converted(_ code: String) -> Double? {
+        guard let total = valueInBase(), let per = reportingPerUnit(code), abs(per) > 0.00005 else { return nil }
+        return total / per
+    }
+
+    func primaryText(_ code: String, unitRates: Bool) -> String {
+        if unitRates {
+            guard let value = quote(code).value else { return "–" }
+            return "\(formatRate(value)) \(code == base ? base : code)"
+        }
+        guard let value = converted(code) else { return "–" }
+        return "\(Self.formatMoney(value)) \(code)"
+    }
+
+    func secondaryText(_ code: String, unitRates: Bool) -> String {
+        if unitRates {
+            guard let raw = quote(code).raw else { return "–" }
+            return "\(formatRate(raw)) \(base)"
+        }
+        guard let value = valueInBase() else { return "–" }
+        return "\(Self.formatMoney(value)) \(base)"
+    }
+
+    private func chfPerUnit(_ code: String) -> Double? {
+        if code == "CHF" { return 1 }
+        let today = Self.todayKey()
+        for offset in 0..<12 {
+            guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
+            let hours = slots.keys.compactMap(Int.init).sorted(by: >)
+            for hour in hours {
+                if let raw = slots[String(format: "%02d", hour)]?[code], raw > 0 { return raw }
+            }
+        }
+        return nil
+    }
+
+    static func parseAmount(_ text: String) -> Double? {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let drop: [Character] = ["'", "’", " ", "\u{00a0}", "\u{202f}"]
+        s = String(s.filter { !drop.contains($0) })
+        guard !s.isEmpty else { return nil }
+        let dots = s.filter { $0 == "." }.count
+        let commas = s.filter { $0 == "," }.count
+        if dots > 0 && commas > 0 {
+            if let lastDot = s.lastIndex(of: "."), let lastComma = s.lastIndex(of: ",") {
+                if lastDot > lastComma {
+                    s = s.replacingOccurrences(of: ",", with: "")
+                } else {
+                    s = s.replacingOccurrences(of: ".", with: "")
+                    s = s.replacingOccurrences(of: ",", with: ".")
+                }
+            }
+        } else if commas == 1 {
+            s = s.replacingOccurrences(of: ",", with: ".")
+        } else if commas > 1 {
+            s = s.replacingOccurrences(of: ",", with: "")
+        } else if dots > 1 {
+            s = s.replacingOccurrences(of: ".", with: "")
+        }
+        if s.hasSuffix(".") { s.removeLast() }
+        guard !s.isEmpty, s != "-", let value = Double(s), value.isFinite, value >= 0 else { return nil }
+        return value
+    }
+
+    static func draftString(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.numberStyle = .decimal
+        fmt.usesGroupingSeparator = false
+        fmt.minimumFractionDigits = 0
+        fmt.maximumFractionDigits = 4
+        fmt.decimalSeparator = "."
+        return fmt.string(from: NSNumber(value: value)) ?? "1"
+    }
+
+    static func formatMoney(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.numberStyle = .decimal
+        fmt.minimumFractionDigits = 2
+        fmt.maximumFractionDigits = 2
+        return fmt.string(from: NSNumber(value: value)) ?? "–"
+    }
+
+    static func formatPill(_ value: Double) -> String {
+        let fmt = NumberFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.numberStyle = .decimal
+        fmt.minimumFractionDigits = 0
+        fmt.maximumFractionDigits = 4
+        return fmt.string(from: NSNumber(value: value)) ?? draftString(value)
     }
 
     func reload() async {
@@ -222,6 +395,7 @@ final class RatesStore: ObservableObject {
     func remove(_ code: String) {
         guard code != base else { return }
         hidden.insert(code)
+        if code == convertSource { resetConvert() }
         saveLocal()
     }
 

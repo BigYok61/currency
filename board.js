@@ -53,6 +53,142 @@ function invText(raw) {
   if (raw == null) return '–';
   return `${r(raw)} ${baseCurrency}`;
 }
+const moneyFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pillFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+let convertSource = baseCurrency;
+let convertAmount = 1;
+let convertDraft = '1';
+let convertEditing = false;
+let convertReplace = false;
+function parseAmount(text) {
+  let s = String(text == null ? '' : text).trim().replace(/['’\s\u00a0\u202f]/g, '');
+  if (!s) return null;
+  const dots = (s.match(/\./g) || []).length;
+  const commas = (s.match(/,/g) || []).length;
+  if (dots && commas) {
+    if (s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g, '');
+    else s = s.replace(/\./g, '').replace(',', '.');
+  } else if (commas === 1) s = s.replace(',', '.');
+  else if (commas > 1) s = s.replace(/,/g, '');
+  else if (dots > 1) s = s.replace(/\./g, '');
+  if (s.endsWith('.')) s = s.slice(0, -1);
+  if (!s || s === '-') return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+function draftString(n) {
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(4).replace(/\.?0+$/, '');
+}
+function basePer(code) {
+  const q = quoteOf(currencyRecord(code));
+  return q && q.raw != null ? q.raw : null;
+}
+function valueInBase() {
+  const per = basePer(convertSource);
+  return per == null ? null : convertAmount * per;
+}
+function convertValue(code) {
+  const total = valueInBase();
+  const per = basePer(code);
+  if (total == null || per == null || !(Math.abs(per) > EPS)) return null;
+  return total / per;
+}
+function showsUnitRates() {
+  const v = valueInBase();
+  return v == null ? convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7 : Math.abs(v - 1) < 5e-7;
+}
+function isDefaultConvert() {
+  return convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7;
+}
+function moneyText(n) {
+  return n == null || Number.isNaN(n) ? '–' : moneyFmt.format(n);
+}
+function amountLabel(code, unitRates) {
+  if (unitRates) {
+    const q = quoteOf(currencyRecord(code));
+    return rateText(code, q ? q.v : null);
+  }
+  const v = convertValue(code);
+  return v == null ? '–' : `${moneyText(v)} ${code}`;
+}
+function inverseLabel(code, unitRates) {
+  if (unitRates) {
+    const q = quoteOf(currencyRecord(code));
+    return invText(q ? q.raw : null);
+  }
+  const v = valueInBase();
+  return v == null ? '–' : `${moneyText(v)} ${baseCurrency}`;
+}
+function beginConvert(code) {
+  if (convertEditing && convertSource === code) {
+    const input = document.querySelector('[data-amount-input]');
+    if (input) input.focus();
+    return;
+  }
+  let next;
+  if (convertSource === code) next = convertAmount;
+  else if (showsUnitRates()) {
+    const q = quoteOf(currencyRecord(code));
+    next = q && q.v != null ? q.v : 1;
+  } else next = convertValue(code) ?? 1;
+  convertSource = code;
+  convertAmount = next;
+  convertDraft = draftString(next);
+  convertReplace = true;
+  convertEditing = true;
+  render({ keepScroll: true, keepCaret: true });
+}
+function applyConvertDraft(text) {
+  convertDraft = text;
+  if (!String(text).trim()) { convertAmount = 0; return; }
+  const n = parseAmount(text);
+  if (n != null) convertAmount = n;
+}
+function finishConvert() {
+  const n = parseAmount(convertDraft);
+  if (n != null) convertAmount = n;
+  convertEditing = false;
+  convertReplace = false;
+  render({ keepScroll: true });
+}
+function onConvertInput(value) {
+  const hadPill = !isDefaultConvert();
+  const hadRates = showsUnitRates();
+  applyConvertDraft(value);
+  const input = document.querySelector('[data-amount-input]');
+  const caret = input ? input.selectionStart : null;
+  if (hadPill !== !isDefaultConvert() || hadRates !== showsUnitRates()) {
+    render({ keepScroll: true, keepCaret: true });
+    return;
+  }
+  document.querySelectorAll('.ccard').forEach(card => {
+    const code = card.dataset.code;
+    const editing = convertEditing && convertSource === code;
+    card.classList.toggle('is-conv', !showsUnitRates());
+    card.classList.toggle('is-editing', editing);
+    const inv = card.querySelector('.cinv');
+    if (inv) inv.textContent = inverseLabel(code, showsUnitRates());
+    if (!editing) {
+      const crate = card.querySelector('.crate');
+      if (crate) crate.textContent = amountLabel(code, showsUnitRates());
+    }
+  });
+  const pill = document.querySelector('.calc-pill span');
+  if (pill) pill.textContent = `${pillFmt.format(convertAmount)} ${convertSource} umgerechnet`;
+  if (input && caret != null && document.activeElement !== input) {
+    input.focus();
+    input.setSelectionRange(caret, caret);
+  }
+}
+function resetConvert() {
+  convertSource = baseCurrency;
+  convertAmount = 1;
+  convertDraft = '1';
+  convertEditing = false;
+  convertReplace = false;
+  render({ keepScroll: true });
+}
 function readListOrder() {
   try {
     const raw = localStorage.getItem(LS_LIST);
@@ -409,13 +545,21 @@ function cardHtml(c, opts) {
     if (showForecast) blocks += forecastBlock(c, preview);
     if (showReference) blocks += referenceBlock(c, preview);
   }
+  const unitRates = preview || showsUnitRates();
+  const editing = !preview && convertEditing && convertSource === c.code;
   let actions = '';
   if (!preview && !isBase) {
     const upDis = index <= 0 ? ' disabled' : '';
     const dnDis = index < 0 || index >= rows.length - 1 ? ' disabled' : '';
     actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
-  return `<article class="ccard${isBase ? ' is-base' : ''}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright"><div class="crate">${esc(rateText(c.code, q.v))}</div><div class="cinv">${esc(invText(q.raw))}</div></div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
+  const amount = editing
+    ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span><span class="cinv">${esc(inverseLabel(c.code, showsUnitRates()))}</span></div>`
+    : (preview
+      ? `<div class="amt"><span class="crate">${esc(rateText(c.code, q.v))}</span><span class="cinv">${esc(invText(q.raw))}</span></div>`
+      : `<button type="button" class="amt" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span><span class="cinv">${esc(inverseLabel(c.code, unitRates))}</span></button>`);
+  const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
+  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
   if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
@@ -453,9 +597,19 @@ function render(opts = {}) {
   const rows = boardRows();
   const pending = queueHistory(rows, gen);
   const cards = rows.map(c => cardHtml(c)).join('');
-  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Kurse zu ${esc(baseCurrency)}</button></div>${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
+  const pill = isDefaultConvert() ? '' : `<div class="calc-pill"><span>${esc(pillFmt.format(convertAmount))} ${esc(convertSource)} umgerechnet</span><button type="button" data-calc-reset aria-label="Umrechnung zurücksetzen">×</button></div>`;
+  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Kurse zu ${esc(baseCurrency)}</button></div>${pill}${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
   board.dataset.charts = pending ? 'loading' : 'ready';
+  document.body.classList.toggle('calc-editing', convertEditing);
   if (opts && opts.keepScroll && sc) sc.scrollTop = kept;
+  if (opts && opts.keepCaret && convertEditing) {
+    const input = board.querySelector('[data-amount-input]');
+    if (input) {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }
+  }
   const updated = document.getElementById('updated');
   if (updated) updated.textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
   const source = document.getElementById('source');
@@ -723,6 +877,13 @@ function moveRow(code, dir) {
 }
 function deleteRow(code) {
   if (code === baseCurrency) return;
+  if (code === convertSource) {
+    convertSource = baseCurrency;
+    convertAmount = 1;
+    convertDraft = '1';
+    convertEditing = false;
+    convertReplace = false;
+  }
   const next = boardRows().filter(c => c.code !== code);
   writeListOrder(next);
   hideCurrency(code);
@@ -806,6 +967,10 @@ function onDocClick(e) {
     $('addDlg').close();
     return;
   }
+  const reset = e.target.closest('[data-calc-reset]');
+  if (reset) { resetConvert(); return; }
+  const amountBtn = e.target.closest('[data-amount]');
+  if (amountBtn && !e.target.closest('[data-amount-input]')) { beginConvert(amountBtn.dataset.amount); return; }
   const del = e.target.closest('[data-del]');
   if (del) { deleteRow(del.dataset.del); return; }
   const move = e.target.closest('[data-move]');
@@ -824,7 +989,45 @@ function onDocClick(e) {
 
 if (typeof document !== 'undefined') {
   document.body.classList.add('v21');
+  const calcDock = document.createElement('div');
+  calcDock.className = 'calc-dock';
+  calcDock.hidden = true;
+  calcDock.innerHTML = '<button type="button" id="calcDone">Fertig</button>';
+  document.body.appendChild(calcDock);
+  calcDock.querySelector('#calcDone').addEventListener('click', () => finishConvert());
+  const setBaseSaved = setBaseCurrency;
+  setBaseCurrency = function (code) {
+    setBaseSaved(code);
+    convertSource = baseCurrency;
+    convertAmount = 1;
+    convertDraft = '1';
+    convertEditing = false;
+    convertReplace = false;
+  };
+  const syncDock = () => { calcDock.hidden = !convertEditing; };
+  const renderList = render;
+  render = function (opts) { renderList(opts); syncDock(); };
   bindScrub();
+  document.addEventListener('beforeinput', e => {
+    const input = e.target;
+    if (!input.matches || !input.matches('[data-amount-input]') || !convertReplace) return;
+    convertReplace = false;
+    if (e.inputType === 'insertText' && e.data) {
+      e.preventDefault();
+      input.value = e.data;
+      onConvertInput(input.value);
+    }
+  });
+  document.addEventListener('input', e => {
+    if (!e.target.matches || !e.target.matches('[data-amount-input]')) return;
+    onConvertInput(e.target.value);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-amount-input]')) {
+      e.preventDefault();
+      finishConvert();
+    }
+  });
   document.addEventListener('click', onDocClick);
   $('viewBtn').addEventListener('click', () => { renderView(); $('viewDlg').showModal(); });
   $('timesBtn').addEventListener('click', () => { openTimes(); });

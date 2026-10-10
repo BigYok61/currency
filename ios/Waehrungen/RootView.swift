@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var store: RatesStore
@@ -21,16 +22,41 @@ struct RootView: View {
                                 }
                             }
                             .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 8))
+                            .listRowBackground(
+                                Color(uiColor: .secondarySystemGroupedBackground)
+                                    .overlay(store.convertEditing && store.convertSource == code ? Color.blue.opacity(0.12) : Color.clear)
+                            )
                     }
                 } header: {
-                    HStack {
-                        Text("Währung")
-                        Spacer()
-                        Text("Kurse zu \(store.base)")
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Währung")
+                            Spacer()
+                            Text("Kurse zu \(store.base)")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        if store.showConvertPill {
+                            HStack(spacing: 6) {
+                                Text(store.convertPillText)
+                                Button { store.resetConvert() } label: {
+                                    Text("×")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .frame(width: 18, height: 18)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Umrechnung zurücksetzen")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .padding(.leading, 12)
+                            .padding(.trailing, 6)
+                            .padding(.vertical, 4)
+                            .background(Color(uiColor: .secondarySystemFill), in: Capsule())
+                            .textCase(nil)
+                        }
                     }
-                    .font(.subheadline)
                     .textCase(nil)
-                    .foregroundStyle(.secondary)
                 }
                 Section {
                     Button { showAdd = true } label: {
@@ -62,6 +88,13 @@ struct RootView: View {
                     Button { Task { await store.reload() } } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel("Aktualisieren")
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fertig") {
+                        store.finishConvert()
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
             }
         }
         .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
@@ -91,9 +124,11 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @State private var dragOffset: CGFloat = 0
+    @FocusState private var amountFocused: Bool
 
     var body: some View {
-        let quote = store.quote(code)
+        let unitRates = preview || store.showsUnitRates
+        let editing = !preview && store.convertEditing && store.convertSource == code
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -111,16 +146,7 @@ struct CurrencyCard: View {
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
                 }
                 Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(rateText(quote.value))
-                        .font(.system(size: 17, weight: code == store.base ? .medium : .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(code == store.base ? Color.secondary : Color.primary)
-                    Text(invText(quote.raw))
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
+                amountColumn(unitRates: unitRates, editing: editing)
                 if code != store.base && !preview { handle }
             }
             if code != store.base {
@@ -181,6 +207,63 @@ struct CurrencyCard: View {
             .font(.system(size: 13))
             Text("Quelle EZB").font(.system(size: 11)).foregroundStyle(.secondary)
         }
+    }
+
+    private func amountColumn(unitRates: Bool, editing: Bool) -> some View {
+        let muted = unitRates && code == store.base
+        return VStack(alignment: .trailing, spacing: 1) {
+            if editing {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    TextField("0", text: draftBinding)
+                        .focused($amountFocused)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .font(.system(size: 17, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.blue)
+                        .frame(minWidth: 36)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .onAppear { DispatchQueue.main.async { amountFocused = true } }
+                    Text(code)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.blue)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Text(store.primaryText(code, unitRates: unitRates))
+                    .font(.system(size: 17, weight: muted ? .medium : .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(muted ? Color.secondary : Color.primary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !preview { store.beginConvert(code) } }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("\(store.primaryText(code, unitRates: unitRates)) bearbeiten")
+            }
+            Text(store.secondaryText(code, unitRates: unitRates))
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var draftBinding: Binding<String> {
+        Binding(
+            get: { store.convertDraft },
+            set: { new in
+                var next = new
+                if store.convertReplace {
+                    store.convertReplace = false
+                    let old = store.convertDraft
+                    if next.hasPrefix(old), next.count == old.count + 1 {
+                        next = String(next.suffix(1))
+                    }
+                }
+                store.applyDraft(next)
+            }
+        )
     }
 
     private var handle: some View {
