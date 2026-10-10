@@ -266,6 +266,7 @@ struct AlertsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var page = "list"
     @State private var message = ""
+    @State private var busy = false
 
     var body: some View {
         NavigationStack {
@@ -297,6 +298,11 @@ struct AlertsSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
+        .task {
+            if let error = await store.loadRemoteAlerts() {
+                message = error
+            }
+        }
     }
 
     private var list: some View {
@@ -312,6 +318,7 @@ struct AlertsSheet: View {
                         .buttonStyle(.bordered)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+                        .disabled(busy)
                 }
                 ForEach(store.visible.filter { $0 != store.base }, id: \.self) { code in
                     AlarmCard(code: code)
@@ -319,11 +326,9 @@ struct AlertsSheet: View {
                 if !message.isEmpty { Text(message).font(.footnote) }
                 HStack {
                     Spacer()
-                    Button("Speichern") {
-                        store.saveView()
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
+                    Button("Speichern") { Task { await saveAndClose() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(busy)
                 }
             }
             .padding(16)
@@ -355,6 +360,7 @@ struct AlertsSheet: View {
                 Text("3. Tippen Sie unten auf „Test-Push“, um die Alarmeinstellung zu testen.")
                 Button("Test-Push senden") { Task { await sendTest() } }
                     .buttonStyle(.bordered)
+                    .disabled(busy)
                 if !message.isEmpty { Text(message).font(.footnote) }
             }
             .padding(16)
@@ -393,8 +399,38 @@ struct AlertsSheet: View {
         .accessibilityHidden(true)
     }
 
+    private func saveAndClose() async {
+        guard !busy else { return }
+        resignField()
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        busy = true
+        message = "Speichere …"
+        do {
+            try await store.registerAlerts()
+            dismiss()
+        } catch {
+            message = "Speichern fehlgeschlagen: \(error.localizedDescription)"
+            busy = false
+        }
+    }
+
     private func sendTest() async {
-        message = "Test-Push ist an dieses Gerät gebunden. Öffnen Sie ntfy mit dem angezeigten Code."
+        guard !busy else { return }
+        resignField()
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        busy = true
+        message = "Sende Test-Push …"
+        defer { busy = false }
+        do {
+            try await store.sendRemoteTestPush()
+            message = "Test-Push gesendet. In ntfy sollte «TEST» erscheinen."
+        } catch {
+            message = "Test-Push fehlgeschlagen: \(error.localizedDescription)"
+        }
+    }
+
+    private func resignField() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 

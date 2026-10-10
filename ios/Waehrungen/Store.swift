@@ -20,6 +20,7 @@ final class RatesStore: ObservableObject {
     @Published var alertsMaster = true
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
+    @Published var alertId = ""
     @Published var fired: [String: String] = [:]
     @Published var updated = ""
     @Published var errorText = ""
@@ -92,7 +93,7 @@ final class RatesStore: ObservableObject {
         if defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
             applyFirstInstall()
         }
-        if topic.isEmpty { topic = "wae-" + Self.hex(16) }
+        ensureAlertIdentity()
         convertSource = base
     }
 
@@ -439,6 +440,117 @@ final class RatesStore: ObservableObject {
 
     func saveView() { saveLocal() }
 
+    /// Stable device id (64 hex) and ntfy topic (`wae-` + 32 hex). Separate from the web app's topic.
+    func ensureAlertIdentity() {
+        var changed = false
+        if !Self.validTopic(topic) {
+            topic = "wae-" + Self.hex(16)
+            changed = true
+        }
+        if !Self.validAlertId(alertId) {
+            alertId = Self.hex(32)
+            changed = true
+        }
+        if changed { saveLocal() }
+    }
+
+    /// Reads this device's subscription. A missing subscription is not an error.
+    func loadRemoteAlerts() async -> String? {
+        ensureAlertIdentity()
+        do {
+            guard let remote = try await fetchAlerts() else { return nil }
+            if let remoteTopic = remote.topic, Self.validTopic(remoteTopic) {
+                topic = remoteTopic
+            }
+            for code in Self.alertCodes {
+                guard let level = remote.currencies?[code] else { continue }
+                thresholds[code] = AlarmThreshold(enabled: level.enabled, down: level.down, up: level.up)
+            }
+            saveLocal()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Stores the current switches locally and registers USD and EUR with the Worker.
+    func registerAlerts() async throws {
+        ensureAlertIdentity()
+        let payload = try alertPayload()
+        saveLocal()
+        let body = try JSONEncoder().encode(payload)
+        _ = try await alertCall(method: "POST", body: body)
+    }
+
+    func sendRemoteTestPush() async throws {
+        try await registerAlerts()
+        _ = try await alertCall(method: "POST", test: true, body: nil)
+    }
+
+    private func fetchAlerts() async throws -> RemoteAlerts? {
+        do {
+            let data = try await alertCall(method: "GET", body: nil)
+            return try JSONDecoder().decode(RemoteAlerts.self, from: data)
+        } catch AlertSyncError.missing {
+            return nil
+        }
+    }
+
+    /// Worker cron only evaluates USD and EUR. Other codes stay on the device. Master off keeps the subscription and stores `enabled: false`, the same as the web sheet.
+    private func alertPayload() throws -> AlertUpload {
+        func level(_ code: String) throws -> AlertUpload.Level {
+            let entry = threshold(for: code)
+            let down = (entry.down * 100).rounded() / 100
+            let up = (entry.up * 100).rounded() / 100
+            guard down > 0, down <= 20, up > 0, up <= 20 else { throw AlertSyncError.invalidThreshold(code) }
+            let enabled = alertsMaster && visible.contains(code) && entry.enabled
+            return AlertUpload.Level(enabled: enabled, down: down, up: up)
+        }
+        return AlertUpload(
+            topic: topic,
+            start: timeStart,
+            currencies: AlertUpload.Pair(USD: try level("USD"), EUR: try level("EUR"))
+        )
+    }
+
+    private func alertCall(method: String, test: Bool = false, body: Data?) async throws -> Data {
+        let suffix = test ? "/test" : ""
+        guard let url = URL(string: "\(Self.origin.absoluteString)/api/alerts/\(alertId)\(suffix)") else {
+            throw AlertSyncError.network
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        request.httpMethod = method
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw AlertSyncError.network
+        }
+        guard let http = response as? HTTPURLResponse else { throw AlertSyncError.network }
+        if http.statusCode == 404 && method == "GET" { throw AlertSyncError.missing }
+        guard (200..<300).contains(http.statusCode) else {
+            let detail = (try? JSONDecoder().decode(AlertErrorBody.self, from: data))?.error
+            let text = (detail?.isEmpty == false) ? detail! : "HTTP \(http.statusCode)"
+            throw AlertSyncError.server(text)
+        }
+        return data
+    }
+
+    static let alertCodes = ["USD", "EUR"]
+
+    static func validAlertId(_ id: String) -> Bool {
+        id.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+
+    static func validTopic(_ topic: String) -> Bool {
+        topic.range(of: "^wae-[a-f0-9]{32}$", options: .regularExpression) != nil
+    }
+
     func saveTimes(start: Int, end: Int, step: Int?) {
         if let step, let hours = Self.expand(start: start, end: end, step: step), !hours.isEmpty {
             self.hours = hours
@@ -636,6 +748,7 @@ final class RatesStore: ObservableObject {
             thresholds = map
         }
         topic = defaults.string(forKey: "wu.alertTopic") ?? ""
+        alertId = defaults.string(forKey: "wu.alertId") ?? ""
     }
 
     private func saveLocal() {
@@ -655,6 +768,7 @@ final class RatesStore: ObservableObject {
         defaults.set(alertsMaster, forKey: "wu.alertsMaster")
         if let data = try? JSONEncoder().encode(thresholds) { defaults.set(data, forKey: "wu.thresholds") }
         defaults.set(topic, forKey: "wu.alertTopic")
+        defaults.set(alertId, forKey: "wu.alertId")
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {
@@ -694,5 +808,57 @@ final class RatesStore: ObservableObject {
 
     static func hex(_ bytes: Int) -> String {
         (0..<bytes).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+    }
+}
+
+private struct AlertUpload: Encodable {
+    var topic: String
+    var start: Int
+    var currencies: Pair
+
+    struct Pair: Encodable {
+        var USD: Level
+        var EUR: Level
+    }
+
+    struct Level: Encodable {
+        var enabled: Bool
+        var down: Double
+        var up: Double
+    }
+}
+
+private struct RemoteAlerts: Decodable {
+    var topic: String?
+    var currencies: [String: Level]?
+
+    struct Level: Decodable {
+        var enabled: Bool
+        var down: Double
+        var up: Double
+    }
+}
+
+private struct AlertErrorBody: Decodable {
+    var error: String?
+}
+
+private enum AlertSyncError: LocalizedError {
+    case invalidThreshold(String)
+    case server(String)
+    case network
+    case missing
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidThreshold(let code):
+            return "Ungültige Schwelle bei \(code) (0.01–20 %)."
+        case .server(let message):
+            return message
+        case .network:
+            return "Die Alarme konnten nicht erreicht werden."
+        case .missing:
+            return "nicht vorhanden"
+        }
     }
 }
