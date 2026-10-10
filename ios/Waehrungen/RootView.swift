@@ -54,7 +54,7 @@ struct RootView: View {
                     Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
                         .accessibilityLabel("Ansicht")
                     Button { showTimes = true } label: { Image(systemName: "clock") }
-                        .accessibilityLabel("Erfassungszeiten")
+                        .accessibilityLabel("Erfassungszeiten und Intervalle")
                     Button { showAlerts = true } label: { Image(systemName: "bell") }
                         .accessibilityLabel("FX-Alarme")
                     Button { Task { await store.reload() } } label: { Image(systemName: "arrow.clockwise") }

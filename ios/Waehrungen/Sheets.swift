@@ -119,7 +119,7 @@ struct TimesSheet: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("Erfassungszeiten")
+            .navigationTitle("Erfassungszeiten und Intervalle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
         }

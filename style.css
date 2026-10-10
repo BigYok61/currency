@@ -999,7 +999,7 @@ body.v21 .grabber {
   background: rgba(60,60,67,.3);
 }
 body.v21 .sheet-titlebar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; }
-body.v21 .sheet-titlebar h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.02em; }
+body.v21 .sheet-titlebar h2 { margin: 0; flex: 1; min-width: 0; font-size: 17px; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; }
 body.v21 .sheet-tools { display: flex; align-items: center; gap: 10px; flex: none; }
 body.v21 button.sheet-x {
   width: 28px; height: 28px; min-height: 28px; padding: 0; border: none; border-radius: 50%;
