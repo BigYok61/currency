@@ -105,11 +105,13 @@ struct CurrencyCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if store.showChart { ChartBlock(code: code).environmentObject(store) }
-            if store.showIntervals { intervals }
-            if store.showForecast { forecast }
-            if store.showReference { reference }
-            if !preview { handle }
+            if code != store.base {
+                if store.showChart { ChartBlock(code: code).environmentObject(store) }
+                if store.showIntervals { intervals }
+                if store.showForecast { forecast }
+                if store.showReference { reference }
+                if !preview { handle }
+            }
         }
         .offset(y: preview ? 0 : dragOffset)
     }

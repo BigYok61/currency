@@ -901,6 +901,8 @@ body.v21 .ccard + .ccard::before {
   background: rgba(60,60,67,.29); transform: scaleY(.5); transform-origin: top;
 }
 body.v21 .crow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+body.v21 .cleft { flex: 1; min-width: 0; }
+body.v21 .namerow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 body.v21 .cname { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px; min-width: 0; }
 body.v21 .name { font-size: 16px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; }
 body.v21 .fired { display: inline-flex; align-items: center; gap: 3px; }
@@ -914,9 +916,9 @@ body.v21 .cinv { margin-top: 1px; font-size: 12px; font-weight: 400; color: rgba
 body.v21 .ccard.is-base .crate,
 body.v21 .ccard.is-base .cinv { color: rgba(60,60,67,.55); font-weight: 500; }
 body.v21 .blocks { margin-top: 8px; }
-body.v21 .cactions { display: flex; gap: 6px; margin-top: 8px; }
+body.v21 .cactions { display: flex; align-items: center; gap: 2px; flex: none; }
 body.v21 .row-btn {
-  width: 28px; height: 28px; padding: 0; border: none; border-radius: 8px;
+  width: 20px; height: 20px; padding: 0; border: none; border-radius: 6px;
   background: rgba(120,120,128,.12); color: #0071e3;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
@@ -966,13 +968,15 @@ body.v21 .scrub-rule {
   position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -.5px;
   background: rgba(60,60,67,.45); pointer-events: none;
 }
+body.v21 .scrub-rule[hidden] { display: none; }
 body.v21 .scrub-bubble {
   position: absolute; z-index: 2; pointer-events: none;
-  display: flex; flex-direction: column; gap: 1px;
+  display: none; flex-direction: column; gap: 1px;
   padding: 4px 7px; border-radius: 8px;
   background: rgba(28,28,30,.92); color: #fff;
   font-size: 11px; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+body.v21 .scrub-bubble:not([hidden]) { display: flex; }
 body.v21 .scrub-bubble b { font-weight: 600; }
 body.v21 .rangebar {
   display: flex; gap: 0; margin-top: 8px; padding: 2px; border-radius: 9px;

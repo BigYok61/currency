@@ -12,9 +12,9 @@ const FLAT = '#8e8e93';
 const SHEET_X = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M3.2 3.2 12.8 12.8M12.8 3.2 3.2 12.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 const CHECK_MARK = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5.2 12.4 9.6 16.7 18.8 7.6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M12 5.2v13.6M5.2 12h13.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>';
-const AR_UP = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 14.5 12 8.5l6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const AR_DN = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 9.5 12 15.5l6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const TRASH = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5 7.5h14M9.2 7.4V5.8h5.6v1.6M8 7.5l.7 11h6.6l.7-11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const AR_UP = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path d="M6 14.5 12 8.5l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const AR_DN = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path d="M6 9.5 12 15.5l6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const TRASH = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path d="M5 7.5h14M9.2 7.4V5.8h5.6v1.6M8 7.5l.7 11h6.6l.7-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const FIRED_BELL = '<svg class="fired-bell" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path fill="#FF3B30" d="M12 3.1a1.05 1.05 0 0 0-1.05 1v.42C8.05 5.05 6.2 7.15 6.2 10.3c0 1.9-.3 3.35-1.05 4.5h13.7c-.75-1.15-1.05-2.6-1.05-4.5 0-3.15-1.85-5.25-4.75-5.78V4.1A1.05 1.05 0 0 0 12 3.1z"/><path fill="#FF3B30" d="M9.5 16.15a2.5 2.5 0 0 0 5 0z"/></svg>';
 const COPY_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><rect x="8" y="8" width="10" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 15.5H5.2A1.2 1.2 0 0 1 4 14.3V5.2A1.2 1.2 0 0 1 5.2 4H14a1.2 1.2 0 0 1 1.2 1.2V6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
 const prettyFmt = new Intl.DateTimeFormat('de-CH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -355,23 +355,25 @@ function referenceBlock(c) {
 }
 function cardHtml(c, opts) {
   const preview = !!(opts && opts.preview);
+  const isBase = c.code === baseCurrency;
   const rows = preview ? [c] : boardRows();
   const index = rows.findIndex(row => row.code === c.code);
   const q = quoteOf(c);
-  const subCls = c.code === baseCurrency ? 'csub base-sub' : 'csub';
+  const subCls = isBase ? 'csub base-sub' : 'csub';
   let blocks = '';
-  if (showChart) blocks += chartBlock(c, preview ? 'p' : 'm');
-  if (showIntervals) blocks += intervalBlock(c);
-  if (showForecast) blocks += forecastBlock(c);
-  if (showReference) blocks += referenceBlock(c);
+  if (!isBase) {
+    if (showChart) blocks += chartBlock(c, preview ? 'p' : 'm');
+    if (showIntervals) blocks += intervalBlock(c);
+    if (showForecast) blocks += forecastBlock(c);
+    if (showReference) blocks += referenceBlock(c);
+  }
   let actions = '';
-  if (!preview) {
+  if (!preview && !isBase) {
     const upDis = index <= 0 ? ' disabled' : '';
     const dnDis = index < 0 || index >= rows.length - 1 ? ' disabled' : '';
-    const del = c.code === baseCurrency ? '' : `<button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button>`;
-    actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button>${del}</div>`;
+    actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
-  return `<article class="ccard${c.code === baseCurrency ? ' is-base' : ''}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div><div class="${subCls}">${esc(c.code === baseCurrency ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright"><div class="crate">${esc(rateText(c.code, q.v))}</div><div class="cinv">${esc(invText(q.raw))}</div></div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}${actions}</article>`;
+  return `<article class="ccard${isBase ? ' is-base' : ''}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright"><div class="crate">${esc(rateText(c.code, q.v))}</div><div class="cinv">${esc(invText(q.raw))}</div></div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
   if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
