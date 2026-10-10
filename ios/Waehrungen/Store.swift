@@ -119,7 +119,7 @@ final class RatesStore: ObservableObject {
             next = convertAmount
         } else if showsUnitRates {
             if let per = reportingPerUnit(code), per > 0 { next = 1 / per }
-            else { next = quote(code).value ?? 1 }
+            else { next = 1 }
         } else {
             next = converted(code) ?? 1
         }
@@ -178,17 +178,17 @@ final class RatesStore: ObservableObject {
     func primaryText(_ code: String, unitRates: Bool) -> String {
         if unitRates {
             guard let value = quote(code).value else { return "–" }
-            return "\(formatRate(value)) \(code == base ? base : code)"
+            return "\(formatRate(value)) \(base)"
         }
         guard let value = converted(code) else { return "–" }
         return "\(Self.formatMoney(value)) \(code)"
     }
 
-    /// Per-unit inverse, unchanged while converting. The reporting-currency row has no second line.
+    /// Foreign units per 1 unit of the reporting currency. Stays the per-unit inverse while converting.
     func secondaryText(_ code: String) -> String {
         if code == base { return "" }
-        guard let raw = quote(code).raw else { return "–" }
-        return "\(formatRate(raw)) \(base)"
+        guard let per = quote(code).raw, abs(per) > 0.00005 else { return "–" }
+        return "\(formatRate(1 / per)) \(code)"
     }
 
     private func chfPerUnit(_ code: String) -> Double? {
@@ -280,7 +280,8 @@ final class RatesStore: ObservableObject {
 
     func loadHistoryIfNeeded() async {
         guard showChart, span != .day, span != .week else { return }
-        let codes = visible.filter { $0 != base }
+        var codes = visible.filter { $0 != base }
+        if base != "CHF" { codes.append(base) }
         let span = self.span
         for code in codes {
             let key = "\(code)|\(span.query)"
@@ -300,8 +301,8 @@ final class RatesStore: ObservableObject {
             let file = try JSONDecoder().decode(HistoryFile.self, from: data)
             let points = file.points.compactMap { row -> RatePoint? in
                 guard row.count >= 2, case .text(let day) = row[0], case .number(let raw) = row[1], raw > 0 else { return nil }
-                guard let value = cardRate(raw), let date = Self.dayDate(day) else { return nil }
-                return RatePoint(day: day, hour: nil, value: value, raw: raw, date: date)
+                guard let date = Self.dayDate(day) else { return nil }
+                return RatePoint(day: day, hour: nil, value: raw, raw: raw, date: date)
             }
             historyCache["\(code)|\(span.query)"] = points
         } catch { /* lokale Reihe bleibt die Anzeige */ }
@@ -309,18 +310,8 @@ final class RatesStore: ObservableObject {
 
     func quote(_ code: String) -> Quote {
         if code == base { return Quote(value: 1, raw: 1) }
-        let today = Self.todayKey()
-        for offset in 0..<12 {
-            guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
-            let hours = slots.keys.compactMap(Int.init).sorted(by: >)
-            for hour in hours {
-                let key = String(format: "%02d", hour)
-                if let raw = slots[key]?[code] {
-                    return Quote(value: cardRate(raw), raw: raw)
-                }
-            }
-        }
-        return Quote(value: nil, raw: nil)
+        guard let per = reportingPerUnit(code), let value = directPrice(code, per) else { return Quote(value: nil, raw: nil) }
+        return Quote(value: value, raw: per)
     }
 
     func intervalValue(_ code: String, hour: Int) -> Double? {
@@ -329,7 +320,9 @@ final class RatesStore: ObservableObject {
         let key = String(format: "%02d", hour)
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset) else { continue }
-            if let raw = days[day]?.slots?[key]?[code] { return cardRate(raw) }
+            guard let chf = days[day]?.slots?[key]?[code], chf > 0 else { continue }
+            guard let per = reportingFromCHF(chf, day: day, hourKey: key) else { continue }
+            return directPrice(code, per)
         }
         return nil
     }
@@ -349,10 +342,11 @@ final class RatesStore: ObservableObject {
         }
         guard found, let day = days[dayKey] else { return nil }
         let basisHour = day.forecastBasis?[code] ?? day.forecast7Basis?[code]
-        let basisRaw = basisHour.flatMap { day.slots?[String(format: "%02d", $0)]?[code] }
-        let basis = cardRate(basisRaw)
-        let todayV = cardRate(day.forecast?[code])
-        let weekV = cardRate(day.forecast7?[code])
+        let basisKey = basisHour.map { String(format: "%02d", $0) }
+        let basisChf = basisHour.flatMap { day.slots?[String(format: "%02d", $0)]?[code] }
+        let basis = directPrice(code, basisChf.flatMap { reportingFromCHF($0, day: dayKey, hourKey: basisKey) })
+        let todayV = directPrice(code, forecastInReporting(day.forecast?[code], day: day))
+        let weekV = directPrice(code, forecastInReporting(day.forecast7?[code], day: day))
         return ForecastLine(
             today: todayV,
             week: weekV,
@@ -366,7 +360,16 @@ final class RatesStore: ObservableObject {
         let today = Self.todayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset) else { continue }
-            if let raw = days[day]?.ecb?[code] { return cardRate(raw) }
+            guard let chf = days[day]?.ecb?[code], chf > 0 else { continue }
+            let per: Double?
+            if base == "CHF" {
+                per = chf
+            } else if let den = days[day]?.ecb?[base] ?? chfPerUnit(base), abs(den) > 0.00005 {
+                per = chf / den
+            } else {
+                per = nil
+            }
+            if let price = directPrice(code, per) { return price }
         }
         return nil
     }
@@ -377,7 +380,10 @@ final class RatesStore: ObservableObject {
         }
         let remote = historyCache["\(code)|\(span.query)"] ?? []
         let local = dailySeries(code, daysBack: span.dayCount)
-        if code != base, remote.count > local.count { return remote }
+        if code != base, remote.count > local.count {
+            let mapped = remote.compactMap { pricedRemote(code, $0) }
+            if mapped.count > local.count { return mapped }
+        }
         return local
     }
 
@@ -447,8 +453,11 @@ final class RatesStore: ObservableObject {
                     if code == base {
                         guard slots[key]?["EUR"] != nil || slots[key]?["USD"] != nil, let date = Self.dayDate(day, hour: hour) else { continue }
                         points.append(RatePoint(day: day, hour: hour, value: 1, raw: 1, date: date))
-                    } else if let raw = slots[key]?[code], let value = cardRate(raw), let date = Self.dayDate(day, hour: hour) {
-                        points.append(RatePoint(day: day, hour: hour, value: value, raw: raw, date: date))
+                    } else if let chf = slots[key]?[code], chf > 0,
+                              let per = reportingFromCHF(chf, day: day, hourKey: key),
+                              let value = directPrice(code, per),
+                              let date = Self.dayDate(day, hour: hour) {
+                        points.append(RatePoint(day: day, hour: hour, value: value, raw: per, date: date))
                     }
                 }
             }
@@ -473,8 +482,11 @@ final class RatesStore: ObservableObject {
                 guard let date = Self.dayDate(day, hour: hour) else { return nil }
                 return RatePoint(day: day, hour: hour, value: 1, raw: 1, date: date)
             }
-            guard let raw = slots[key]?[code], let value = cardRate(raw), let date = Self.dayDate(day, hour: hour) else { return nil }
-            return RatePoint(day: day, hour: hour, value: value, raw: raw, date: date)
+            guard let chf = slots[key]?[code], chf > 0,
+                  let per = reportingFromCHF(chf, day: day, hourKey: key),
+                  let value = directPrice(code, per),
+                  let date = Self.dayDate(day, hour: hour) else { return nil }
+            return RatePoint(day: day, hour: hour, value: value, raw: per, date: date)
         }
     }
 
@@ -488,13 +500,52 @@ final class RatesStore: ObservableObject {
                 if days[day]?.slots?["12"]?["EUR"] != nil || days[day]?.ecb?["EUR"] != nil, let date = Self.dayDate(day) {
                     points.append(RatePoint(day: day, hour: nil, value: 1, raw: 1, date: date))
                 }
-            } else if let raw = lastRaw(code, day), let value = cardRate(raw), let date = Self.dayDate(day) {
-                points.append(RatePoint(day: day, hour: nil, value: value, raw: raw, date: date))
+            } else if let chf = lastRaw(code, day),
+                      let per = reportingFromCHF(chf, day: day, hourKey: nil),
+                      let value = directPrice(code, per),
+                      let date = Self.dayDate(day) {
+                points.append(RatePoint(day: day, hour: nil, value: value, raw: per, date: date))
             }
             guard let next = Self.addDays(day, 1) else { break }
             day = next
         }
         return points
+    }
+
+    /// Reporting currency per 1 foreign unit, from a CHF mid and the reporting currency's CHF mid.
+    private func reportingFromCHF(_ chf: Double, day: String, hourKey: String?) -> Double? {
+        if base == "CHF" { return chf }
+        guard let den = chfMid(base, day: day, hourKey: hourKey), abs(den) > 0.00005 else { return nil }
+        return chf / den
+    }
+
+    private func chfMid(_ code: String, day: String, hourKey: String?) -> Double? {
+        if code == "CHF" { return 1 }
+        if let hourKey, let raw = days[day]?.slots?[hourKey]?[code], raw > 0 { return raw }
+        if let raw = lastRaw(code, day), raw > 0 { return raw }
+        return chfPerUnit(code)
+    }
+
+    /// A stored history point is CHF per 1 unit. Map it onto the direct quote in the reporting currency.
+    private func pricedRemote(_ code: String, _ point: RatePoint) -> RatePoint? {
+        let per: Double?
+        if base == "CHF" {
+            per = point.raw
+        } else if let den = historyCache["\(base)|\(span.query)"]?.first(where: { $0.day == point.day })?.raw, abs(den) > 0.00005 {
+            per = point.raw / den
+        } else {
+            per = nil
+        }
+        guard let per, let value = directPrice(code, per) else { return nil }
+        return RatePoint(day: point.day, hour: nil, value: value, raw: per, date: point.date)
+    }
+
+    private func forecastInReporting(_ chf: Double?, day: DayFile) -> Double? {
+        guard let chf, chf > 0 else { return nil }
+        if base == "CHF" { return chf }
+        let den = day.forecast?[base] ?? day.forecast7?[base] ?? chfPerUnit(base)
+        guard let den, abs(den) > 0.00005 else { return nil }
+        return chf / den
     }
 
     private func lastRaw(_ code: String, _ day: String) -> Double? {

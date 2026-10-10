@@ -248,14 +248,14 @@ struct TimesSheet: View {
     /// Same illustrative fill as the Ansicht preview when that hour has not been captured yet.
     private func previewRate(_ hour: Int) -> String {
         if let real = store.intervalValue("EUR", hour: hour) {
-            return "\(formatRate(real)) EUR"
+            return "\(formatRate(real)) \(store.base)"
         }
         guard let anchor = store.quote("EUR").value else { return "–" }
         let nudge: Double
         if hour == 7 { nudge = 0.0003 }
         else if hour == 17 { nudge = 0.0014 }
         else { nudge = Double((hour % 5) - 2) * 0.00035 }
-        return "\(formatRate(anchor + nudge)) EUR"
+        return "\(formatRate(anchor + nudge)) \(store.base)"
     }
 }
 
@@ -472,7 +472,7 @@ struct AddSheet: View {
                         RoundFlag(code: code)
                         VStack(alignment: .leading) {
                             Text(CurrencyNames.name(code)).foregroundStyle(.primary)
-                            Text("\(code) · \(CurrencyNames.symbol(code))").font(.footnote).foregroundStyle(.secondary)
+                            Text(CurrencyNames.lotLine(code)).font(.footnote).foregroundStyle(.secondary)
                         }
                     }
                 }

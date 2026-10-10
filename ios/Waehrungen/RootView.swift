@@ -32,7 +32,7 @@ struct RootView: View {
                         HStack {
                             Text("Währung")
                             Spacer()
-                            Text("Kurse zu \(store.base)")
+                            Text("Preis in \(store.base)")
                         }
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -152,7 +152,7 @@ struct CurrencyCard: View {
                             Text(time).font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     }
-                    Text(code == store.base ? "\(store.base) · Berichtswährung" : "\(code) · \(CurrencyNames.symbol(code))")
+                    Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
                         .font(.system(size: 13))
                         .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
                 }
@@ -352,13 +352,7 @@ struct CurrencyCard: View {
 
     private func rateText(_ value: Double?) -> String {
         guard let value else { return "–" }
-        let unit = code == store.base ? store.base : code
-        return "\(formatRate(value)) \(unit)"
-    }
-
-    private func invText(_ raw: Double?) -> String {
-        guard let raw else { return "–" }
-        return "\(formatRate(raw)) \(store.base)"
+        return "\(formatRate(value)) \(store.base)"
     }
 
     private func valueText(_ value: Double?, delta: Double?) -> String {

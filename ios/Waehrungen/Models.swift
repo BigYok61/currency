@@ -100,11 +100,27 @@ enum CurrencyNames {
         ]
         return flags[code] ?? "🏳️"
     }
+
+    /// Subtitle such as `EUR · €`, or `100 JPY · ¥` for a bank lot.
+    static func lotLine(_ code: String) -> String {
+        let lot = quoteLot(code)
+        if lot == 1 { return "\(code) · \(symbol(code))" }
+        return "\(Int(lot)) \(code) · \(symbol(code))"
+    }
 }
 
-func cardRate(_ raw: Double?) -> Double? {
-    guard let raw, abs(raw) > 0.00005 else { return nil }
-    return 1 / raw
+/// Bank lot. Small-unit currencies are quoted per 100, the same way a Swiss board does.
+func quoteLot(_ code: String) -> Double {
+    switch code {
+    case "JPY", "KRW", "HUF", "IDR", "ISK": return 100
+    default: return 1
+    }
+}
+
+/// Price of one bank lot in the reporting currency. `perUnit` is reporting currency per 1 foreign unit.
+func directPrice(_ code: String, _ perUnit: Double?) -> Double? {
+    guard let perUnit, abs(perUnit) > 0.00005 else { return nil }
+    return perUnit * quoteLot(code)
 }
 
 func formatRate(_ value: Double?) -> String {

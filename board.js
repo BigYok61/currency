@@ -23,9 +23,19 @@ let boardGen = 0;
 let alertsPage = 'list';
 let addQuery = '';
 
-function cardRate(v) {
-  if (v == null || !(Math.abs(v) > EPS)) return null;
-  return 1 / v;
+const QUOTE_LOT = { JPY: 100, KRW: 100, HUF: 100, IDR: 100, ISK: 100 };
+function quoteLot(code) {
+  return QUOTE_LOT[code] || 1;
+}
+/** Price of one bank lot in the reporting currency. `perUnit` is already reporting currency per 1 foreign unit. */
+function directPrice(code, perUnit) {
+  if (perUnit == null || !(Math.abs(perUnit) > EPS)) return null;
+  return perUnit * quoteLot(code);
+}
+function lotCaption(code) {
+  const lot = quoteLot(code);
+  const sym = currencySymbol(code);
+  return lot === 1 ? `${code} · ${sym}` : `${lot} ${code} · ${sym}`;
 }
 function fmtDev(d) {
   if (d == null || Number.isNaN(d)) return '';
@@ -44,14 +54,13 @@ function prettyDay(day) {
   if (!day) return '';
   return prettyFmt.format(new Date(`${day}T12:00:00Z`));
 }
-function rateText(code, v) {
+function rateText(_code, v) {
   if (v == null) return '–';
-  const unit = code === baseCurrency ? baseCurrency : code;
-  return `${r(v)} ${unit}`;
+  return `${r(v)} ${baseCurrency}`;
 }
-function invText(raw) {
-  if (raw == null) return '–';
-  return `${r(raw)} ${baseCurrency}`;
+function inverseLine(code, perUnit) {
+  if (!code || code === baseCurrency || perUnit == null || !(Math.abs(perUnit) > EPS)) return '';
+  return `${r(1 / perUnit)} ${code}`;
 }
 const moneyFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pillFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -115,7 +124,8 @@ function amountLabel(code, unitRates) {
 function inverseLabel(code) {
   if (code === baseCurrency) return '';
   const q = quoteOf(currencyRecord(code));
-  return invText(q ? q.raw : null);
+  if (!q || q.raw == null) return '–';
+  return inverseLine(code, q.raw) || '–';
 }
 function beginConvert(code) {
   if (convertEditing && convertSource === code) {
@@ -127,7 +137,7 @@ function beginConvert(code) {
   if (convertSource === code) next = convertAmount;
   else if (showsUnitRates()) {
     const q = quoteOf(currencyRecord(code));
-    next = q && q.v != null ? q.v : 1;
+    next = q && q.raw != null && Math.abs(q.raw) > EPS ? 1 / q.raw : 1;
   } else next = convertValue(code) ?? 1;
   convertSource = code;
   convertAmount = next;
@@ -237,7 +247,7 @@ function alarmHint(code) {
 function quoteOf(c) {
   if (c.code === baseCurrency) return { v: 1, raw: 1 };
   const liveRaw = shownLive(c);
-  if (liveRaw != null) return { v: cardRate(liveRaw), raw: liveRaw, live: true };
+  if (liveRaw != null) return { v: directPrice(c.code, liveRaw), raw: liveRaw, live: true };
   const today = zurichToday();
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
@@ -246,7 +256,7 @@ function quoteOf(c) {
     if (!hours.length) continue;
     const raw = shown(c, day, hours[0]);
     if (raw == null) continue;
-    return { v: cardRate(raw), raw, day, hour: hours[0] };
+    return { v: directPrice(c.code, raw), raw, day, hour: hours[0] };
   }
   return { v: null, raw: null };
 }
@@ -256,7 +266,7 @@ function hourHit(code, hour) {
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
     const raw = shown({ code }, day, hour);
-    if (raw != null) return { v: cardRate(raw), raw, day };
+    if (raw != null) return { v: directPrice(code, raw), raw, day };
   }
   return null;
 }
@@ -276,9 +286,9 @@ function forecastBits(c) {
   const weekFc = shownForecast(c, day, '7');
   const basisHour = dayFc.basis != null ? dayFc.basis : weekFc.basis;
   const basisRaw = basisHour != null ? shown(c, day, basisHour) : null;
-  const basis = cardRate(basisRaw);
-  const todayV = cardRate(dayFc.value);
-  const weekV = cardRate(weekFc.value);
+  const basis = directPrice(c.code, basisRaw);
+  const todayV = directPrice(c.code, dayFc.value);
+  const weekV = directPrice(c.code, weekFc.value);
   return {
     todayV,
     weekV,
@@ -292,7 +302,7 @@ function referenceBits(c) {
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
     const raw = shownEcb(c, day);
-    if (raw != null) return { v: cardRate(raw), raw, day };
+    if (raw != null) return { v: directPrice(c.code, raw), raw, day };
   }
   return null;
 }
@@ -314,7 +324,7 @@ function hourlyPoints(code, day) {
     if (code === baseCurrency) return { day, hour: hr, raw: 1, v: 1, label: `${pad(hr)}:00` };
     const raw = val({ code }, day, hr);
     if (raw == null) return null;
-    return { day, hour: hr, raw, v: cardRate(raw), label: `${pad(hr)}:00` };
+    return { day, hour: hr, raw, v: directPrice(code, raw), label: `${pad(hr)}:00` };
   }).filter(Boolean);
 }
 function remotePoints(code) {
@@ -337,7 +347,7 @@ function remotePoints(code) {
       if (!(den > 0)) continue;
       perBase = rawChf / den;
     }
-    const v = cardRate(perBase);
+    const v = directPrice(code, perBase);
     if (v == null) continue;
     out.push({ day, raw: perBase, v, label: prettyDay(day) });
   }
@@ -365,7 +375,7 @@ function chartPoints(code) {
     } else {
       const raw = dayRaw(code, day);
       if (raw == null) continue;
-      const v = cardRate(raw);
+      const v = directPrice(code, raw);
       if (v == null) continue;
       local.push({ day, raw, v, label: prettyDay(day) });
     }
@@ -557,7 +567,7 @@ function cardHtml(c, opts) {
     ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span>${invSpan}</div>`
     : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}${invSpan}</div>`;
   const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
-  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : `${c.code} · ${currencySymbol(c.code)}`)}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
+  return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div><div class="${subCls}">${esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code))}</div></div><div class="cright">${amount}</div></div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
   if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
@@ -613,7 +623,7 @@ function render(opts = {}) {
   const pending = queueHistory(rows, gen);
   const cards = rows.map(c => cardHtml(c)).join('');
   const pill = isDefaultConvert() ? '' : `<div class="calc-pill"><span>${esc(pillFmt.format(convertAmount))} ${esc(convertSource)} umgerechnet</span><button type="button" data-calc-reset aria-label="Umrechnung zurücksetzen">×</button></div>`;
-  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Kurse zu ${esc(baseCurrency)}</button></div>${pill}${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
+  board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Preis in ${esc(baseCurrency)}</button></div>${pill}${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
   board.dataset.charts = pending ? 'loading' : 'ready';
   document.body.classList.toggle('calc-editing', convertEditing);
   if (opts && opts.keepScroll && sc) sc.scrollTop = kept;
@@ -932,7 +942,7 @@ function bindScrub() {
     rule.style.left = `${localX}px`;
     const when = best.hour != null ? `${prettyDay(best.day)} ${pad(best.hour)}:00` : (best.label || prettyDay(best.day));
     bubble.hidden = false;
-    bubble.innerHTML = `<b>${esc(rateText(frame.dataset.code, best.v))}</b><span>${esc(when)}</span><span>${esc(invText(best.raw))}</span>`;
+    bubble.innerHTML = `<b>${esc(rateText(frame.dataset.code, best.v))}</b><span>${esc(when)}</span><span>${esc(inverseLine(frame.dataset.code, best.raw) || '–')}</span>`;
     const bw = bubble.offsetWidth || 110;
     let left = localX + 8;
     if (left + bw > rect.width - 4) left = Math.max(4, localX - bw - 8);

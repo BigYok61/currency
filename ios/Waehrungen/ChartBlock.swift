@@ -123,7 +123,9 @@ struct ChartBlock: View {
         VStack(alignment: .leading, spacing: 1) {
             Text(rateLine(point.value)).font(.system(size: 11, weight: .semibold))
             Text(bubbleDate(point)).font(.system(size: 11))
-            Text("\(formatRate(point.raw)) \(store.base)").font(.system(size: 11))
+            if point.raw > 0 {
+                Text("\(formatRate(1 / point.raw)) \(code)").font(.system(size: 11))
+            }
         }
         .monospacedDigit()
         .padding(.horizontal, 7)
@@ -137,8 +139,7 @@ struct ChartBlock: View {
     }
 
     private func rateLine(_ value: Double) -> String {
-        let unit = code == store.base ? store.base : code
-        return "\(formatRate(value)) \(unit)"
+        "\(formatRate(value)) \(store.base)"
     }
 
     private func pretty(_ day: String?) -> String {

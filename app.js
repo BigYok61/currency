@@ -1702,7 +1702,7 @@ function syncBaseButton() {
   const btn = document.getElementById('baseBtn');
   if (!btn) return;
   const name = ccyName({ code: baseCurrency });
-  btn.textContent = `in ${baseCurrency}`;
+  btn.textContent = `Preis in ${baseCurrency}`;
   btn.setAttribute('aria-label', `Berichtswährung ${name}`);
 }
 function renderBase() {
@@ -1969,7 +1969,7 @@ function readAlertForm(dlg) {
     if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
     else {
       const v = parseFloat(String(inp.value).replace(',', '.'));
-      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).` };
+      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/${baseCurrency} (0.01–20 %).` };
       o[inp.dataset.k] = Math.round(v * 100) / 100;
     }
   }
@@ -2003,7 +2003,7 @@ function renderCloudAlerts() {
     <div class="row"><a class="btnlink" href="${esc(href)}" target="_blank" rel="noopener">Thema abonnieren</a><button id="alTest" type="button">Test-Push senden</button></div>`;
   for (const code of ALERT_CODES) {
     const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<section class="alcard"><h3>${code}/CHF</h3>
+    h += `<section class="alcard"><h3>${code}/${esc(baseCurrency)}</h3>
       <label class="alfield"><span>Aktiv</span><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''}></label>
       <label class="alfield"><span>Fällt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}"> %</span></label>
       <label class="alfield"><span>Steigt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}"> %</span></label>
@@ -2069,7 +2069,7 @@ function renderAlerts() {
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
     const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<tr><td>${code}/CHF</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
+    h += `<tr><td>${code}/${esc(baseCurrency)}</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${sentLabel(sent, code)}</td></tr>`;
   }
