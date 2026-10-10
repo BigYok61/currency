@@ -680,7 +680,7 @@ final class RatesStore: ObservableObject {
         return fmt.string(from: next)
     }
 
-    static func dayDate(_ key: String, hour: Int? = nil) -> Date? {
+    nonisolated static func dayDate(_ key: String, hour: Int? = nil) -> Date? {
         var parts = DateComponents()
         let bits = key.split(separator: "-")
         guard bits.count == 3, let y = Int(bits[0]), let m = Int(bits[1]), let d = Int(bits[2]) else { return nil }

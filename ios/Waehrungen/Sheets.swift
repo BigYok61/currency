@@ -72,7 +72,7 @@ struct AnsichtSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func toggle(_ title: String, on: Bool, hint: String?, set: (Bool) -> Void) -> some View {
+    private func toggle(_ title: String, on: Bool, hint: String?, set: @escaping (Bool) -> Void) -> some View {
         Button {
             set(!on)
         } label: {
