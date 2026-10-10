@@ -50,6 +50,12 @@ function arrowOf(d) {
   if (d < -EPS) return '↓';
   return '→';
 }
+function forecastTone(d) {
+  if (d == null || Number.isNaN(d)) return '';
+  if (d > EPS) return ' up';
+  if (d < -EPS) return ' down';
+  return '';
+}
 function prettyDay(day) {
   if (!day) return '';
   return prettyFmt.format(new Date(`${day}T12:00:00Z`));
@@ -527,7 +533,9 @@ function forecastBlock(c, preview) {
   const weekVal = weekV == null ? '–' : `${arrowOf(devWeek)} ${r(weekV)}`.trim();
   const dayDev = fmtDev(devDay);
   const weekDev = fmtDev(devWeek);
-  return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="pair"><span class="tag">heute</span><span class="val">${esc(dayVal)}</span><span class="dev">${esc(dayDev)}</span></span><span class="fc-sep">·</span><span class="pair"><span class="tag">7 Tage</span><span class="val">${esc(weekVal)}</span><span class="dev">${esc(weekDev)}</span></span></div>`;
+  const dayTone = forecastTone(devDay);
+  const weekTone = forecastTone(devWeek);
+  return `<div class="fc-line"><span class="fc-k">Prognose</span><span class="pair"><span class="tag">heute</span><span class="val${dayTone}">${esc(dayVal)}</span><span class="dev${dayTone}">${esc(dayDev)}</span></span><span class="fc-sep">·</span><span class="pair"><span class="tag">7 Tage</span><span class="val${weekTone}">${esc(weekVal)}</span><span class="dev${weekTone}">${esc(weekDev)}</span></span></div>`;
 }
 function referenceBlock(c, preview) {
   const hit = referenceBits(c);

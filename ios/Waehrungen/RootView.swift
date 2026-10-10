@@ -205,13 +205,30 @@ struct CurrencyCard: View {
         VStack(spacing: 1) {
             HStack(spacing: 4) {
                 Text(tag).fontWeight(.regular).foregroundStyle(.secondary)
-                Text(valueText(value, delta: delta)).monospacedDigit()
+                Text(valueText(value, delta: delta))
+                    .monospacedDigit()
+                    .foregroundStyle(forecastTone(delta))
             }
             Text(formatDelta(delta))
                 .font(.system(size: 9))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(forecastDeviationTone(delta))
                 .monospacedDigit()
         }
+    }
+
+    /// Same green and red as the chart line. A flat move stays the row color.
+    private func forecastTone(_ delta: Double?) -> Color {
+        guard let delta else { return .primary }
+        if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+        if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
+        return .primary
+    }
+
+    private func forecastDeviationTone(_ delta: Double?) -> Color {
+        guard let delta else { return .secondary }
+        if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+        if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
+        return .secondary
     }
 
     private var reference: some View {
