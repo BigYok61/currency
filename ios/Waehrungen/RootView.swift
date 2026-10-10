@@ -264,10 +264,16 @@ struct CurrencyCard: View {
                 }
             }
             if code != store.base {
-                Text(store.secondaryText(code))
-                    .font(.system(size: 12))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                TappableAmount(
+                    text: store.secondaryText(code),
+                    blue: true,
+                    enabled: !preview,
+                    fontSize: 12,
+                    weight: .regular
+                ) {
+                    store.beginConvert(code)
+                    amountFocused = true
+                }
             }
         }
     }
@@ -373,6 +379,8 @@ struct TappableAmount: UIViewRepresentable {
     var text: String
     var blue: Bool
     var enabled: Bool
+    var fontSize: CGFloat = 17
+    var weight: UIFont.Weight = .semibold
     var onTap: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -382,13 +390,14 @@ struct TappableAmount: UIViewRepresentable {
         label.isUserInteractionEnabled = true
         label.setContentHuggingPriority(.required, for: .horizontal)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        label.font = .monospacedDigitSystemFont(ofSize: context.coordinator.fontSize, weight: context.coordinator.weight)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap))
         label.addGestureRecognizer(tap)
         return label
     }
 
     func updateUIView(_ uiView: AmountLabel, context: Context) {
+        uiView.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: weight)
         uiView.text = text
         uiView.textColor = blue ? .systemBlue : .label
         uiView.accessibilityLabel = "\(text) bearbeiten"
@@ -396,6 +405,8 @@ struct TappableAmount: UIViewRepresentable {
         uiView.isAccessibilityElement = true
         context.coordinator.onTap = onTap
         context.coordinator.enabled = enabled
+        context.coordinator.fontSize = fontSize
+        context.coordinator.weight = weight
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: AmountLabel, context: Context) -> CGSize? {
@@ -406,6 +417,8 @@ struct TappableAmount: UIViewRepresentable {
     final class Coordinator: NSObject {
         var onTap: () -> Void = {}
         var enabled = true
+        var fontSize: CGFloat = 17
+        var weight: UIFont.Weight = .semibold
         @objc func tap() { if enabled { onTap() } }
     }
 }

@@ -561,7 +561,10 @@ function cardHtml(c, opts) {
     const dnDis = index < 0 || index >= rows.length - 1 ? ' disabled' : '';
     actions = `<div class="cactions"><button type="button" class="row-btn" data-move="up" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach oben"${upDis}>${AR_UP}</button><button type="button" class="row-btn" data-move="down" data-code="${esc(c.code)}" aria-label="${esc(ccyName(c))} nach unten"${dnDis}>${AR_DN}</button><button type="button" class="row-btn row-del" data-del="${esc(c.code)}" aria-label="${esc(ccyName(c))} entfernen">${TRASH}</button></div>`;
   }
-  const invSpan = isBase ? '' : `<span class="cinv">${esc(inverseLabel(c.code))}</span>`;
+  const invText = esc(inverseLabel(c.code));
+  const invSpan = isBase ? '' : (preview
+    ? `<span class="cinv">${invText}</span>`
+    : `<button type="button" class="cinv" data-amount="${esc(c.code)}" aria-label="${invText} bearbeiten">${invText}</button>`);
   const amountBtn = `<button type="button" class="amt-btn" data-amount="${esc(c.code)}" aria-label="${esc(amountLabel(c.code, unitRates))} bearbeiten"><span class="crate">${esc(amountLabel(c.code, unitRates))}</span></button>`;
   const amount = editing
     ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span>${invSpan}</div>`
