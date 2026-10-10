@@ -9,7 +9,7 @@ enum ChartSpan: String, CaseIterable, Identifiable {
     case day = "Tag"
     case week = "Woche"
     case month = "Monat"
-    case year = "360 Tage"
+    case year = "Jahr"
     case five = "5 Jahre"
     case ten = "10 Jahre"
 

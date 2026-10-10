@@ -74,11 +74,11 @@ let showDevWeek = true;
 /** intervals | chart | compact. intervals bleibt im Speicher, damit ältere Stände «Nur aktuell» noch verstehen. */
 let viewMode = 'intervals';
 let chartRange = '1M';
-/** Additive Ansicht (Version 2.1). Standard: alle Blöcke, damit der erste Start ohne Einrichtung vollständig ist. */
-let showChart = true;
-let showIntervals = true;
-let showForecast = true;
-let showReference = true;
+/** Additive Ansicht (Version 2.1). Erster Start: keine Blöcke, nur Name, Kurs und Kehrwert. */
+let showChart = false;
+let showIntervals = false;
+let showForecast = false;
+let showReference = false;
 /** false, solange dieses Gerät die Erfassungszeiten nicht selbst gespeichert hat. */
 let timesUserSet = false;
 let baseHint = null;
@@ -703,7 +703,7 @@ const CHART_RANGES = [
   { id: '1T', label: 'Tag', aria: 'Tag', days: 1 },
   { id: '1W', label: 'Woche', aria: 'Woche', days: 7 },
   { id: '1M', label: 'Monat', aria: 'Monat', days: 30 },
-  { id: '1J', label: '360 Tage', aria: '360 Tage', days: 360 },
+  { id: '1J', label: 'Jahr', aria: 'Jahr', days: 360 },
   { id: '5J', label: '5 Jahre', aria: '5 Jahre', days: 1825 },
   { id: '10J', label: '10 Jahre', aria: '10 Jahre', days: 3650 },
 ];
@@ -749,7 +749,7 @@ function readViewOptions() {
     showIntervals = viewMode === 'intervals';
     showReference = true;
     if (data && CHART_RANGES.some(range => range.id === data.range)) chartRange = data.range;
-  } catch { /* Standard: alle Blöcke, Grafik 30 Tage */ }
+  } catch { /* Standard: keine Blöcke, Grafik 30 Tage */ }
 }
 function writeViewOptions() {
   showFcDay = showForecast;

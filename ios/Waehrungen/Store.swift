@@ -7,10 +7,10 @@ final class RatesStore: ObservableObject {
     @Published var base = "CHF"
     @Published var order: [String] = ["CHF", "EUR", "USD", "GBP"]
     @Published var hidden: Set<String> = []
-    @Published var showChart = true
-    @Published var showIntervals = true
-    @Published var showForecast = true
-    @Published var showReference = true
+    @Published var showChart = false
+    @Published var showIntervals = false
+    @Published var showForecast = false
+    @Published var showReference = false
     @Published var span: ChartSpan = .month
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false

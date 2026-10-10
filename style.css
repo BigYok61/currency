@@ -988,7 +988,7 @@ body.v21 .rangebar button {
   letter-spacing: -.04em; white-space: nowrap; cursor: pointer;
 }
 body.v21 .rangebar button[aria-pressed="true"] {
-  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.04);
+  background: #007aff; color: #fff; box-shadow: none;
 }
 body.v21 dialog.sheet {
   background: #f2f2f7; color: #1c1c1e;
@@ -1114,7 +1114,7 @@ body.v21 .add-empty { margin: 12px 0; color: rgba(60,60,67,.6); font-size: 14px;
   body.v21 .csub.base-sub { color: #0a84ff; }
   body.v21 .ccard.is-base .crate, body.v21 .ccard.is-base .cinv { color: rgba(235,235,245,.6); }
   body.v21 .ccard + .ccard::before, body.v21 .check + .check::before { background: rgba(84,84,88,.65); }
-  body.v21 .rangebar button[aria-pressed="true"] { background: #2c2c2e; color: #fff; }
+  body.v21 .rangebar button[aria-pressed="true"] { background: #007aff; color: #fff; }
   body.v21 dialog.sheet { background: #1c1c1e; color: #f5f5f7; }
   body.v21 .grabber { background: rgba(235,235,245,.3); }
   body.v21 button.sheet-x { background: rgba(120,120,128,.32); color: rgba(235,235,245,.85); }
