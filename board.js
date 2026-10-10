@@ -468,6 +468,26 @@ function pathFrom(samples) {
   for (let i = 1; i < samples.length; i++) d += ` L ${samples[i].x.toFixed(2)} ${samples[i].y.toFixed(2)}`;
   return d;
 }
+function downsamplePoints(points, max) {
+  const n = points.length;
+  if (n <= max || max < 2) return points;
+  let high = 0;
+  let low = 0;
+  for (let i = 1; i < n; i++) {
+    const v = points[i].v;
+    if (v > points[high].v) high = i;
+    if (v < points[low].v) low = i;
+  }
+  const keep = new Set([0, n - 1, high, low]);
+  const slots = max - 1;
+  for (let step = 0; step <= slots; step++) keep.add(Math.round(step * (n - 1) / slots));
+  if (keep.size > max) {
+    const required = new Set([0, n - 1, high, low]);
+    const extras = [...keep].filter(i => !required.has(i)).sort((a, b) => a - b);
+    while (keep.size > max && extras.length) keep.delete(extras.splice(Math.floor(extras.length / 2), 1)[0]);
+  }
+  return [...keep].sort((a, b) => a - b).map(i => points[i]);
+}
 function plotXY(points) {
   const vals = points.map(p => p.v);
   let min = Math.min(...vals);
@@ -489,9 +509,15 @@ function plotXY(points) {
   mapped.floor = yTop + height;
   return mapped;
 }
-function chartBlock(c, suffix) {
-  const points = chartPoints(c.code);
-  if (points.length < 1) return '<p class="ref-src">Keine Kurse in diesem Zeitraum.</p>';
+function chartBlock(c, suffix, given) {
+  const points = given == null ? chartPoints(c.code) : given;
+  const detail = suffix === 'd';
+  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
+  const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
+  if (points.length < 1) {
+    const empty = '<p class="ref-src">Keine Kurse in diesem Zeitraum.</p>';
+    return detail ? `<div class="chart-block is-detail">${empty}${bar}</div>` : empty;
+  }
   const plotted = plotXY(points);
   const id = `grad${suffix}${c.code}`;
   plots.set(`${suffix}${c.code}`, plotted);
@@ -499,7 +525,7 @@ function chartBlock(c, suffix) {
   const last = plotted[plotted.length - 1];
   const tone = last.v - first.v;
   const color = tone > EPS ? UP : tone < -EPS ? DOWN : FLAT;
-  const samples = monotoneSamples(plotted);
+  const samples = monotoneSamples(downsamplePoints(plotted, 240));
   const line = pathFrom(samples);
   const area = `${line} L ${last.x.toFixed(2)} ${plotted.floor} L ${first.x.toFixed(2)} ${plotted.floor} Z`;
   const hi = Math.max(...points.map(p => p.v));
@@ -508,15 +534,12 @@ function chartBlock(c, suffix) {
   const baseline = plotted.length > 1
     ? `<line x1="0" x2="320" y1="${first.y.toFixed(2)}" y2="${first.y.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`
     : '';
-  const detail = suffix === 'd';
   const preview = suffix === 'p';
   const caption = esc(rangeCaption());
   const period = detail ? '' : (preview
     ? `<span class="chart-period">${caption}</span>`
     : `<button type="button" class="chart-period" data-chart="${esc(c.code)}">${caption}</button>`);
   const open = detail || preview ? '' : ` data-chart="${esc(c.code)}"`;
-  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
-  const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
   const stretch = detail ? ' preserveAspectRatio="none"' : '';
   return `<div class="chart-block${detail ? ' is-detail' : ''}"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>${endDot}<div class="scale"><div class="scale-top">${period}<span>Hoch ${esc(r(hi))}</span></div><span class="scale-lo">Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
 }
@@ -637,6 +660,7 @@ function queueHistory(rows, gen) {
   Promise.all(codes.map(code => ensureHistory(code, range))).then(() => {
     if (gen !== boardGen || chartRange !== range) return;
     render({ keepScroll: true });
+    if (chartDetail && $('chartDlg')?.open) paintChartDetail();
   });
   return true;
 }
@@ -744,7 +768,7 @@ function paintChartDetail() {
   const change = move ? `<div class="chart-change${move.delta > EPS ? ' up' : move.delta < -EPS ? ' down' : ''}">${esc(move.text)}</div>` : '';
   const stats = move ? `<div class="chart-stats"><div><span>Eröffnung</span><span>${esc(rateText(c.code, move.open))}</span></div><div><span>Hoch</span><span>${esc(rateText(c.code, move.hi))}</span></div><div><span>Tief</span><span>${esc(rateText(c.code, move.lo))}</span></div><div><span>Schluss</span><span>${esc(rateText(c.code, move.close))}</span></div></div>` : '';
   dlg.setAttribute('aria-label', `Grafik ${ccyName(c)}`);
-  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${todayLine}${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}${stats}`;
+  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price">${esc(price)}</div>${todayLine}${change}${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd', points)}${stats}`;
 }
 function periodMove(points) {
   if (!points || points.length < 2 || !(Math.abs(points[0].v) > EPS)) return null;

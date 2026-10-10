@@ -7,22 +7,14 @@ struct ChartBlock: View {
     var preview: Bool = false
     @State private var showDetail = false
 
-    private var points: [RatePoint] { store.series(code) }
-
-    private var tone: Color {
-        guard let first = points.first, let last = points.last else { return .gray }
-        if last.value - first.value > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-        if first.value - last.value > 0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-        return .gray
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let points = store.series(code)
+        return VStack(alignment: .leading, spacing: 4) {
             if points.count >= 2 {
-                plot(height: 80, scrubbing: false)
+                plot(points, height: 80, scrubbing: false)
                     .contentShape(Rectangle())
                     .onTapGesture { openDetail() }
-                dateRow
+                dateRow(points)
             } else {
                 Text("Keine Kurse in diesem Zeitraum.")
                     .font(.footnote)
@@ -39,11 +31,11 @@ struct ChartBlock: View {
         showDetail = true
     }
 
-    private func plot(height: CGFloat, scrubbing: Bool) -> some View {
-        InlinePlot(points: points, tone: tone, height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, onOpen: openDetail)
+    private func plot(_ points: [RatePoint], height: CGFloat, scrubbing: Bool) -> some View {
+        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, onOpen: openDetail)
     }
 
-    private var dateRow: some View {
+    private func dateRow(_ points: [RatePoint]) -> some View {
         HStack {
             Text(ChartFormat.pretty(points.first?.day))
             Spacer()
@@ -59,26 +51,11 @@ struct ChartDetailSheet: View {
     @EnvironmentObject private var store: RatesStore
     let code: String
 
-    private var points: [RatePoint] { store.series(code) }
-
-    private var tone: Color {
-        guard let first = points.first, let last = points.last else { return .gray }
-        if last.value - first.value > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-        if first.value - last.value > 0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-        return .gray
-    }
-
-    private var periodMove: (text: String, tone: Color, open: Double, close: Double, high: Double, low: Double)? {
-        guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
-        let delta = last - first
-        let percent = delta / first * 100
-        let high = points.map(\.value).max() ?? last
-        let low = points.map(\.value).min() ?? last
-        return (ChartFormat.change(delta, percent: percent, caption: store.span.caption), tone, first, last, high, low)
-    }
-
     var body: some View {
-        NavigationStack {
+        let points = store.series(code)
+        let tone = chartTone(points)
+        let move = periodMove(points, tone: tone)
+        return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if let value = store.quote(code).value {
@@ -94,7 +71,7 @@ struct ChartDetailSheet: View {
                             .monospacedDigit()
                             .padding(.top, 2)
                     }
-                    if let move = periodMove {
+                    if let move {
                         Text(move.text)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(move.tone)
@@ -106,7 +83,7 @@ struct ChartDetailSheet: View {
                         .foregroundStyle(Color.blue)
                         .monospacedDigit()
                         .padding(.top, 4)
-                    if points.count >= 2, let move = periodMove {
+                    if points.count >= 2, let move {
                         InlinePlot(points: points, tone: tone, height: 320, scrubbing: true, code: code, base: store.base)
                             .padding(.top, 14)
                         HStack {
@@ -118,17 +95,8 @@ struct ChartDetailSheet: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .padding(.top, 4)
-                        Picker("Zeitraum", selection: $store.span) {
-                            ForEach(ChartSpan.allCases) { item in
-                                Text(item.rawValue).tag(item)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.top, 8)
-                        .onChange(of: store.span) {
-                            store.saveView()
-                            Task { await store.loadHistoryIfNeeded() }
-                        }
+                        spanPicker
+                            .padding(.top, 8)
                         VStack(spacing: 0) {
                             statRow("Eröffnung", move.open)
                             Divider().padding(.leading, 14)
@@ -145,6 +113,8 @@ struct ChartDetailSheet: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .padding(.top, 12)
+                        spanPicker
+                            .padding(.top, 8)
                     }
                 }
                 .padding(16)
@@ -158,6 +128,33 @@ struct ChartDetailSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
+    }
+
+    /// Writes the span only when it actually changes, so a second tap cannot re-enter the picker update.
+    private var spanPicker: some View {
+        Picker("Zeitraum", selection: Binding(
+            get: { store.span },
+            set: { newValue in
+                guard newValue != store.span else { return }
+                store.span = newValue
+                store.saveView()
+                Task { await store.loadHistoryIfNeeded() }
+            }
+        )) {
+            ForEach(ChartSpan.allCases) { item in
+                Text(item.rawValue).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func periodMove(_ points: [RatePoint], tone: Color) -> (text: String, tone: Color, open: Double, close: Double, high: Double, low: Double)? {
+        guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
+        let delta = last - first
+        let percent = delta / first * 100
+        let high = points.map(\.value).max() ?? last
+        let low = points.map(\.value).min() ?? last
+        return (ChartFormat.change(delta, percent: percent, caption: store.span.caption), tone, first, last, high, low)
     }
 
     private func statRow(_ label: String, _ value: Double) -> some View {
@@ -188,12 +185,13 @@ private struct InlinePlot: View {
     @State private var scrub: RatePoint?
 
     var body: some View {
+        let drawn = downsample(points, max: 240)
         let hi = points.map(\.value).max() ?? 0
         let lo = points.map(\.value).min() ?? 0
         let span = max(hi - lo, 0.004)
         let pad = span * 0.42
         return Chart {
-            ForEach(points) { point in
+            ForEach(drawn) { point in
                 AreaMark(x: .value("Zeit", point.date), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(LinearGradient(colors: [tone.opacity(0.17), tone.opacity(0)], startPoint: .top, endPoint: .bottom))
@@ -202,12 +200,12 @@ private struct InlinePlot: View {
                     .foregroundStyle(tone)
                     .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .butt, lineJoin: .round))
             }
-            if let first = points.first {
+            if let first = drawn.first {
                 RuleMark(y: .value("Beginn", first.value))
                     .foregroundStyle(Color.gray.opacity(0.7))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
-            if let last = points.last {
+            if let last = drawn.last {
                 PointMark(x: .value("Zeit", last.date), y: .value("Kurs", last.value))
                     .foregroundStyle(tone)
                     .symbolSize(14)
@@ -298,6 +296,40 @@ private struct InlinePlot: View {
     private func nearest(to date: Date) -> RatePoint? {
         points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
     }
+}
+
+func chartTone(_ points: [RatePoint]) -> Color {
+    guard let first = points.first, let last = points.last else { return .gray }
+    if last.value - first.value > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
+    if first.value - last.value > 0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
+    return .gray
+}
+
+/// Drawing subset. First, last, high, and low stay so the line and the labels still meet the extrema.
+func downsample(_ points: [RatePoint], max count: Int) -> [RatePoint] {
+    let n = points.count
+    guard n > count, count >= 2 else { return points }
+    var high = 0
+    var low = 0
+    for index in 1..<n {
+        if points[index].value > points[high].value { high = index }
+        if points[index].value < points[low].value { low = index }
+    }
+    var keep: Set<Int> = [0, n - 1, high, low]
+    let slots = count - 1
+    if slots > 0 {
+        for step in 0...slots {
+            keep.insert(Int((Double(step) * Double(n - 1) / Double(slots)).rounded()))
+        }
+    }
+    if keep.count > count {
+        let required: Set<Int> = [0, n - 1, high, low]
+        var extras = keep.subtracting(required).sorted()
+        while keep.count > count, !extras.isEmpty {
+            keep.remove(extras.remove(at: extras.count / 2))
+        }
+    }
+    return keep.sorted().map { points[$0] }
 }
 
 func dayChangeTone(_ delta: Double) -> Color {
