@@ -172,7 +172,6 @@ private struct FadingPreview: View {
 
 struct TimesSheet: View {
     @EnvironmentObject private var store: RatesStore
-    @Environment(\.dismiss) private var dismiss
     @State private var start = 7
     @State private var end = 17
     @State private var step: Int?
@@ -221,14 +220,6 @@ struct TimesSheet: View {
                     Text(previewHours.count == 1 ? "1 Messung pro Tag" : "\(previewHours.count) Messungen pro Tag")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    HStack {
-                        Spacer()
-                        Button("Speichern") {
-                            store.saveTimes(start: start, end: end, step: step)
-                            dismiss()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
                 }
                 .padding(16)
             }
@@ -245,6 +236,9 @@ struct TimesSheet: View {
             end = store.timesUserSet ? store.timeEnd : 17
             step = store.timesUserSet ? (store.timeStep ?? 5) : 5
         }
+        .onChange(of: start) { store.saveTimes(start: start, end: end, step: step) }
+        .onChange(of: end) { store.saveTimes(start: start, end: end, step: step) }
+        .onChange(of: step) { store.saveTimes(start: start, end: end, step: step) }
     }
 
     /// Same illustrative fill as the Ansicht preview when that hour has not been captured yet.
@@ -263,7 +257,6 @@ struct TimesSheet: View {
 
 struct AlertsSheet: View {
     @EnvironmentObject private var store: RatesStore
-    @Environment(\.dismiss) private var dismiss
     @State private var page = "list"
     @State private var message = ""
     @State private var busy = false
@@ -287,7 +280,10 @@ struct AlertsSheet: View {
                             Toggle("Alle Alarme", isOn: $store.alertsMaster)
                                 .labelsHidden()
                                 .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
-                                .onChange(of: store.alertsMaster) { store.saveView() }
+                                .onChange(of: store.alertsMaster) {
+                                    store.saveView()
+                                    store.scheduleAlertSync()
+                                }
                         }
                         SheetClose()
                     }
@@ -302,6 +298,10 @@ struct AlertsSheet: View {
             if let error = await store.loadRemoteAlerts() {
                 message = error
             }
+        }
+        .onDisappear {
+            store.saveView()
+            Task { await store.flushAlertSync() }
         }
     }
 
@@ -324,12 +324,7 @@ struct AlertsSheet: View {
                     AlarmCard(code: code)
                 }
                 if !message.isEmpty { Text(message).font(.footnote) }
-                HStack {
-                    Spacer()
-                    Button("Speichern") { Task { await saveAndClose() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(busy)
-                }
+                else if let err = store.alertSyncError, !err.isEmpty { Text(err).font(.footnote) }
             }
             .padding(16)
         }
@@ -362,6 +357,7 @@ struct AlertsSheet: View {
                     .buttonStyle(.bordered)
                     .disabled(busy)
                 if !message.isEmpty { Text(message).font(.footnote) }
+                else if let err = store.alertSyncError, !err.isEmpty { Text(err).font(.footnote) }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -397,21 +393,6 @@ struct AlertsSheet: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
         .accessibilityHidden(true)
-    }
-
-    private func saveAndClose() async {
-        guard !busy else { return }
-        resignField()
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        busy = true
-        message = "Speichere …"
-        do {
-            try await store.registerAlerts()
-            dismiss()
-        } catch {
-            message = "Speichern fehlgeschlagen: \(error.localizedDescription)"
-            busy = false
-        }
     }
 
     private func sendTest() async {

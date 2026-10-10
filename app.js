@@ -2529,7 +2529,7 @@ document.addEventListener('keydown', e => {
   cancelDrag();
   render({ keepScroll: true, focusDrag: code });
 });
-document.getElementById('reload').addEventListener('click', () => {
+document.getElementById('reload')?.addEventListener('click', () => {
   spinReload();
   load();
 });

@@ -21,6 +21,8 @@ const prettyFmt = new Intl.DateTimeFormat('de-CH', { day: 'numeric', month: 'sho
 const plots = new Map();
 let boardGen = 0;
 let alertsPage = 'list';
+let alertSaveTimer = 0;
+let pendingAlertForm = null;
 let addQuery = '';
 
 const QUOTE_LOT = { JPY: 100, KRW: 100, HUF: 100, IDR: 100, ISK: 100 };
@@ -809,23 +811,33 @@ function renderAlerts() {
   dlg.classList.add('sheet');
   if (alertsPage === 'setup') { renderSetup(); return; }
   const master = alertsMasterOn();
-  dlg.innerHTML = `${sheetHead('FX-Alarme', `<button type="button" class="switch" id="alMaster" role="switch" aria-checked="${master ? 'true' : 'false'}" aria-label="Alle Alarme"></button>`)}<p class="alert-intro">${ALERT_INTRO}</p><div class="pair-row"><button type="button" class="pair-btn" id="alSetup">Währungsalarme einrichten</button><button type="button" class="pair-btn" id="alTest">Test-Push senden</button></div>${alertCards()}<p id="alMsg" class="msg" hidden></p><div class="sheet-save"><button type="button" class="primary" id="alSave">Speichern</button></div>`;
+  dlg.innerHTML = `${sheetHead('FX-Alarme', `<button type="button" class="switch" id="alMaster" role="switch" aria-checked="${master ? 'true' : 'false'}" aria-label="Alle Alarme"></button>`)}<p class="alert-intro">${ALERT_INTRO}</p><div class="pair-row"><button type="button" class="pair-btn" id="alSetup">Währungsalarme einrichten</button><button type="button" class="pair-btn" id="alTest">Test-Push senden</button></div>${alertCards()}<p id="alMsg" class="msg" hidden></p>`;
   bindSwipe(dlg);
   $('alMaster').onclick = () => {
     const next = $('alMaster').getAttribute('aria-checked') !== 'true';
     setAlertsMaster(next);
     renderAlerts();
+    scheduleAlertSave();
   };
   dlg.querySelectorAll('.alcard .switch').forEach(sw => {
     sw.onclick = () => {
       if (!alertsMasterOn()) return;
       const on = sw.getAttribute('aria-checked') !== 'true';
       sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      scheduleAlertSave();
     };
   });
-  $('alSetup').onclick = () => { alertsPage = 'setup'; renderSetup(); };
+  dlg.querySelectorAll('.alcard input').forEach(inp => {
+    inp.addEventListener('input', () => scheduleAlertSave());
+  });
+  $('alSetup').onclick = () => {
+    const form = snapshotAlerts();
+    if (form && !form.error) queueAlertForm(form);
+    alertsPage = 'setup';
+    renderSetup();
+    postPendingAlerts();
+  };
   $('alTest').onclick = () => { sendTest(); };
-  $('alSave').onclick = () => { saveAlertSheet(); };
 }
 function renderSetup() {
   const dlg = $('alerts');
@@ -854,21 +866,38 @@ function readAlertCards() {
   }
   return { vals };
 }
-async function saveAlertSheet() {
-  const form = readAlertCards();
+function snapshotAlerts() {
+  if (!$('alerts')?.querySelector('.alcard')) return null;
+  return readAlertCards();
+}
+function queueAlertForm(form) {
+  try { localStorage.setItem('wu.alertDraft', JSON.stringify(form.vals)); } catch { /* diese Sitzung */ }
+  pendingAlertForm = form;
+}
+function scheduleAlertSave() {
+  const form = snapshotAlerts();
+  if (!form) return;
   if (form.error) { alertMsg(form.error); return; }
-  const btn = $('alSave');
-  if (btn) btn.disabled = true;
-  alertMsg('Speichere …', true);
+  alertMsg('', true);
+  queueAlertForm(form);
+  clearTimeout(alertSaveTimer);
+  alertSaveTimer = setTimeout(() => { postPendingAlerts(); }, 400);
+}
+async function postPendingAlerts() {
+  clearTimeout(alertSaveTimer);
+  alertSaveTimer = 0;
+  const form = pendingAlertForm;
+  if (!form || form.error) return true;
+  pendingAlertForm = null;
   try {
-    try { localStorage.setItem('wu.alertDraft', JSON.stringify(form.vals)); } catch { /* diese Sitzung */ }
     const serverVals = {};
     for (const code of ['USD', 'EUR']) if (form.vals[code]) serverVals[code] = form.vals[code];
     if (Object.keys(serverVals).length) await applyAlertForm(serverVals);
-    $('alerts').close();
+    return true;
   } catch (e) {
-    if (btn) btn.disabled = false;
+    pendingAlertForm = form;
     alertMsg(`Speichern fehlgeschlagen: ${e.message}`);
+    return false;
   }
 }
 async function sendTest() {
@@ -876,8 +905,22 @@ async function sendTest() {
   if (onList) {
     const form = readAlertCards();
     if (form.error) { alertMsg(form.error); return; }
-    try { await applyAlertForm(form.vals); } catch (e) { alertMsg(`Test-Push fehlgeschlagen: ${e.message}`); return; }
+    queueAlertForm(form);
+  } else if (!pendingAlertForm) {
+    const vals = {};
+    for (const code of alarmCodes()) {
+      const entry = alarmEntry(code);
+      const down = Math.round(Number(entry.down) * 100) / 100;
+      const up = Math.round(Number(entry.up) * 100) / 100;
+      if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) {
+        alertMsg(`Ungültige Schwelle bei ${code} (0.01–20 %).`);
+        return;
+      }
+      vals[code] = { enabled: !!(alertsMasterOn() && entry.enabled), down, up };
+    }
+    queueAlertForm({ vals });
   }
+  if (!(await postPendingAlerts())) return;
   alertMsg('Sende Test-Push …', true);
   try {
     const { id } = ensureAlertIdentity();
@@ -912,13 +955,12 @@ function renderTimes() {
     const hours = state.step == null ? HOURS.slice() : expandSchedule(state.start, state.end, state.step);
     const pills = hours.map(hr => `<span class="pill">${pad(hr)}:00</span>`).join('');
     const seg = INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === state.step ? 'true' : 'false'}">${n} h</button>`).join('');
-    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<p class="tm-note">Gilt nur für die Anzeige auf diesem Gerät.</p><div class="tm"><div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p id="tmMsg" class="msg" hidden></p><div class="sheet-save"><button type="button" class="primary" id="tmSave">Speichern</button></div>`;
-    $('tmStart').onchange = () => { state.start = Number($('tmStart').value); draw(); };
-    $('tmEnd').onchange = () => { state.end = Number($('tmEnd').value); draw(); };
+    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<p class="tm-note">Gilt nur für die Anzeige auf diesem Gerät.</p><div class="tm"><div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p id="tmMsg" class="msg" hidden></p>`;
+    $('tmStart').onchange = () => { state.start = Number($('tmStart').value); draw(); saveTimes(state); };
+    $('tmEnd').onchange = () => { state.end = Number($('tmEnd').value); draw(); saveTimes(state); };
     dlg.querySelectorAll('.segbtn').forEach(btn => {
-      btn.onclick = () => { state.step = Number(btn.dataset.step); draw(); };
+      btn.onclick = () => { state.step = Number(btn.dataset.step); draw(); saveTimes(state); };
     });
-    $('tmSave').onclick = () => saveTimes(state);
   };
   draw();
   bindSwipe(dlg);
@@ -935,7 +977,6 @@ function saveTimes(state) {
     applyTimesConfig({ version: 2, start: pad(state.start), end: pad(state.end), intervalHours: state.step });
   }
   render({ keepScroll: true });
-  $('times').close();
 }
 async function openTimes() {
   const dlg = $('times');
@@ -1192,7 +1233,13 @@ if (typeof document !== 'undefined') {
   $('timesBtn').addEventListener('click', () => { openTimes(); });
   $('alertsBtn').addEventListener('click', () => { openAlerts(); });
   $('viewDlg').addEventListener('close', () => { /* Ansicht bleibt live gespeichert */ });
-  $('alerts').addEventListener('close', () => { alertsPage = 'list'; });
+  $('alerts').addEventListener('close', () => {
+    const form = snapshotAlerts();
+    if (form && !form.error) queueAlertForm(form);
+    else if (form && form.error) pendingAlertForm = null;
+    alertsPage = 'list';
+    postPendingAlerts();
+  });
   render();
   if (typeof runtimePromise !== 'undefined' && runtimePromise) {
     runtimePromise.then(() => loadAlerts()).then(() => render({ keepScroll: true })).catch(() => {});

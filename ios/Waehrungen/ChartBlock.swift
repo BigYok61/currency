@@ -19,7 +19,7 @@ struct ChartBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if points.count >= 2 {
-                plot(height: 112, scrubbing: false)
+                plot(height: 80, scrubbing: false)
                     .contentShape(Rectangle())
                     .onTapGesture { openDetail() }
                 dateRow

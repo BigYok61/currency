@@ -21,6 +21,7 @@ final class RatesStore: ObservableObject {
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
     @Published var alertId = ""
+    @Published var alertSyncError: String?
     @Published var fired: [String: String] = [:]
     @Published var updated = ""
     @Published var errorText = ""
@@ -33,6 +34,10 @@ final class RatesStore: ObservableObject {
 
     private var days: [String: DayFile] = [:]
     private var historyCache: [String: [RatePoint]] = [:]
+    private var alertSyncTask: Task<Void, Never>?
+    private var alertSyncGeneration = 0
+    /// Local thresholds are newer than the last successful Worker POST. A later GET must not overwrite them.
+    private var alertsDirty = false
     private let defaults = UserDefaults.standard
 
     struct AlarmThreshold: Codable {
@@ -459,6 +464,7 @@ final class RatesStore: ObservableObject {
         ensureAlertIdentity()
         do {
             guard let remote = try await fetchAlerts() else { return nil }
+            if alertsDirty { return nil }
             if let remoteTopic = remote.topic, Self.validTopic(remoteTopic) {
                 topic = remoteTopic
             }
@@ -482,8 +488,51 @@ final class RatesStore: ObservableObject {
         _ = try await alertCall(method: "POST", body: body)
     }
 
+    /// Posts the current USD/EUR subscription after edits settle.
+    func scheduleAlertSync() {
+        alertsDirty = true
+        alertSyncError = nil
+        alertSyncGeneration += 1
+        let generation = alertSyncGeneration
+        alertSyncTask?.cancel()
+        alertSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self, generation == self.alertSyncGeneration else { return }
+            await self.performAlertSync(generation: generation)
+        }
+    }
+
+    /// Cancels a pending debounce and registers immediately. No-op when nothing changed.
+    func flushAlertSync() async {
+        alertSyncGeneration += 1
+        let generation = alertSyncGeneration
+        alertSyncTask?.cancel()
+        alertSyncTask = nil
+        await performAlertSync(generation: generation)
+    }
+
+    private func performAlertSync(generation: Int) async {
+        guard alertsDirty else { return }
+        do {
+            try await registerAlerts()
+            guard generation == alertSyncGeneration else { return }
+            alertsDirty = false
+            alertSyncError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard generation == alertSyncGeneration else { return }
+            alertSyncError = error.localizedDescription
+        }
+    }
+
     func sendRemoteTestPush() async throws {
+        alertSyncGeneration += 1
+        alertSyncTask?.cancel()
+        alertSyncTask = nil
         try await registerAlerts()
+        alertsDirty = false
+        alertSyncError = nil
         _ = try await alertCall(method: "POST", test: true, body: nil)
     }
 
@@ -571,6 +620,7 @@ final class RatesStore: ObservableObject {
     func setThreshold(_ value: AlarmThreshold, for code: String) {
         thresholds[code] = value
         saveLocal()
+        scheduleAlertSync()
     }
 
     var catalog: [String] {

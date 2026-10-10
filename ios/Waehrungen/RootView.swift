@@ -89,16 +89,7 @@ struct RootView: View {
             .navigationTitle("Währungen")
             .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
-                        .accessibilityLabel("Ansicht")
-                    Button { showTimes = true } label: { Image(systemName: "clock") }
-                        .accessibilityLabel("Erfassungszeiten und Intervalle")
-                    Button { showAlerts = true } label: { Image(systemName: "bell") }
-                        .accessibilityLabel("FX-Alarme")
-                    Button { Task { await store.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                        .accessibilityLabel("Aktualisieren")
-                }
+                headerTools
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Fertig") {
@@ -112,6 +103,34 @@ struct RootView: View {
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
+    }
+
+    @ToolbarContentBuilder
+    private var headerTools: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+                headerButtons
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                headerButtons
+            }
+        }
+    }
+
+    private var headerButtons: some View {
+        HStack(spacing: 22) {
+            Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
+                .accessibilityLabel("Ansicht")
+            Button { showTimes = true } label: { Image(systemName: "clock") }
+                .accessibilityLabel("Erfassungszeiten und Intervalle")
+            Button { showAlerts = true } label: { Image(systemName: "bell") }
+                .accessibilityLabel("FX-Alarme")
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 19))
+        .foregroundStyle(Color.blue)
     }
 
     private var sourceBar: some View {
