@@ -1,5 +1,5 @@
 // Raster aus capture-times.json. Gleiche Regeln wie scripts/capture.py (Version 2, sonst Version 1).
-export const INTERVALS = [1, 2, 3, 4, 8, 12, 24];
+export const INTERVALS = [1, 2, 3, 4, 5, 8, 12, 24];
 export const DEFAULT_SCHEDULE = [6, 20, 2];
 export const DEFAULT_HOURS = [6, 8, 10, 12, 14, 16, 18, 20];
 export const CLOSE_HOUR = 16;

@@ -77,7 +77,7 @@ struct TimesSheet: View {
     @State private var start = 7
     @State private var end = 17
     @State private var step: Int?
-    private let steps = [1, 2, 3, 4, 8, 12, 24]
+    private let steps = [1, 2, 3, 4, 5, 8, 12, 24]
 
     private var previewHours: [Int] {
         if let step, let hours = RatesStore.expand(start: start, end: end, step: step) { return hours }
@@ -95,9 +95,13 @@ struct TimesSheet: View {
                     Stepper("Bis \(String(format: "%02d:00", end))", value: $end, in: 1...23)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Intervall")
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+                        HStack(spacing: 2) {
                             ForEach(steps, id: \.self) { value in
                                 Button("\(value) h") { step = value }
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                                    .frame(maxWidth: .infinity)
                                     .buttonStyle(.borderedProminent)
                                     .tint(step == value ? .blue : Color.primary.opacity(0.08))
                                     .foregroundStyle(step == value ? Color.white : Color.primary)
@@ -127,7 +131,7 @@ struct TimesSheet: View {
         .onAppear {
             start = store.timesUserSet ? store.timeStart : 7
             end = store.timesUserSet ? store.timeEnd : 17
-            step = store.timesUserSet ? store.timeStep : nil
+            step = store.timesUserSet ? (store.timeStep ?? 5) : 5
         }
     }
 }

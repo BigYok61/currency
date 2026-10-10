@@ -99,7 +99,7 @@ let moreOpen = false;
 let drag = null;
 const LEGACY_BASIS = 8; // ältere Tage und ältere Prognosen ohne gespeicherte Basisstunde
 const CLOSE_HOUR = 16; // Tagesende = Ziel der Prognosen, immer erfasst, nur auf dem Raster als Uhrzeit sichtbar
-const INTERVALS = [1, 2, 3, 4, 8, 12, 24];
+const INTERVALS = [1, 2, 3, 4, 5, 8, 12, 24];
 const DEFAULT_SCHEDULE = { start: 6, end: 20, intervalHours: 2 };
 let schedule = { ...DEFAULT_SCHEDULE };
 let HOURS = [];
@@ -168,7 +168,7 @@ function matchSchedule(hours) {
 }
 /** Erststart: 07:00, 12:00 und 17:00, bis dieses Gerät eigene Zeiten speichert. */
 function applyUnsetTimes() {
-  schedule = { start: 7, end: 17, intervalHours: 2 };
+  schedule = { start: 7, end: 17, intervalHours: 5 };
   HOURS = [7, 12, 17];
   timesFit = false;
   timesUserSet = false;

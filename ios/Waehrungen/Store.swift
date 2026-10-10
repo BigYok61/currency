@@ -392,7 +392,7 @@ final class RatesStore: ObservableObject {
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {
-        let steps = [1, 2, 3, 4, 8, 12, 24]
+        let steps = [1, 2, 3, 4, 5, 8, 12, 24]
         guard steps.contains(step), start < end, start >= 0, end <= 23 else { return nil }
         return Array(stride(from: start, through: end, by: step))
     }

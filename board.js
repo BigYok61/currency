@@ -630,7 +630,7 @@ function renderTimes() {
   const state = {
     start: unset ? 7 : schedule.start,
     end: unset ? 17 : schedule.end,
-    step: unset ? null : schedule.intervalHours,
+    step: unset ? 5 : schedule.intervalHours,
   };
   const draw = () => {
     const hours = state.step == null ? HOURS.slice() : expandSchedule(state.start, state.end, state.step);

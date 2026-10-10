@@ -1090,6 +1090,9 @@ body.v21 .ntfy-field {
 }
 body.v21 .ntfy-field span:first-child { font-family: inherit; font-size: 10px; color: rgba(60,60,67,.55); }
 body.v21 .android-slot { display: none !important; }
+body.v21 dialog .tm-interval .seg { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+body.v21 dialog .tm-interval .segbtn { font-size: 11px; letter-spacing: -.05em; padding: 6px 0; }
+body.v21 dialog .tm-interval .segbtn[aria-pressed="true"] { background: #007aff; color: #fff; box-shadow: none; }
 body.v21 dialog .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 body.v21 dialog .pill { width: auto; min-width: 52px; padding: 0 8px; }
 body.v21 .setup-title { margin: 4px 36px 12px 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }

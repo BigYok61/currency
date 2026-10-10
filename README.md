@@ -32,7 +32,7 @@ Standard in `data/capture-times.json`: 06:00–20:00 alle 2 Stunden (Europe/Zuri
 ```json
 { "version": 2, "start": "06", "end": "20", "intervalHours": 2 }
 ```
-`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3, 4, 8, 12 oder 24.
+`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3, 4, 5, 8, 12 oder 24.
 Die Messungen sind `start + n × Intervall`, solange sie ≤ `end` sind (06–20 alle 3 Stunden endet bei 18:00; 24 Stunden ergibt eine Messung am Startzeitpunkt).
 Halbe Stunden gibt es nicht: biquote liefert Stundenkerzen, der Job läuft stündlich.
 Die Tabelle zeigt nur die Stunden des Rasters. **16:00 wird immer erfasst** (Zeile «Tagesendkurs»), auch wenn 16 nicht auf dem Raster liegt; als Uhrzeit-Zeile erscheint 16:00 nur dann. Die Prognose Tagesende, die Prognose 7 Tage, die Veränderungspfeile und die FX-Alarme beziehen sich auf die **Startstunde**. Fehlt sie an einem Tag, gilt die erste erfasste Stunde dieses Tages, bei älteren Tagen 08:00. Der Tooltip nennt die tatsächlich verwendete Stunde.
