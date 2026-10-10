@@ -125,7 +125,7 @@ struct ChartDetailSheet: View {
                         }
                         .pickerStyle(.segmented)
                         .padding(.top, 8)
-                        .onChange(of: store.span) { _ in
+                        .onChange(of: store.span) {
                             store.saveView()
                             Task { await store.loadHistoryIfNeeded() }
                         }

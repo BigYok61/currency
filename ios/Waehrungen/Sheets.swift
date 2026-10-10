@@ -287,7 +287,7 @@ struct AlertsSheet: View {
                             Toggle("Alle Alarme", isOn: $store.alertsMaster)
                                 .labelsHidden()
                                 .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
-                                .onChange(of: store.alertsMaster) { _ in store.saveView() }
+                                .onChange(of: store.alertsMaster) { store.saveView() }
                         }
                         SheetClose()
                     }

@@ -270,7 +270,7 @@ struct CurrencyCard: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .onAppear { DispatchQueue.main.async { amountFocused = true } }
-                        .onChange(of: amountFocused) { focused in
+                        .onChange(of: amountFocused) { _, focused in
                             if !focused && store.convertEditing && store.convertSource == code {
                                 store.finishConvert()
                             }
