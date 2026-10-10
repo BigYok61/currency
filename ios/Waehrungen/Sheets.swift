@@ -371,7 +371,7 @@ struct AddSheet: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 10) {
-                        Text(CurrencyNames.flag(code)).font(.title2)
+                        RoundFlag(code: code)
                         VStack(alignment: .leading) {
                             Text(CurrencyNames.name(code)).foregroundStyle(.primary)
                             Text("\(code) · \(CurrencyNames.symbol(code))").font(.footnote).foregroundStyle(.secondary)
@@ -385,5 +385,20 @@ struct AddSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
         }
         .presentationDragIndicator(.visible)
+    }
+}
+
+/// Emoji flag, scaled so the artwork fills the badge, then clipped to a circle.
+private struct RoundFlag: View {
+    let code: String
+
+    var body: some View {
+        Text(CurrencyNames.flag(code))
+            .font(.system(size: 36))
+            .frame(width: 28, height: 28)
+            .clipped()
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
+            .accessibilityHidden(true)
     }
 }
