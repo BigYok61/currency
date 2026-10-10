@@ -481,14 +481,12 @@ function bindSwipe(dlg) {
   dlg.addEventListener('pointercancel', () => { y0 = null; });
 }
 function checkRow(opt, label, on, extra) {
-  const locked = opt === 'current';
-  const checked = locked || on;
-  return `<button type="button" class="check${locked ? ' is-locked' : ''}" role="checkbox" data-opt="${opt}" aria-checked="${checked ? 'true' : 'false'}"${locked ? ' disabled aria-disabled="true"' : ''}><span class="box">${checked ? CHECK_MARK : ''}</span><span>${label}${extra || ''}</span></button>`;
+  return `<button type="button" class="check" role="checkbox" data-opt="${opt}" aria-checked="${on ? 'true' : 'false'}"><span class="box">${on ? CHECK_MARK : ''}</span><span>${label}${extra || ''}</span></button>`;
 }
 function renderView() {
   const dlg = $('viewDlg');
   dlg.classList.add('sheet');
-  dlg.innerHTML = `${sheetHead('Ansicht')}<div class="checks">${checkRow('current', 'Nur aktuelle Kurse anzeigen', true)}${checkRow('chart', 'Grafik anzeigen', showChart)}${checkRow('intervals', 'Intervalle anzeigen', showIntervals)}${checkRow('forecast', 'Prognose', showForecast, ' <small>heute und 7 Tage</small>')}${checkRow('reference', 'Referenzkurse anzeigen', showReference)}</div><p class="disclaimer">${DISCLAIMER}</p><p class="vorschau-label">Vorschau</p><div class="thumb" id="preview"></div>`;
+  dlg.innerHTML = `${sheetHead('Ansicht')}<div class="checks">${checkRow('chart', 'Grafik anzeigen', showChart)}${checkRow('intervals', 'Intervalle anzeigen', showIntervals)}${checkRow('forecast', 'Prognose', showForecast, ' <small>heute und 7 Tage</small>')}${checkRow('reference', 'Referenzkurse anzeigen', showReference)}</div><p class="disclaimer">${DISCLAIMER}</p><p class="vorschau-label">Vorschau</p><div class="thumb" id="preview"></div>`;
   paintPreview();
   bindSwipe(dlg);
 }
@@ -789,7 +787,7 @@ function onDocClick(e) {
   const closer = e.target.closest('[data-close]');
   if (closer) { closer.closest('dialog')?.close(); return; }
   const opt = e.target.closest('#viewDlg [data-opt]');
-  if (opt && !opt.disabled && opt.dataset.opt !== 'current') {
+  if (opt && !opt.disabled) {
     setOpt(opt.dataset.opt, opt.getAttribute('aria-checked') !== 'true');
     return;
   }

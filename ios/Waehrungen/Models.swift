@@ -60,14 +60,12 @@ struct ForecastLine {
 }
 
 enum ViewBlock: String, CaseIterable, Identifiable {
-    case current = "Nur aktuelle Kurse anzeigen"
     case chart = "Grafik anzeigen"
     case intervals = "Intervalle anzeigen"
     case forecast = "Prognose"
     case reference = "Referenzkurse anzeigen"
 
     var id: String { rawValue }
-    var locked: Bool { self == .current }
     var hint: String? { self == .forecast ? "heute und 7 Tage" : nil }
 }
 

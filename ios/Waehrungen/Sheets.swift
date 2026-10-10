@@ -22,11 +22,10 @@ struct AnsichtSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    toggle("Nur aktuelle Kurse anzeigen", on: true, locked: true, hint: nil)
-                    toggle("Grafik anzeigen", on: store.showChart, locked: false, hint: nil) { store.showChart = $0; store.saveView() }
-                    toggle("Intervalle anzeigen", on: store.showIntervals, locked: false, hint: nil) { store.showIntervals = $0; store.saveView() }
-                    toggle("Prognose", on: store.showForecast, locked: false, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
-                    toggle("Referenzkurse anzeigen", on: store.showReference, locked: false, hint: nil) { store.showReference = $0; store.saveView() }
+                    toggle("Grafik anzeigen", on: store.showChart, hint: nil) { store.showChart = $0; store.saveView() }
+                    toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
+                    toggle("Prognose", on: store.showForecast, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
+                    toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
                     Text(disclaimerText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -50,15 +49,14 @@ struct AnsichtSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func toggle(_ title: String, on: Bool, locked: Bool, hint: String?, set: ((Bool) -> Void)? = nil) -> some View {
+    private func toggle(_ title: String, on: Bool, hint: String?, set: (Bool) -> Void) -> some View {
         Button {
-            guard !locked else { return }
-            set?(!on)
+            set(!on)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: on ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22))
-                    .foregroundStyle(locked ? Color(white: 0.78) : Color.blue)
+                    .foregroundStyle(Color.blue)
                 HStack(spacing: 6) {
                     Text(title).foregroundStyle(.primary)
                     if let hint { Text(hint).font(.subheadline).foregroundStyle(.secondary) }
@@ -68,7 +66,6 @@ struct AnsichtSheet: View {
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
-        .disabled(locked)
     }
 }
 
