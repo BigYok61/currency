@@ -239,6 +239,7 @@ struct CurrencyCard: View {
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("Prognose")
                 .font(.system(size: 13, weight: .medium))
+            Spacer(minLength: 8)
             pair(tag: "heute", value: line?.today, delta: line?.todayDelta)
             Text("·")
                 .font(.system(size: 11, weight: .regular))
