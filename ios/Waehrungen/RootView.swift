@@ -44,11 +44,13 @@ struct RootView: View {
                     .accessibilityLabel("Währung hinzufügen")
                     .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 16))
                     .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .refreshable { await store.reload() }
             .navigationTitle("Währungen")
+            .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
@@ -66,6 +68,21 @@ struct RootView: View {
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
+    }
+
+    private var sourceBar: some View {
+        VStack(spacing: 2) {
+            if !store.capturedLine.isEmpty {
+                Text(store.capturedLine)
+            }
+            Text(store.sourceLine)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+        .background(.background)
     }
 }
 
@@ -104,13 +121,13 @@ struct CurrencyCard: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                if code != store.base && !preview { handle }
             }
             if code != store.base {
                 if store.showChart { ChartBlock(code: code).environmentObject(store) }
                 if store.showIntervals { intervals }
                 if store.showForecast { forecast }
                 if store.showReference { reference }
-                if !preview { handle }
             }
         }
         .offset(y: preview ? 0 : dragOffset)
@@ -167,14 +184,12 @@ struct CurrencyCard: View {
     }
 
     private var handle: some View {
-        HStack {
-            Spacer()
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-                .gesture(
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 28)
+            .contentShape(Rectangle())
+            .gesture(
                     LongPressGesture(minimumDuration: 0.3)
                         .sequenced(before: DragGesture(minimumDistance: 1))
                         .onChanged { value in
@@ -190,8 +205,7 @@ struct CurrencyCard: View {
                             dragOffset = 0
                         }
                 )
-                .accessibilityLabel("\(CurrencyNames.name(code)) verschieben")
-        }
+            .accessibilityLabel("\(CurrencyNames.name(code)) verschieben")
     }
 
     private func shownInterval(_ hour: Int) -> String {

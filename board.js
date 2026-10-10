@@ -458,6 +458,8 @@ function render(opts = {}) {
   if (opts && opts.keepScroll && sc) sc.scrollTop = kept;
   const updated = document.getElementById('updated');
   if (updated) updated.textContent = history.updated ? `Erfasst: ${timeFmt.format(new Date(history.updated))}` : '';
+  const source = document.getElementById('source');
+  if (source) source.textContent = showReference ? 'Quelle: biquote.io (Mittelkurs), EZB' : 'Quelle: biquote.io (Mittelkurs)';
   if (document.getElementById('viewDlg')?.open) paintPreview();
 }
 function sheetHead(title, extra) {

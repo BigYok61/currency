@@ -66,6 +66,21 @@ final class RatesStore: ObservableObject {
         order.filter { !hidden.contains($0) }
     }
 
+    var sourceLine: String {
+        showReference ? "Quelle: biquote.io (Mittelkurs), EZB" : "Quelle: biquote.io (Mittelkurs)"
+    }
+
+    var capturedLine: String {
+        let fmtIn = ISO8601DateFormatter()
+        fmtIn.formatOptions = [.withInternetDateTime]
+        guard let date = fmtIn.date(from: updated) else { return "" }
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "dd.MM.yyyy, HH:mm"
+        return "Erfasst: \(fmt.string(from: date))"
+    }
+
     init() {
         loadLocal()
         if defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
