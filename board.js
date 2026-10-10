@@ -473,14 +473,26 @@ function chartBlock(c, suffix) {
   const area = `${line} L ${last.x.toFixed(2)} 108 L ${first.x.toFixed(2)} 108 Z`;
   const hi = Math.max(...points.map(p => p.v));
   const lo = Math.min(...points.map(p => p.v));
-  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
   const dot = plotted.length > 1
     ? `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="6" fill="${color}" opacity="0.18"/><circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`
     : `<circle cx="${last.x.toFixed(2)}" cy="${last.y.toFixed(2)}" r="2.5" fill="${color}"/>`;
   const baseline = plotted.length > 1
     ? `<line x1="0" x2="320" y1="${first.y.toFixed(2)}" y2="${first.y.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`
     : '';
-  return `<div class="chart-block"><div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"><svg class="plot" viewBox="0 0 320 112" role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg><div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div><div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div></div>`;
+  const detail = suffix === 'd';
+  const preview = suffix === 'p';
+  const caption = esc(rangeCaption());
+  const period = detail ? '' : (preview
+    ? `<span class="chart-period">${caption}</span>`
+    : `<button type="button" class="chart-period" data-chart="${esc(c.code)}">${caption}</button>`);
+  const open = detail || preview ? '' : ` data-chart="${esc(c.code)}"`;
+  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
+  const bar = detail ? `<div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div>` : '';
+  const stretch = detail ? ' preserveAspectRatio="none"' : '';
+  return `<div class="chart-block${detail ? ' is-detail' : ''}">${period}<div class="chart-row"><div class="chart-frame" data-plot="${suffix}${c.code}" data-code="${esc(c.code)}"${open}><svg class="plot" viewBox="0 0 320 112"${stretch} role="img" aria-label="Grafik ${esc(ccyName(c))}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.17"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>${baseline}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>${dot}</svg><div class="scale"><span>Hoch ${esc(r(hi))}</span><span>Tief ${esc(r(lo))}</span></div><div class="scrub-rule" hidden></div><div class="scrub-bubble" hidden></div></div></div><div class="chart-dates"><span>${esc(prettyDay(first.day))}</span><span>${esc(prettyDay(last.day))}</span></div>${bar}</div>`;
+}
+function rangeCaption() {
+  return CHART_RANGES.find(item => item.id === chartRange)?.caption || '1 Monat';
 }
 function knownSlotRates(code) {
   const out = [];
@@ -674,6 +686,32 @@ function bindSwipe(dlg) {
 }
 function checkRow(opt, label, on, extra) {
   return `<button type="button" class="check" role="checkbox" data-opt="${opt}" aria-checked="${on ? 'true' : 'false'}"><span class="box">${on ? CHECK_MARK : ''}</span><span>${label}${extra || ''}</span></button>`;
+}
+let chartDetail = null;
+function openChart(code) {
+  chartDetail = code;
+  const dlg = $('chartDlg');
+  if (!dlg) return;
+  dlg.classList.add('sheet');
+  paintChartDetail();
+  bindSwipe(dlg);
+  if (!dlg.open) dlg.showModal();
+}
+function paintChartDetail() {
+  const dlg = $('chartDlg');
+  const c = currencyRecord(chartDetail);
+  if (!dlg || !c) return;
+  const q = quoteOf(c) || {};
+  const points = chartPoints(c.code);
+  let tone = FLAT;
+  if (points.length >= 2) {
+    const delta = points[points.length - 1].v - points[0].v;
+    tone = delta > EPS ? UP : delta < -EPS ? DOWN : FLAT;
+  }
+  const price = q.v == null ? '–' : rateText(c.code, q.v);
+  const inv = inverseLine(c.code, q.raw);
+  dlg.setAttribute('aria-label', `Grafik ${ccyName(c)}`);
+  dlg.innerHTML = `${sheetHead(ccyName(c))}<div class="chart-hero"><div class="chart-price" style="color:${tone}">${esc(price)}</div>${inv ? `<div class="chart-inv">${esc(inv)}</div>` : ''}</div>${chartBlock(c, 'd')}`;
 }
 function renderView() {
   const dlg = $('viewDlg');
@@ -939,7 +977,8 @@ function bindScrub() {
     if (!pts || pts.length < 2 || !svg) return;
     const rect = svg.getBoundingClientRect();
     if (rect.width <= 0) return;
-    const x = ((clientX - rect.left) / rect.width) * 320;
+    const vb = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : { width: 320, height: 112 };
+    const x = ((clientX - rect.left) / rect.width) * vb.width;
     let best = pts[0];
     let dist = Math.abs(best.x - x);
     for (const p of pts) {
@@ -958,10 +997,10 @@ function bindScrub() {
     let left = localX + 8;
     if (left + bw > rect.width - 4) left = Math.max(4, localX - bw - 8);
     bubble.style.left = `${left}px`;
-    bubble.style.top = `${Math.min(rect.height - 36, Math.max(4, (best.y / 112) * rect.height))}px`;
+    bubble.style.top = `${Math.min(rect.height - 36, Math.max(4, (best.y / (vb.height || 112)) * rect.height))}px`;
   };
   document.addEventListener('pointerdown', e => {
-    const frame = e.target.closest?.('.chart-frame');
+    const frame = e.target.closest?.('#chartDlg .chart-frame');
     if (!frame) return;
     gesture = { id: e.pointerId, frame };
     show(frame, e.clientX);
@@ -969,8 +1008,8 @@ function bindScrub() {
   document.addEventListener('pointermove', e => {
     if (gesture && gesture.id === e.pointerId) { show(gesture.frame, e.clientX); return; }
     if (e.pointerType !== 'mouse' || gesture) return;
-    const frame = e.target.closest?.('.chart-frame');
-    document.querySelectorAll('.chart-frame').forEach(other => { if (other !== frame) hide(other); });
+    const frame = e.target.closest?.('#chartDlg .chart-frame');
+    document.querySelectorAll('#chartDlg .chart-frame').forEach(other => { if (other !== frame) hide(other); });
     if (frame) show(frame, e.clientX);
   });
   const end = e => {
@@ -988,6 +1027,7 @@ function onDocClick(e) {
   const range = e.target.closest('[data-range]');
   const add = e.target.closest('[data-add]');
   const reset = e.target.closest('[data-calc-reset]');
+  const chartBtn = e.target.closest('[data-chart]');
   const amountBtn = e.target.closest('[data-amount]');
   const inField = e.target.closest('[data-amount-input]');
   const del = e.target.closest('[data-del]');
@@ -996,6 +1036,11 @@ function onDocClick(e) {
   const baseBtn = e.target.closest('#baseBtn');
   const inDialog = e.target.closest('dialog');
   const fertig = e.target.closest('#calcDone');
+  if (chartBtn && !e.target.closest('#preview') && !e.target.closest('#chartDlg')) {
+    if (convertEditing) finishConvert();
+    openChart(chartBtn.dataset.chart);
+    return;
+  }
   if (amountBtn && !inField) { beginConvert(amountBtn.dataset.amount); return; }
   if (convertEditing && !inField && !fertig && !reset && !inDialog) finishConvert();
   if (closer) { closer.closest('dialog')?.close(); return; }
@@ -1007,6 +1052,7 @@ function onDocClick(e) {
     chartRange = range.dataset.range;
     writeViewOptions();
     render({ keepScroll: true });
+    if (chartDetail && $('chartDlg')?.open) paintChartDetail();
     return;
   }
   if (add) {

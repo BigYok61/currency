@@ -700,12 +700,12 @@ function cancelDrag() {
   }
 }
 const CHART_RANGES = [
-  { id: '1T', label: 'Tag', aria: 'Tag', days: 1 },
-  { id: '1W', label: 'Woche', aria: 'Woche', days: 7 },
-  { id: '1M', label: 'Monat', aria: 'Monat', days: 30 },
-  { id: '1J', label: 'Jahr', aria: 'Jahr', days: 360 },
-  { id: '5J', label: '5 Jahre', aria: '5 Jahre', days: 1825 },
-  { id: '10J', label: '10 Jahre', aria: '10 Jahre', days: 3650 },
+  { id: '1T', label: 'Tag', aria: 'Tag', caption: '1 Tag', days: 1 },
+  { id: '1W', label: 'Woche', aria: 'Woche', caption: '1 Woche', days: 7 },
+  { id: '1M', label: 'Monat', aria: 'Monat', caption: '1 Monat', days: 30 },
+  { id: '1J', label: 'Jahr', aria: 'Jahr', caption: '1 Jahr', days: 360 },
+  { id: '5J', label: '5 Jahre', aria: '5 Jahre', caption: '5 Jahre', days: 1825 },
+  { id: '10J', label: '10 Jahre', aria: '10 Jahre', caption: '10 Jahre', days: 3650 },
 ];
 const HISTORY_ORIGIN = 'https://waehrungen.bigyok61.workers.dev';
 /** CHF je 1 Einheit, Schlüssel code|range. Eine Basisumstellung rechnet daraus, ohne neu zu laden. */

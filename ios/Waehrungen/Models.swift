@@ -26,6 +26,18 @@ enum ChartSpan: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Short label on the main-list chart, for example `1 Monat`.
+    var caption: String {
+        switch self {
+        case .day: return "1 Tag"
+        case .week: return "1 Woche"
+        case .month: return "1 Monat"
+        case .year: return "1 Jahr"
+        case .five: return "5 Jahre"
+        case .ten: return "10 Jahre"
+        }
+    }
+
     var dayCount: Int {
         switch self {
         case .day: return 1

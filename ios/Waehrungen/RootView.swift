@@ -167,7 +167,7 @@ struct CurrencyCard: View {
                 if code != store.base && !preview { handle }
             }
             if code != store.base {
-                if store.showChart { ChartBlock(code: code).environmentObject(store) }
+                if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
                 if store.showIntervals { intervals }
                 if store.showForecast { forecast }
                 if store.showReference { reference }
