@@ -479,11 +479,13 @@ function plotXY(points) {
   const yTop = 26;
   const height = 64;
   const width = right - left;
-  return points.map((p, i) => ({
+  const mapped = points.map((p, i) => ({
     ...p,
     x: points.length === 1 ? (left + right) / 2 : left + (i / (points.length - 1)) * width,
     y: yTop + (1 - (p.v - min) / (max - min)) * height,
   }));
+  mapped.floor = yTop + height;
+  return mapped;
 }
 function chartBlock(c, suffix) {
   const points = chartPoints(c.code);
@@ -497,7 +499,7 @@ function chartBlock(c, suffix) {
   const color = tone > EPS ? UP : tone < -EPS ? DOWN : FLAT;
   const samples = monotoneSamples(plotted);
   const line = pathFrom(samples);
-  const area = `${line} L ${last.x.toFixed(2)} 108 L ${first.x.toFixed(2)} 108 Z`;
+  const area = `${line} L ${last.x.toFixed(2)} ${plotted.floor} L ${first.x.toFixed(2)} ${plotted.floor} Z`;
   const hi = Math.max(...points.map(p => p.v));
   const lo = Math.min(...points.map(p => p.v));
   const endDot = `<span class="end-dot" style="left:${(last.x / 320 * 100).toFixed(2)}%;top:${(last.y / 112 * 100).toFixed(2)}%;background:${color}"></span>`;

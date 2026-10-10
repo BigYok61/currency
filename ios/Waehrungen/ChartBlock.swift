@@ -194,7 +194,7 @@ private struct InlinePlot: View {
         let pad = span * 0.42
         return Chart {
             ForEach(points) { point in
-                AreaMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
+                AreaMark(x: .value("Zeit", point.date), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(LinearGradient(colors: [tone.opacity(0.17), tone.opacity(0)], startPoint: .top, endPoint: .bottom))
                 LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
@@ -217,6 +217,7 @@ private struct InlinePlot: View {
         .chartYAxis(.hidden)
         .chartXScale(range: .plotDimension(startPadding: 0, endPadding: 3))
         .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
+        .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
             GeometryReader { geo in
                 if scrubbing {
@@ -242,6 +243,7 @@ private struct InlinePlot: View {
             }
         }
         .frame(height: height)
+        .clipped()
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {

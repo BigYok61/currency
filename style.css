@@ -1052,7 +1052,7 @@ body.v21 span.chart-period { cursor: default; pointer-events: none; }
 body.v21 .chart-row { display: block; }
 body.v21 .chart-frame { position: relative; width: 100%; cursor: pointer; touch-action: pan-y; }
 body.v21 #chartDlg .chart-frame { cursor: crosshair; touch-action: none; }
-body.v21 .plot { display: block; width: 100%; height: auto; overflow: visible; }
+body.v21 .plot { display: block; width: 100%; height: auto; overflow: hidden; }
 body.v21 .chart-block.is-detail .plot { height: 320px; }
 body.v21 .end-dot {
   position: absolute; z-index: 1; width: 4px; height: 4px; border-radius: 50%;
