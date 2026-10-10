@@ -45,6 +45,9 @@ struct AnsichtSheet: View {
             .navigationTitle("Ansicht")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
     }
@@ -105,8 +108,17 @@ struct TimesSheet: View {
                             }
                         }
                     }
-                    Text(previewHours.map { String(format: "%02d:00", $0) }.joined(separator: "  "))
-                        .font(.footnote.monospacedDigit())
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(previewHours, id: \.self) { hour in
+                            HStack {
+                                Text(String(format: "%02d:00", hour))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(previewRate(hour))
+                            }
+                            .font(.footnote.monospacedDigit())
+                        }
+                    }
                     Text(previewHours.count == 1 ? "1 Messung pro Tag" : "\(previewHours.count) Messungen pro Tag")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -123,6 +135,9 @@ struct TimesSheet: View {
             .navigationTitle("Erfassungszeiten und Intervalle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
         .onAppear {
@@ -130,6 +145,19 @@ struct TimesSheet: View {
             end = store.timesUserSet ? store.timeEnd : 17
             step = store.timesUserSet ? (store.timeStep ?? 5) : 5
         }
+    }
+
+    /// Same illustrative fill as the Ansicht preview when that hour has not been captured yet.
+    private func previewRate(_ hour: Int) -> String {
+        if let real = store.intervalValue("EUR", hour: hour) {
+            return "\(formatRate(real)) EUR"
+        }
+        guard let anchor = store.quote("EUR").value else { return "–" }
+        let nudge: Double
+        if hour == 7 { nudge = 0.0003 }
+        else if hour == 17 { nudge = 0.0014 }
+        else { nudge = Double((hour % 5) - 2) * 0.00035 }
+        return "\(formatRate(anchor + nudge)) EUR"
     }
 }
 
@@ -163,6 +191,9 @@ struct AlertsSheet: View {
                     }
                 }
             }
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
     }
@@ -214,7 +245,9 @@ struct AlertsSheet: View {
                     Button { UIPasteboard.general.string = store.topic; message = "Code kopiert." } label: {
                         Image(systemName: "doc.on.doc")
                     }
+                    .accessibilityLabel("Code kopieren")
                 }
+                ntfyHint
                 Text("3. Tippen Sie unten auf „Test-Push“, um die Alarmeinstellung zu testen.")
                 Button("Test-Push senden") { Task { await sendTest() } }
                     .buttonStyle(.bordered)
@@ -223,6 +256,37 @@ struct AlertsSheet: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Where the copied code is pasted in ntfy. Same hint as the web sheet.
+    private var ntfyHint: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("+")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(Color(red: 0.204, green: 0.780, blue: 0.349), in: RoundedRectangle(cornerRadius: 4))
+                Text("ntfy")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Thema")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("wae-…")
+                    .font(.system(size: 11, design: .monospaced))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(8)
+        .frame(width: 168, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .accessibilityHidden(true)
     }
 
     private func sendTest() async {
