@@ -1,7 +1,7 @@
 // Service Worker: App-Shell aus dem Cache, Kursdaten immer zuerst aus dem Netz (Fallback: Cache)
 importScripts('version.js');
 const CACHE = 'wu-v' + APP_VERSION;
-const SHELL = ['./', 'index.html', 'version.js', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'version.js', 'style.css', 'app.js', 'board.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));

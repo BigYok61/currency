@@ -73,7 +73,14 @@ let showFcWeek = true;
 let showDevWeek = true;
 /** intervals | chart | compact. intervals bleibt im Speicher, damit ältere Stände «Nur aktuell» noch verstehen. */
 let viewMode = 'intervals';
-let chartRange = '1T';
+let chartRange = '1M';
+/** Additive Ansicht (Version 2.1). Standard: alle Blöcke, damit der erste Start ohne Einrichtung vollständig ist. */
+let showChart = true;
+let showIntervals = true;
+let showForecast = true;
+let showReference = true;
+/** false, solange dieses Gerät die Erfassungszeiten nicht selbst gespeichert hat. */
+let timesUserSet = false;
 let baseHint = null;
 /** Tag → CHF je 1 Basiseinheit, aus der EZB-Reihe, solange die Stunde noch nicht erfasst ist. */
 let baseDaily = {};
@@ -159,12 +166,20 @@ function matchSchedule(hours) {
   }
   return best;
 }
+/** Erststart: 07:00, 12:00 und 17:00, bis dieses Gerät eigene Zeiten speichert. */
+function applyUnsetTimes() {
+  schedule = { start: 7, end: 17, intervalHours: 2 };
+  HOURS = [7, 12, 17];
+  timesFit = false;
+  timesUserSet = false;
+}
 function applyTimesConfig(data) {
   const sch = parseSchedule(data);
   if (sch) {
     schedule = sch;
     HOURS = hoursFromSchedule(sch);
     timesFit = true;
+    timesUserSet = true;
     return;
   }
   if (data && Array.isArray(data.hours) && data.hours.length) {
@@ -172,11 +187,10 @@ function applyTimesConfig(data) {
     const inferred = matchSchedule(HOURS);
     if (inferred) { schedule = inferred; timesFit = true; }
     else { schedule = { ...DEFAULT_SCHEDULE }; timesFit = false; }
+    timesUserSet = true;
     return;
   }
-  schedule = { ...DEFAULT_SCHEDULE };
-  HOURS = hoursFromSchedule(schedule);
-  timesFit = true;
+  applyUnsetTimes();
 }
 applyTimesConfig(null);
 const START = '2026-10-01';
@@ -686,12 +700,12 @@ function cancelDrag() {
   }
 }
 const CHART_RANGES = [
-  { id: '1T', label: '1T', aria: 'Tag', days: 1 },
-  { id: '1W', label: '1W', aria: 'Woche', days: 7 },
-  { id: '1M', label: '1M', aria: 'Monat' },
-  { id: '1J', label: '1J', aria: '360 Tage' },
-  { id: '5J', label: '5J', aria: '5 Jahre' },
-  { id: '10J', label: '10J', aria: '10 Jahre' },
+  { id: '1T', label: 'Tag', aria: 'Tag', days: 1 },
+  { id: '1W', label: 'Woche', aria: 'Woche', days: 7 },
+  { id: '1M', label: 'Monat', aria: 'Monat', days: 30 },
+  { id: '1J', label: '360 Tage', aria: '360 Tage', days: 360 },
+  { id: '5J', label: '5 Jahre', aria: '5 Jahre', days: 1825 },
+  { id: '10J', label: '10 Jahre', aria: '10 Jahre', days: 3650 },
 ];
 const HISTORY_ORIGIN = 'https://waehrungen.bigyok61.workers.dev';
 /** CHF je 1 Einheit, Schlüssel code|range. Eine Basisumstellung rechnet daraus, ohne neu zu laden. */
@@ -704,6 +718,19 @@ function readViewOptions() {
     const raw = localStorage.getItem(LS_VIEW_OPTS);
     if (!raw) return;
     const data = JSON.parse(raw);
+    if (data && data.v === 21) {
+      showChart = data.chart !== false;
+      showIntervals = data.intervals !== false;
+      showForecast = data.forecast !== false;
+      showReference = data.reference !== false;
+      if (CHART_RANGES.some(range => range.id === data.range)) chartRange = data.range;
+      viewMode = showChart && !showIntervals ? 'chart' : (showIntervals ? 'intervals' : 'compact');
+      showFcDay = showForecast;
+      showDevDay = showForecast;
+      showFcWeek = showForecast;
+      showDevWeek = showForecast;
+      return;
+    }
     if (data && typeof data.fcDay === 'boolean') {
       showFcDay = data.fcDay;
       showDevDay = data.devDay !== false;
@@ -715,22 +742,35 @@ function readViewOptions() {
       showFcWeek = false;
       showDevWeek = false;
     }
+    showForecast = !!(showFcDay || showFcWeek || showDevDay || showDevWeek);
     if (data && (data.mode === 'intervals' || data.mode === 'chart' || data.mode === 'compact')) viewMode = data.mode;
     else if (data && data.intervals === false) viewMode = 'compact';
-    if (data && CHART_RANGES.some(r => r.id === data.range)) chartRange = data.range;
-  } catch { /* Standard: Intervalle und Prognosen */ }
+    showChart = viewMode === 'chart';
+    showIntervals = viewMode === 'intervals';
+    showReference = true;
+    if (data && CHART_RANGES.some(range => range.id === data.range)) chartRange = data.range;
+  } catch { /* Standard: alle Blöcke, Grafik 30 Tage */ }
 }
 function writeViewOptions() {
+  showFcDay = showForecast;
+  showDevDay = showForecast;
+  showFcWeek = showForecast;
+  showDevWeek = showForecast;
+  viewMode = showChart && !showIntervals ? 'chart' : (showIntervals ? 'intervals' : 'compact');
   try {
     localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({
-      forecasts: showFcDay || showDevDay || showFcWeek || showDevWeek,
-      fcDay: showFcDay,
-      devDay: showDevDay,
-      fcWeek: showFcWeek,
-      devWeek: showDevWeek,
-      intervals: viewMode === 'intervals',
-      mode: viewMode,
+      v: 21,
+      chart: showChart,
+      intervals: showIntervals,
+      forecast: showForecast,
+      reference: showReference,
       range: chartRange,
+      forecasts: showForecast,
+      fcDay: showForecast,
+      devDay: showForecast,
+      fcWeek: showForecast,
+      devWeek: showForecast,
+      mode: viewMode,
     }));
   } catch { /* gilt für diese Sitzung */ }
 }
@@ -1219,15 +1259,11 @@ function renderCompact(rows, today) {
     const since = q.basisHour != null ? `seit ${pad(q.basisHour)}:00` : '';
     const meta = [since, delta.text, when].filter(Boolean).join(' · ');
     const inv = inverseText(c.code, q.v);
-    const closeHit = latestOn(c, today, day => shown(c, day, CLOSE_HOUR));
     const ecbHit = latestOn(c, today, day => shownEcb(c, day));
-    const closeV = closeHit && closeHit.v;
     const ecbV = ecbHit && ecbHit.v;
-    const closeLabel = closeHit && closeHit.day === today ? 'Tagesendkurs' : `Tagesendkurs ${closeHit ? header(closeHit.day) : ''}`;
-    const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenz' : `EZB ${ecbHit ? header(ecbHit.day) : ''}`;
+    const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenzkurs' : `EZB-Referenzkurs`;
     let extra = '';
-    if (closeV != null) extra += `<p class="quote-sub"><span>${esc(closeLabel)}</span><span>${r(closeV)}</span></p>`;
-    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
+    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span><span class="ecb-src">Quelle EZB</span></p>`;
     extra += forecastQuoteHtml(c, today);
     const rateTitle = [delta.title, inv].filter(Boolean).join('\n');
     bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${rateTitle ? ` title="${esc(rateTitle)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p>${inv ? `<p class="quote-inv">${esc(inv)}</p>` : ''}<p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
@@ -1363,7 +1399,6 @@ function render(opts = {}) {
     h += forecastTableRow(c, days, today, 'day');
     h += forecastTableRow(c, days, today, '7');
     HOURS.forEach((hr, i) => { h += slotRow(hr, i % 2 === 1 ? 'alt' : '', `${pad(hr)}:00`); });
-    h += slotRow(CLOSE_HOUR, 'close', 'Tagesendkurs');
     // Aktuell: Live-Kurs nur in der Spalte von heute, getrennt von den erfassten Zeitpunkten
     const L = c.code === 'CHF' ? live[baseCurrency] : live[c.code];
     const liveV = shownLive(c);
@@ -1423,13 +1458,12 @@ function render(opts = {}) {
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
 
 async function load() {
-  const [rates, times] = await Promise.all([
-    fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
-      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-      .catch(e => e),
-    fetchTimes(),
-  ]);
-  if (times) applyTimesConfig(times);
+  const rates = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
+    .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+    .catch(e => e);
+  const localView = readViewDoc();
+  if (localView) applyTimesConfig(localView);
+  else applyUnsetTimes();
   if (rates instanceof Error) {
     showError(navigator.onLine === false ? 'Keine Internetverbindung. Es werden die zuletzt geladenen Kurse angezeigt.' : `Die Kurse konnten nicht geladen werden (${rates.message}).`);
   } else {
@@ -1715,7 +1749,6 @@ function csv() {
     HOURS.forEach(hr => {
       lines.push([L, `${pad(hr)}:00`, ...days.map(k => num(shown(c, k, hr)))].join(';'));
     });
-    lines.push([L, 'Tagesendkurs 16:00', ...days.map(k => num(shown(c, k, CLOSE_HOUR)))].join(';'));
     const lv = c.code === 'CHF' ? live[baseCurrency] : live[c.code];
     const liveV = shownLive(c);
     lines.push([L, lv ? `Aktuell ${hmFmt.format(lv.at)} (Live, nicht gespeichert)` : 'Aktuell', ...days.map(k => (k === zurichToday() && liveV != null ? num(liveV) : ''))].join(';'));
@@ -1817,7 +1850,9 @@ function readViewDoc() {
     const raw = localStorage.getItem(LS_VIEW);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    return parseSchedule(data) ? data : null;
+    if (parseSchedule(data)) return data;
+    if (data && Array.isArray(data.hours) && data.hours.some(h => parseHour(h) != null)) return data;
+    return null;
   } catch { return null; }
 }
 function writeView(sch) {
@@ -2314,11 +2349,13 @@ bindChartScrub();
 bindPullToRefresh();
 runtimePromise = detectRuntime().then(mode => { runtime = mode; return mode; });
 showSettingsCoach();
-$('baseBtn').addEventListener('click', () => {
+const baseBtn = $('baseBtn');
+if (baseBtn) baseBtn.addEventListener('click', () => {
   renderBase();
   $('baseDlg').showModal();
 });
-$('settingsBtn').addEventListener('click', () => {
+const settingsBtn = $('settingsBtn');
+if (settingsBtn) settingsBtn.addEventListener('click', () => {
   renderSettings();
   $('settings').showModal();
 });
@@ -2437,11 +2474,13 @@ function endDrag(e, commit) {
 function syncEditButton() {
   const btn = document.getElementById('editBtn');
   document.body.classList.toggle('editing', editing);
+  if (!btn) return;
   btn.setAttribute('aria-pressed', editing ? 'true' : 'false');
   btn.setAttribute('aria-label', editing ? 'Fertig' : 'Bearbeiten');
 }
 
-document.getElementById('editBtn').addEventListener('click', () => {
+const editBtn = document.getElementById('editBtn');
+if (editBtn) editBtn.addEventListener('click', () => {
   editing = !editing;
   if (!editing) moreOpen = false;
   syncEditButton();
