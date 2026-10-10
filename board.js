@@ -577,8 +577,16 @@ function queueHistory(rows, gen) {
 function paintPreview() {
   const slot = document.getElementById('preview');
   if (!slot) return;
-  const eur = currencyRecord('EUR');
-  slot.innerHTML = cardHtml(eur, { preview: true });
+  const bare = !showChart && !showIntervals && !showForecast && !showReference;
+  slot.classList.toggle('is-list', bare);
+  if (!bare) {
+    slot.innerHTML = cardHtml(currencyRecord('EUR'), { preview: true });
+    return;
+  }
+  const rows = boardRows();
+  const base = rows.find(c => c.code === baseCurrency) || currencyRecord(baseCurrency);
+  const foreign = rows.filter(c => c.code !== baseCurrency).slice(0, 2);
+  slot.innerHTML = [base, ...foreign].map(c => cardHtml(c, { preview: true })).join('');
 }
 function render(opts = {}) {
   const gen = ++boardGen;

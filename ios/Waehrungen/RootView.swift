@@ -221,7 +221,7 @@ struct CurrencyCard: View {
     }
 
     private func amountColumn(unitRates: Bool, editing: Bool) -> some View {
-        let hint = code == store.base && !store.convertEditing
+        let hint = code == store.base && (preview || !store.convertEditing)
         return VStack(alignment: .trailing, spacing: 1) {
             if editing {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {

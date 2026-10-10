@@ -15,32 +15,53 @@ struct SheetClose: View {
     }
 }
 
+/// Offers the sheet column at least the visible height, so a flexible preview can fill the space under the switches.
+private struct SheetColumn: Layout {
+    var minHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.first?.sizeThatFits(.unspecified).width ?? 0
+        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)).height ?? 0
+        return CGSize(width: width, height: max(ideal, minHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+}
+
 struct AnsichtSheet: View {
     @EnvironmentObject private var store: RatesStore
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    toggle("Grafik anzeigen", on: store.showChart, hint: nil) { store.showChart = $0; store.saveView() }
-                    toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
-                    toggle("Prognose", on: store.showForecast, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
-                    toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
-                    Text(disclaimerText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 12)
-                    Text("Vorschau")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 12)
-                    CurrencyCard(code: "EUR", preview: true)
-                        .padding(12)
-                        .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-                        .padding(.top, 6)
+            GeometryReader { geo in
+                ScrollView {
+                    SheetColumn(minHeight: geo.size.height) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            toggle("Grafik anzeigen", on: store.showChart, hint: nil) { store.showChart = $0; store.saveView() }
+                            toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
+                            toggle("Prognose", on: store.showForecast, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
+                            toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
+                            Text(disclaimerText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 12)
+                            Text("Vorschau")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 12)
+                            preview
+                                .padding(.top, 6)
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 }
-                .padding(16)
             }
             .navigationTitle("Ansicht")
             .navigationBarTitleDisplayMode(.inline)
@@ -69,6 +90,40 @@ struct AnsichtSheet: View {
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Nothing ticked: the reporting currency, then the first two foreign rows still on the user's list.
+    private var barePreview: Bool {
+        !store.showChart && !store.showIntervals && !store.showForecast && !store.showReference
+    }
+
+    private var previewCodes: [String] {
+        [store.base] + store.visible.filter { $0 != store.base }.prefix(2)
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if barePreview {
+            VStack(spacing: 0) {
+                ForEach(Array(previewCodes.enumerated()), id: \.element) { index, code in
+                    CurrencyCard(code: code, preview: true)
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
+                        .padding(.leading, 20)
+                        .padding(.trailing, 8)
+                    if index < previewCodes.count - 1 {
+                        Divider().padding(.leading, 20)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else {
+            CurrencyCard(code: "EUR", preview: true)
+                .padding(12)
+                .background(.background, in: RoundedRectangle(cornerRadius: 16))
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        }
     }
 }
 
