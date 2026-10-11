@@ -22,6 +22,7 @@ const plots = new Map();
 let boardGen = 0;
 let alertsPage = 'list';
 let alertSaveTimer = 0;
+let baseAlertTimer = 0;
 let pendingAlertForm = null;
 let addQuery = '';
 
@@ -242,7 +243,7 @@ function setAlertsMaster(on) {
   try { localStorage.setItem(LS_MASTER, on ? '1' : '0'); } catch { /* diese Sitzung */ }
 }
 function alarmHint(code) {
-  if (!alertState || alertState.date !== zurichToday()) return '';
+  if (!alertState || alertState.date !== localToday()) return '';
   const sent = alertState.sent || {};
   const times = ['down', 'up'].map(dir => sent[`${code}:${dir}`] && sent[`${code}:${dir}`].time).filter(Boolean);
   if (!times.length) return '';
@@ -255,26 +256,41 @@ function dayMoveText(delta, pct) {
   return `${arrowOf(delta)} ${signedRate(delta)} ${baseCurrency} (${sign}${body} %)`.trim();
 }
 /** Change from the user's start hour today, or the first stored rate that day, to the shown price. */
+function slotsOnLocalDay(c, localDay) {
+  const hits = [];
+  for (const shift of [-1, 0, 1]) {
+    const zDay = addDays(localDay, shift);
+    const slots = history.days[zDay]?.slots || {};
+    for (const key of Object.keys(slots)) {
+      const hour = parseHour(key);
+      if (hour == null || val(c, zDay, hour) == null) continue;
+      const p = zoneParts(zonedWall(zDay, hour, TZ), DEVICE_TZ);
+      const day = `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+      if (day !== localDay) continue;
+      hits.push({ day: zDay, hour, localHour: p.hour });
+    }
+  }
+  hits.sort((a, b) => a.localHour - b.localHour || a.hour - b.hour);
+  return hits;
+}
 function dayMove(c) {
   if (!c || c.code === baseCurrency) return null;
   const q = quoteOf(c);
   if (q.v == null || !(Math.abs(q.v) > EPS)) return null;
-  const today = zurichToday();
-  let day = q.day || today;
-  let hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
-  if (!hours.length) {
-    for (let i = 1; i < 12; i++) {
-      day = addDays(today, -i);
-      hours = Object.keys(history.days[day]?.slots || {}).map(h => parseHour(h)).filter(h => h != null && shown(c, day, h) != null).sort((a, b) => a - b);
-      if (hours.length) break;
+  const today = localToday();
+  for (let i = 0; i < 12; i++) {
+    const day = addDays(today, -i);
+    const start = zurichSlot(day, schedule.start);
+    let open = directPrice(c.code, shown(c, start.day, start.hour));
+    if (open == null) {
+      const hits = slotsOnLocalDay(c, day);
+      if (hits.length) open = directPrice(c.code, shown(c, hits[0].day, hits[0].hour));
     }
+    if (open == null || !(Math.abs(open) > EPS)) continue;
+    const delta = q.v - open;
+    return { delta, text: dayMoveText(delta, delta / open * 100), cls: forecastTone(delta) };
   }
-  if (!hours.length) return null;
-  const openHour = hours.includes(schedule.start) ? schedule.start : hours[0];
-  const open = directPrice(c.code, shown(c, day, openHour));
-  if (open == null || !(Math.abs(open) > EPS)) return null;
-  const delta = q.v - open;
-  return { delta, text: dayMoveText(delta, delta / open * 100), cls: forecastTone(delta) };
+  return null;
 }
 function quoteOf(c) {
   if (c.code === baseCurrency) return { v: 1, raw: 1 };
@@ -300,11 +316,12 @@ function quoteOf(c) {
 }
 function hourHit(code, hour) {
   if (code === baseCurrency) return { v: 1, raw: 1 };
-  const today = zurichToday();
+  const today = localToday();
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
-    const raw = shown({ code }, day, hour);
-    if (raw != null) return { v: directPrice(code, raw), raw, day };
+    const slot = zurichSlot(day, hour);
+    const raw = shown({ code }, slot.day, slot.hour);
+    if (raw != null) return { v: directPrice(code, raw), raw, day: slot.day };
   }
   return null;
 }
@@ -323,7 +340,9 @@ function forecastBits(c) {
   const dayFc = shownForecast(c, day, 'day');
   const weekFc = shownForecast(c, day, '7');
   const basisHour = dayFc.basis != null ? dayFc.basis : weekFc.basis;
-  const basisRaw = basisHour != null ? shown(c, day, basisHour) : null;
+  const start = zurichSlot(day, schedule.start);
+  const basisDay = start && basisHour === start.hour ? start.day : day;
+  const basisRaw = basisHour != null ? shown(c, basisDay, basisHour) : null;
   const basis = directPrice(c.code, basisRaw);
   const todayV = directPrice(c.code, dayFc.value);
   const weekV = directPrice(c.code, weekFc.value);
@@ -901,6 +920,15 @@ function queueAlertForm(form) {
   try { localStorage.setItem('wu.alertDraft', JSON.stringify(form.vals)); } catch { /* diese Sitzung */ }
   pendingAlertForm = form;
 }
+function scheduleBaseAlertSync() {
+  if (typeof runtime !== 'undefined' && runtime !== 'cloudflare') return;
+  if ($('alerts')?.querySelector('.alcard')) {
+    scheduleAlertSave();
+    return;
+  }
+  clearTimeout(baseAlertTimer);
+  baseAlertTimer = setTimeout(() => { saveAlerts(() => {}).catch(() => {}); }, 400);
+}
 function scheduleAlertSave() {
   const form = snapshotAlerts();
   if (!form) return;
@@ -1078,8 +1106,10 @@ function moveRow(code, dir) {
   }
   persistOrder(next.filter(c => c.code !== baseCurrency));
   announce(`${ccyName(item)}, Position ${j + 1} von ${next.length}`);
-  if (baseCurrency !== previous) resetConvert();
-  else render({ keepScroll: true });
+  if (baseCurrency !== previous) {
+    resetConvert();
+    scheduleBaseAlertSync();
+  } else render({ keepScroll: true });
 }
 function deleteRow(code) {
   if (code === baseCurrency) return;
@@ -1212,8 +1242,10 @@ if (typeof document !== 'undefined') {
   calcDock.querySelector('#calcDone').addEventListener('click', () => finishConvert());
   const setBaseSaved = setBaseCurrency;
   setBaseCurrency = function (code) {
+    const previous = baseCurrency;
     setBaseSaved(code);
     resetConvert();
+    if (baseCurrency !== previous) scheduleBaseAlertSync();
   };
   const syncDock = () => { calcDock.hidden = !convertEditing; };
   const renderList = render;

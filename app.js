@@ -196,6 +196,7 @@ function applyTimesConfig(data) {
 applyTimesConfig(null);
 const START = '2026-10-01';
 const TZ = 'Europe/Zurich';
+const DEVICE_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || TZ;
 const EPS = 0.00005;
 
 const nf = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
@@ -205,6 +206,52 @@ const pad = h => String(h).padStart(2, '0');
 function zurichToday() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
+function zoneParts(date, timeZone) {
+  const parts = {};
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  for (const p of fmt.formatToParts(date)) {
+    if (p.type !== 'literal') parts[p.type] = p.value;
+  }
+  let year = Number(parts.year);
+  let month = Number(parts.month);
+  let day = Number(parts.day);
+  let hour = Number(parts.hour);
+  if (hour === 24) {
+    hour = 0;
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    year = next.getUTCFullYear();
+    month = next.getUTCMonth() + 1;
+    day = next.getUTCDate();
+  }
+  return { year, month, day, hour, minute: Number(parts.minute), second: Number(parts.second) };
+}
+function zoneOffsetMs(date, timeZone) {
+  const p = zoneParts(date, timeZone);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime();
+}
+function zonedWall(day, hour, timeZone) {
+  const [y, m, d] = day.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hour, 0, 0);
+  const off1 = zoneOffsetMs(new Date(guess), timeZone);
+  let utc = guess - off1;
+  const off2 = zoneOffsetMs(new Date(utc), timeZone);
+  if (off2 !== off1) utc = guess - off2;
+  return new Date(utc);
+}
+function localToday() {
+  const p = zoneParts(new Date(), DEVICE_TZ);
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+}
+/** Zurich day and hour containing a local wall hour. A half-hour offset floors to the Zurich hour. */
+function zurichSlot(localDay, localHour) {
+  const instant = zonedWall(localDay, localHour, DEVICE_TZ);
+  const p = zoneParts(instant, TZ);
+  return { day: `${p.year}-${pad(p.month)}-${pad(p.day)}`, hour: p.hour };
+}
 function weekdayKeys(from, to) {
   const out = []; const d = new Date(from + 'T12:00:00Z'); const end = new Date(to + 'T12:00:00Z');
   while (d <= end) { const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
@@ -212,8 +259,8 @@ function weekdayKeys(from, to) {
 }
 const hdrFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'short', timeZone: 'UTC' });
 function header(key) { const d = new Date(key + 'T12:00:00Z'); return `${hdrFmt.format(d).replace('.', '')} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`; }
-const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: DEVICE_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: DEVICE_TZ, hour: '2-digit', minute: '2-digit' });
 const pctFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
 
 let history = { days: {} };
@@ -299,8 +346,10 @@ function shownActual7(c, k) {
 }
 /** Stunde für «Veränderung seit …»: Start, sonst erste erfasste Stunde des Tages, sonst 08:00. */
 function changeBasis(c, dayKey) {
-  if (c.code === 'CHF' && baseCurrency !== 'CHF') return baseDenom(dayKey, schedule.start) != null ? schedule.start : null;
-  if (val(c, dayKey, schedule.start) != null) return schedule.start;
+  const slot = zurichSlot(dayKey, schedule.start);
+  const startHour = slot && slot.day === dayKey ? slot.hour : null;
+  if (c.code === 'CHF' && baseCurrency !== 'CHF') return startHour != null && baseDenom(dayKey, startHour) != null ? startHour : null;
+  if (startHour != null && val(c, dayKey, startHour) != null) return startHour;
   const slots = history.days[dayKey]?.slots || {};
   const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null && val(c, dayKey, h) != null).sort((a, b) => a - b);
   if (hours.length) return hours[0];
@@ -378,9 +427,11 @@ function clientForecast7(code, day, basisHour) {
 function displayForecast(c, dayKey, kind) {
   const stored = kind === '7' ? fc7(c, dayKey) : fc(c, dayKey);
   const basis = forecastBasisHour(c, dayKey, kind);
-  if (runtime !== 'cloudflare' || (stored != null && basis === schedule.start)) return { value: stored, basis };
-  const computed = kind === '7' ? clientForecast7(c.code, dayKey, schedule.start) : clientForecastDay(c.code, dayKey, schedule.start);
-  if (computed != null) return { value: computed, basis: schedule.start };
+  const start = zurichSlot(dayKey, schedule.start);
+  const sameSlot = start.day === dayKey && basis === start.hour;
+  if (runtime !== 'cloudflare' || (stored != null && sameSlot)) return { value: stored, basis };
+  const computed = kind === '7' ? clientForecast7(c.code, start.day, start.hour) : clientForecastDay(c.code, start.day, start.hour);
+  if (computed != null) return { value: computed, basis: start.hour };
   return { value: stored, basis };
 }
 
@@ -1915,7 +1966,7 @@ async function loadAlerts() {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       alertCfg = await res.json();
-      alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
+      alertState = { date: localToday(), sent: alertCfg.sent || {} };
     } catch (e) {
       alertCfg = structuredClone(DEFAULT_ALERTS);
       alertState = null;
@@ -1958,12 +2009,12 @@ async function saveAlerts(mutate) {
     const res = await fetch(`api/alerts/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, start: schedule.start, currencies: cur.currencies }),
+      body: JSON.stringify({ topic, start: schedule.start, base: baseCurrency, timeZone: DEVICE_TZ, currencies: cur.currencies }),
       cache: 'no-store',
     });
     if (!res.ok) throw new Error(await alertError(res));
     alertCfg = await res.json();
-    alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
+    alertState = { date: localToday(), sent: alertCfg.sent || {} };
     return;
   }
   alertCfg = await saveRepoFile(ALERTS_PATH, 'FX-Alarme geändert', DEFAULT_ALERTS, mutate);

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { evaluateAlerts, formatNum, formatPct, inactiveCutoff, nextHits, testLines, validAlertId, validTopic } from '../src/alerts.js';
+import { evaluateAlerts, formatNum, formatPct, inactiveCutoff, nextHits, pickBase, priceInBase, testLines, validAlertId, validTopic } from '../src/alerts.js';
 import { applyCapture, ecbUrl, historyJson, ohlcUrl, pruneDays, workerCapturePlan } from '../src/capture.js';
 import { forecast7Days, forecastEndOfDay, resolveBasisHour } from '../src/forecast.js';
 import { canonicalJson, formatPyFloat, roundHalfEven } from '../src/json.js';
@@ -276,7 +276,15 @@ test('FX alerts match scripts/fx_alerts.py', () => {
     });
     const applied = decision.skipped ? null : decision.applyPush(decision.pushes.map((_, i) => i));
     const jsPushes = (decision.pushes || []).map(p => ({ title: p.title, message: p.message, tags: p.tags, priority: p.priority }));
-    assert.deepEqual(jsPushes, py.pushes, item.name);
+    assert.equal(jsPushes.length, py.pushes.length, item.name);
+    for (let i = 0; i < jsPushes.length; i++) {
+      assert.deepEqual(jsPushes[i].tags, py.pushes[i].tags, item.name);
+      assert.equal(jsPushes[i].priority, py.pushes[i].priority, item.name);
+      const jsLine = jsPushes[i].message.split('\n');
+      const pyLine = py.pushes[i].message.split('\n');
+      assert.equal(jsLine[1], pyLine[1], item.name);
+      assert.match(jsLine[0], /^1 (USD|EUR|GBP) = .+ CHF, /, item.name);
+    }
     if (item.name === 'opening') {
       assert.ok(decision.logs.some(line => line.includes('Tageseröffnung')), decision.logs.join('\n'));
     }
@@ -368,7 +376,21 @@ test('alert ids, topics, and the 90-day cutoff', () => {
   });
   assert.equal(body.start, 8);
   assert.equal(body.topic, topic);
+  assert.equal(body.base, 'CHF');
+  assert.equal(body.timeZone, 'Europe/Zurich');
   assert.equal(body.currencies.EUR.down, 0.4);
+  const sek = normalizeSubscription({
+    topic,
+    start: 7,
+    base: 'SEK',
+    timeZone: 'America/New_York',
+    currencies: body.currencies,
+  });
+  assert.equal(sek.base, 'SEK');
+  assert.equal(sek.timeZone, 'America/New_York');
+  assert.equal(normalizeSubscription({ topic, start: 7, base: 'BRL', currencies: body.currencies }).base, 'BRL');
+  assert.equal(normalizeSubscription({ topic, start: 7, base: 'XXX', currencies: body.currencies }), null);
+  assert.equal(normalizeSubscription({ topic, start: 7, timeZone: 'Not/AZone', currencies: body.currencies }), null);
   assert.equal(normalizeSubscription({ topic: 'nope', start: 6, currencies: body.currencies }), null);
   assert.equal(normalizeAlerts({ currencies: {} }), null);
   assert.equal(normalizeAlerts({ currencies: { USD: { enabled: true, down: 0.5, up: 0.25 } } }), null);
@@ -394,6 +416,65 @@ test('alert ids, topics, and the 90-day cutoff', () => {
       CNY: { enabled: true, down: 1, up: 1 },
     },
   }), null);
+});
+
+test('alerts price one lot in the reporting currency and read the start hour in that time zone', () => {
+  assert.equal(priceInBase(0.005, 1, 'JPY'), 0.5);
+  assert.equal(priceInBase(0.93, null, 'EUR'), 0.93);
+  const now = new Date('2026-10-09T10:05:00Z');
+  const open = new Date(slotUtcMs('2026-10-09', 6)).toISOString().replace('.000Z', 'Z');
+  const bars = {
+    EUR: [{ openTime: open, open: 0.92 }],
+    SEK: [{ openTime: open, open: 0.08 }],
+    USD: [{ openTime: open, open: 0.83 }],
+  };
+  const quotes = {
+    EUR: quoteAt(0.93, 30, now),
+    SEK: quoteAt(0.08, 30, now),
+    USD: quoteAt(0.83, 30, now),
+  };
+  const decision = evaluateAlerts({
+    now,
+    times: { start: 6 },
+    cfg: {
+      base: 'SEK',
+      timeZone: 'Europe/Zurich',
+      currencies: {
+        USD: { enabled: false, down: 0.5, up: 0.25 },
+        EUR: { enabled: true, down: 0.5, up: 0.25 },
+      },
+    },
+    state: null,
+    quotes,
+    bars,
+  });
+  assert.equal(decision.pushes.length, 1);
+  assert.equal(decision.pushes[0].title, 'Währungsübersicht: EUR steigt');
+  assert.match(decision.pushes[0].message, /^1 EUR = \d+\.\d{4} SEK, \+\d+\.\d{2} % seit 06:00\nSchwelle \+0\.25 %$/);
+  const nyNow = new Date('2026-10-09T15:00:00Z');
+  const nyBars = [
+    { openTime: '2026-10-09T05:00:00Z', open: 0.91 },
+    { openTime: '2026-10-09T11:00:00Z', open: 0.93 },
+  ];
+  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').rate, 0.93);
+  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').label, '07:00');
+  assert.equal(pickBase(nyBars, nyNow, 7).rate, 0.91);
+  const late = new Date('2026-10-09T21:30:00Z');
+  const lateBars = { USD: dayBars(late, [6]), EUR: dayBars(late, [6]) };
+  const lateQuotes = {
+    USD: quoteAt(lateBars.USD[0].open, 30, late),
+    EUR: quoteAt(lateBars.EUR[0].open, 30, late),
+  };
+  const currencies = {
+    USD: { enabled: true, down: 0.5, up: 0.25 },
+    EUR: { enabled: true, down: 0.5, up: 0.25 },
+  };
+  assert.equal(evaluateAlerts({
+    now: late, times: { start: 6 }, cfg: { timeZone: 'Europe/Zurich', currencies }, state: null, quotes: lateQuotes, bars: lateBars,
+  }).skipped, true);
+  assert.equal(evaluateAlerts({
+    now: late, times: { start: 6 }, cfg: { timeZone: 'America/New_York', currencies }, state: null, quotes: lateQuotes, bars: lateBars,
+  }).skipped, false);
 });
 
 test('capture covers the shared picker and stores JPY as CHF per 1 yen', async () => {

@@ -5,24 +5,43 @@ export const CLOSE_HOUR = 16;
 export const LEGACY_BASIS_HOUR = 8;
 export const ECB_LOOKBACK_DAYS = 45;
 
-const dtf = new Intl.DateTimeFormat('en-US', {
-  timeZone: ZURICH,
-  hourCycle: 'h23',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-});
+const formatters = new Map();
+
+function formatter(timeZone) {
+  let fmt = formatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    formatters.set(timeZone, fmt);
+  }
+  return fmt;
+}
 
 export function pad(n) {
   return String(n).padStart(2, '0');
 }
 
-export function zurichParts(date) {
+export function validTimeZone(timeZone) {
+  if (typeof timeZone !== 'string' || !timeZone.trim()) return false;
+  try {
+    formatter(timeZone.trim());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function zoneParts(date, timeZone = ZURICH) {
   const parts = {};
-  for (const p of dtf.formatToParts(date)) {
+  for (const p of formatter(timeZone).formatToParts(date)) {
     if (p.type !== 'literal') parts[p.type] = p.value;
   }
   let year = Number(parts.year);
@@ -42,6 +61,10 @@ export function zurichParts(date) {
   return { year, month, day, hour, minute, second };
 }
 
+export function zurichParts(date) {
+  return zoneParts(date, ZURICH);
+}
+
 export function dateString(year, month, day) {
   return `${year}-${pad(month)}-${pad(day)}`;
 }
@@ -52,7 +75,16 @@ export function zurichDateString(date) {
 }
 
 export function zurichHourMinute(date) {
-  const p = zurichParts(date);
+  return zoneHourMinute(date, ZURICH);
+}
+
+export function zoneDateString(date, timeZone = ZURICH) {
+  const p = zoneParts(date, timeZone);
+  return dateString(p.year, p.month, p.day);
+}
+
+export function zoneHourMinute(date, timeZone = ZURICH) {
+  const p = zoneParts(date, timeZone);
   return { hour: p.hour, minute: p.minute, label: `${pad(p.hour)}:${pad(p.minute)}` };
 }
 

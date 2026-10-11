@@ -38,6 +38,11 @@ const ECB = new Set(ECB_CODES);
 const PICKER = new Set(PICKER_CODES);
 const BUILTIN = new Set(['USD', 'EUR', 'GBP']);
 
+/** Anzeige-Los. Gespeichert bleibt CHF je 1 Einheit. */
+export function quoteLot(code) {
+  return code === 'JPY' || code === 'KRW' || code === 'HUF' || code === 'IDR' || code === 'ISK' ? 100 : 1;
+}
+
 export function isEcbCode(code) {
   return ECB.has(code);
 }

@@ -11,7 +11,7 @@ import {
 import {
   bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, updateSubscription, writeRaw,
 } from './storage.js';
-import { zurichDateString } from './time.js';
+import { ZURICH, validTimeZone, zoneDateString, zurichDateString } from './time.js';
 
 const DOCS = {
   '/data/rates.json': 'rates',
@@ -71,17 +71,30 @@ export function normalizeSubscription(body) {
     if (n == null) return null;
     start = n;
   }
-  return { version: 1, topic: body.topic, start, currencies: alerts.currencies };
+  let base = 'CHF';
+  if (body.base != null && body.base !== '') {
+    if (typeof body.base !== 'string' || !/^[A-Z]{3}$/.test(body.base) || body.base.startsWith('X')) return null;
+    base = body.base;
+  }
+  let timeZone = ZURICH;
+  if (body.timeZone != null && body.timeZone !== '') {
+    if (typeof body.timeZone !== 'string' || !validTimeZone(body.timeZone)) return null;
+    timeZone = body.timeZone.trim();
+  }
+  return { version: 1, topic: body.topic, start, base, timeZone, currencies: alerts.currencies };
 }
 
 function publicAlert(row, now = new Date()) {
   const config = JSON.parse(row.config);
   const state = JSON.parse(row.state || '{"date":"","sent":{}}');
-  const today = zurichDateString(now);
+  const timeZone = validTimeZone(config.timeZone) ? config.timeZone.trim() : ZURICH;
+  const today = zoneDateString(now, timeZone);
   return {
     version: 1,
     topic: row.topic,
     start: config.start ?? 6,
+    base: typeof config.base === 'string' && config.base ? config.base : 'CHF',
+    timeZone,
     currencies: config.currencies,
     sent: state.date === today ? (state.sent || {}) : {},
   };
@@ -158,7 +171,13 @@ async function handleAlerts(request, env, id, test) {
     const next = normalizeSubscription(body.value);
     if (!next) return jsonResponse({ error: 'FX-Alarme ungültig' }, 400);
     const existing = await getSubscription(env, id);
-    const config = canonicalJson({ version: 1, start: next.start, currencies: next.currencies });
+    const config = canonicalJson({
+      version: 1,
+      start: next.start,
+      base: next.base,
+      timeZone: next.timeZone,
+      currencies: next.currencies,
+    });
     const now = Date.now();
     if (!existing) {
       await insertSubscription(env, id, next.topic, config, now);
