@@ -185,11 +185,11 @@ final class RatesStore: ObservableObject {
         return "\(Self.formatMoney(value)) \(code)"
     }
 
-    /// Foreign units per 1 unit of the reporting currency. Stays the per-unit inverse while converting.
+    /// `1 CHF = 1,0728 EUR`. Stays the per-unit inverse while converting.
     func secondaryText(_ code: String) -> String {
         if code == base { return "" }
         guard let per = quote(code).raw, abs(per) > 0.00005 else { return "–" }
-        return "\(formatRate(1 / per)) \(code)"
+        return "1 \(base) = \(formatRate(1 / per)) \(code)"
     }
 
     /// Hourly capture first. Until that exists, the newest ECB reference (CHF per 1 unit).

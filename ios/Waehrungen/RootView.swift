@@ -19,7 +19,7 @@ struct RootView: View {
                         if id == "compare" {
                             CompareChartCard()
                                 .moveDisabled(true)
-                                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 8))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 8))
                                 .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                         } else {
                             CurrencyCard(code: id, preview: false)
@@ -199,35 +199,7 @@ struct CurrencyCard: View {
                     priceLabel(unitRates: unitRates, editing: editing)
                     if code != store.base && !preview { handle }
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    HStack(alignment: .center, spacing: 4) {
-                        if code != store.base && store.showCompare {
-                            Circle()
-                                .fill(ComparePalette.color(store.compareIndex(code)))
-                                .frame(width: 8, height: 8)
-                        }
-                        Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
-                            .font(.system(size: 13))
-                            .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(width: code == store.base ? nil : 76, alignment: .leading)
-                    if code != store.base, let day = store.dayChange(code) {
-                        Text(day.text)
-                            .font(.system(size: 12))
-                            .foregroundStyle(dayChangeTone(day.delta))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if code != store.base {
-                        Spacer(minLength: 0)
-                    }
-                    if code != store.base { inverseLabel }
-                    if code != store.base && !preview {
-                        Color.clear.frame(width: 22, height: 1)
-                    }
-                }
+                quoteMeta
             }
             if code != store.base {
                 if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
@@ -326,6 +298,85 @@ struct CurrencyCard: View {
                 ) {
                     store.beginConvert(code)
                 }
+            }
+        }
+    }
+
+    /// 76pt keeps every arrow on the same x, with the comparison dot inside that column.
+    private var lotCaption: some View {
+        HStack(alignment: .center, spacing: 4) {
+            if code != store.base && store.showCompare {
+                Circle()
+                    .fill(ComparePalette.color(store.compareIndex(code)))
+                    .frame(width: 8, height: 8)
+            }
+            Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
+                .font(.system(size: 13))
+                .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(code == store.base ? 1 : 0.75)
+        }
+        .frame(width: code == store.base ? nil : 76, alignment: .leading)
+    }
+
+    /// One line when the change and the inverse both fit. Otherwise the change drops to the next line, still at x = 84pt.
+    @ViewBuilder
+    private var quoteMeta: some View {
+        if code == store.base {
+            Text("\(store.base) · Berichtswährung")
+                .font(.system(size: 13))
+                .foregroundStyle(Color.blue)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                quoteLine(stacked: false)
+                quoteLine(stacked: true)
+            }
+        }
+    }
+
+    /// The wide row reports the full text width, so `ViewThatFits` keeps it only when nothing has to compress.
+    @ViewBuilder
+    private func quoteLine(stacked: Bool) -> some View {
+        let change = store.dayChange(code)
+        let grip = !preview
+        if stacked {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    lotCaption
+                    Spacer(minLength: 8)
+                    inverseLabel
+                    if grip { Color.clear.frame(width: 22, height: 1) }
+                }
+                if let change {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Color.clear.frame(width: 76, height: 1)
+                        Text(change.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(dayChangeTone(change.delta))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                lotCaption
+                if let change {
+                    Text(change.text)
+                        .font(.system(size: 12))
+                        .foregroundStyle(dayChangeTone(change.delta))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                Spacer(minLength: 8)
+                inverseLabel
+                    .fixedSize(horizontal: true, vertical: false)
+                if grip { Color.clear.frame(width: 22, height: 1) }
             }
         }
     }

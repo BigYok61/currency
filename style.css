@@ -934,14 +934,16 @@ body.v21 .fired { display: inline-flex; align-items: center; gap: 3px; }
 body.v21 .fired-bell { display: block; flex: none; }
 body.v21 .fired-time { font-size: 11px; font-weight: 400; color: rgba(60,60,67,.55); letter-spacing: -.01em; }
 body.v21 .cmeta {
-  display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; column-gap: 8px;
-  align-items: baseline; margin-top: 1px; min-width: 0;
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) max-content; column-gap: 8px; row-gap: 1px;
+  align-items: baseline; margin-top: 1px; min-width: 0; container-type: inline-size;
 }
 body.v21 .csub {
-  grid-column: 1; margin-top: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  grid-column: 1; grid-row: 1; margin-top: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; font-weight: 400; color: rgba(60,60,67,.6); letter-spacing: -.01em;
 }
-body.v21 .csub.base-sub { grid-column: 1 / -1; overflow: visible; color: #007aff; }
+body.v21 .csub.base-sub {
+  grid-column: 1 / -1; width: auto; max-width: none; overflow: visible; text-overflow: clip; white-space: nowrap; color: #007aff;
+}
 body.v21 .cright { text-align: right; flex: none; }
 body.v21 .amt {
   display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
@@ -958,8 +960,12 @@ body.v21 button.amt-btn:focus { outline: none; }
 body.v21 button.amt:focus-visible,
 body.v21 button.amt-btn:focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
 body.v21 .crate { font-size: 17px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
-body.v21 .cmeta .cchg { grid-column: 2; justify-self: start; margin: 0; text-align: left; width: max-content; max-width: 100%; }
-body.v21 .cinv { grid-column: 3; justify-self: end; margin-top: 0; padding: 0; border: none; background: none; font: inherit; font-size: 12px; font-weight: 400; color: #007aff; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; }
+body.v21 .cmeta .cchg { grid-column: 2; grid-row: 1; justify-self: stretch; margin: 0; text-align: left; width: auto; max-width: 100%; min-width: 0; }
+body.v21 .cinv { grid-column: 3; grid-row: 1; justify-self: end; margin-top: 0; padding: 0; border: none; background: none; font: inherit; font-size: 12px; font-weight: 400; color: #007aff; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; cursor: pointer; }
+@container (max-width: 460px) {
+  body.v21 .cmeta .cchg { grid-column: 2 / -1; grid-row: 2; width: auto; max-width: none; overflow: visible; }
+  body.v21 .cinv { grid-column: 2 / -1; grid-row: 1; }
+}
 body.v21 span.cinv { cursor: default; }
 body.v21 .cchg {
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -1166,10 +1172,10 @@ body.v21 .check.is-stack { align-items: flex-start; }
 body.v21 .check-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
 body.v21 .check.is-stack small { margin-left: 0; font-size: 12px; }
 body.v21 .cmp-dot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; vertical-align: 1px; flex: none; }
-body.v21 .cmp-card { position: relative; margin: 2px 0 4px; cursor: pointer; }
+body.v21 .cmp-card { position: relative; margin: 0; cursor: pointer; }
 body.v21 .cmp-frame { position: relative; height: 80px; overflow: hidden; }
 body.v21 .cmp-frame .plot { display: block; width: 100%; height: 80px; }
-body.v21 .cmp-caption { position: absolute; left: 0; top: 0; font-size: 10px; line-height: 1.2; color: rgba(60,60,67,.6); pointer-events: none; }
+body.v21 .cmp-caption { position: absolute; left: 0; top: 0; height: 16px; font-size: 10px; line-height: 1.2; color: rgba(60,60,67,.6); pointer-events: none; }
 body.v21 .cmp-detail { position: relative; height: 240px; overflow: hidden; }
 body.v21 .cmp-detail .plot { display: block; width: 100%; height: 240px; }
 body.v21 .cmp-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 15px; font-variant-numeric: tabular-nums; }

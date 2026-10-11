@@ -283,7 +283,7 @@ private struct InlinePlot: View {
             Text("\(formatRate(point.value)) \(base)").font(.system(size: 11, weight: .semibold))
             Text(ChartFormat.bubbleDate(point)).font(.system(size: 11))
             if point.raw > 0 {
-                Text("\(formatRate(1 / point.raw)) \(code)").font(.system(size: 11))
+                Text("1 \(base) = \(formatRate(1 / point.raw)) \(code)").font(.system(size: 11))
             }
         }
         .monospacedDigit()
@@ -505,6 +505,39 @@ private struct ComparePlot: View {
     @State private var scrubDate: Date?
 
     var body: some View {
+        let labelBand: CGFloat = scrubbing ? 0 : 16
+        return VStack(alignment: .leading, spacing: 0) {
+            if labelBand > 0 {
+                captionLabel
+                    .frame(maxWidth: .infinity, minHeight: labelBand, alignment: .topLeading)
+            }
+            compareChart
+                .frame(height: height - labelBand)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !preview && !scrubbing { onOpen() }
+                }
+        }
+        .frame(height: height)
+        .clipped()
+        .frame(maxWidth: .infinity)
+    }
+
+    private var captionLabel: some View {
+        Group {
+            if preview {
+                Text(caption)
+            } else {
+                Button(action: onOpen) { Text(caption) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Zeitraum \(caption)")
+    }
+
+    private var compareChart: some View {
         let drawn = lines.flatMap(\.drawn)
         let hi = max(drawn.map(\.value).max() ?? 1, 0)
         let lo = min(drawn.map(\.value).min() ?? -1, 0)
@@ -544,22 +577,6 @@ private struct ComparePlot: View {
                         }.onEnded { _ in scrubDate = nil })
                 }
             }
-        }
-        .frame(height: height)
-        .clipped()
-        .frame(maxWidth: .infinity)
-        .overlay(alignment: .topLeading) {
-            Group {
-                if preview {
-                    Text(caption)
-                } else {
-                    Button(action: onOpen) { Text(caption) }
-                        .buttonStyle(.plain)
-                }
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Zeitraum \(caption)")
         }
         .overlay(alignment: .top) {
             if let readout, scrubbing {

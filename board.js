@@ -69,7 +69,7 @@ function rateText(_code, v) {
 }
 function inverseLine(code, perUnit) {
   if (!code || code === baseCurrency || perUnit == null || !(Math.abs(perUnit) > EPS)) return '';
-  return `${r(1 / perUnit)} ${code}`;
+  return `1 ${baseCurrency} = ${r(1 / perUnit)} ${code}`;
 }
 const moneyFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pillFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -580,7 +580,8 @@ function compareSvg(lines, height) {
   hi += padY;
   const days = [...new Set(all.map(p => p.day))].sort();
   const xOf = day => (days.length < 2 ? 160 : (days.indexOf(day) / (days.length - 1)) * 320);
-  const yOf = pct => 8 + (1 - (pct - lo) / (hi - lo)) * (height - 16);
+  const band = height <= 100 ? 18 : 8;
+  const yOf = pct => band + (1 - (pct - lo) / (hi - lo)) * (height - band - 4);
   const zero = yOf(0);
   const paths = lines.map(line => {
     const d = line.points.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.day).toFixed(2)} ${yOf(p.v).toFixed(2)}`).join(' ');
