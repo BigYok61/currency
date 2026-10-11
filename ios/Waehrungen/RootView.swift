@@ -247,7 +247,7 @@ struct CurrencyCard: View {
             Text("Prognose")
                 .font(.system(size: 13, weight: .medium))
             Spacer(minLength: 8)
-            pair(tag: "heute", value: line?.today, delta: line?.todayDelta)
+            pair(tag: "Heute", value: line?.today, delta: line?.todayDelta)
             Text("·")
                 .font(.system(size: 11, weight: .regular))
             pair(tag: "7 Tage", value: line?.week, delta: line?.weekDelta)

@@ -78,7 +78,7 @@ enum ViewBlock: String, CaseIterable, Identifiable {
     case reference = "Referenzkurse anzeigen"
 
     var id: String { rawValue }
-    var hint: String? { self == .forecast ? "heute und in 7 Tagen" : nil }
+    var hint: String? { self == .forecast ? "Heute und in 7 Tagen" : nil }
 }
 
 let disclaimerText = "Prognosen sind unverbindliche, automatisch berechnete Schätzungen und keine Anlage- oder Finanzberatung. Für Entscheidungen auf Basis dieser Angaben wird keine Haftung übernommen."
