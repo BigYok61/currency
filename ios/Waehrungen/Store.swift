@@ -87,11 +87,16 @@ final class RatesStore: ObservableObject {
         let fmtIn = ISO8601DateFormatter()
         fmtIn.formatOptions = [.withInternetDateTime]
         guard let date = fmtIn.date(from: updated) else { return "" }
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "de_CH")
-        fmt.timeZone = .current
-        fmt.dateFormat = "dd.MM.yyyy, HH:mm"
-        return "Erfasst: \(fmt.string(from: date))"
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "de_CH")
+        day.timeZone = .current
+        day.dateFormat = "dd.MM.yyyy"
+        // Time follows the device's region: 14:32 or 2:32 PM
+        let time = DateFormatter()
+        time.locale = .current
+        time.timeZone = .current
+        time.setLocalizedDateFormatFromTemplate("jmm")
+        return "Kurs zuletzt aktualisiert am: \(day.string(from: date))   \(time.string(from: date))"
     }
 
     init() {
