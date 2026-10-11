@@ -27,6 +27,9 @@ struct RootView: View {
                                     .overlay(store.convertEditing && store.convertSource == code ? Color.blue.opacity(0.12) : Color.clear)
                             )
                     }
+                    .onMove { from, to in
+                        store.moveVisible(from: from, to: to)
+                    }
                 } header: {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -165,7 +168,6 @@ struct CurrencyCard: View {
     @EnvironmentObject private var store: RatesStore
     let code: String
     var preview: Bool
-    @State private var dragOffset: CGFloat = 0
     @FocusState private var amountFocused: Bool
 
     var body: some View {
@@ -217,7 +219,6 @@ struct CurrencyCard: View {
                 if store.showReference { reference }
             }
         }
-        .offset(y: preview ? 0 : dragOffset)
     }
 
     private var intervals: some View {
@@ -347,23 +348,6 @@ struct CurrencyCard: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(width: 22, height: 28)
-            .contentShape(Rectangle())
-            .gesture(
-                    LongPressGesture(minimumDuration: 0.3)
-                        .sequenced(before: DragGesture(minimumDistance: 1))
-                        .onChanged { value in
-                            if case .second(true, let drag) = value {
-                                dragOffset = drag?.translation.height ?? 0
-                            }
-                        }
-                        .onEnded { value in
-                            let height: CGFloat
-                            if case .second(true, let drag) = value { height = drag?.translation.height ?? 0 } else { height = 0 }
-                            let steps = Int((height / 72).rounded())
-                            if steps != 0 { store.move(code, by: steps) }
-                            dragOffset = 0
-                        }
-                )
             .accessibilityLabel("\(CurrencyNames.name(code)) verschieben")
     }
 

@@ -420,6 +420,13 @@ final class RatesStore: ObservableObject {
         return local
     }
 
+    func moveVisible(from source: IndexSet, to destination: Int) {
+        var shown = visible
+        shown.move(fromOffsets: source, toOffset: destination)
+        order = shown + order.filter { !shown.contains($0) }
+        saveLocal()
+    }
+
     func move(_ code: String, by steps: Int) {
         guard steps != 0, let index = order.firstIndex(of: code) else { return }
         var next = order
