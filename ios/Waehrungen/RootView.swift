@@ -85,10 +85,11 @@ struct RootView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Währung hinzufügen")
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 8, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 }
+                .listSectionSpacing(6)
             }
             .listStyle(.insetGrouped)
             .scrollDismissesKeyboard(.interactively)
@@ -149,7 +150,7 @@ struct RootView: View {
     }
 
     private var sourceBar: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 if !store.capturedLine.isEmpty {
                     Text(store.capturedLine)
@@ -168,12 +169,11 @@ struct RootView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // centre the icon on the "Quelle" line, aligned with the price column
-            .alignmentGuide(.lastTextBaseline) { d in d[VerticalAlignment.center] + 4 }
             .padding(.trailing, -2)
             .accessibilityLabel("Über Währungen")
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 36)   // in line with the currency names
+        .padding(.trailing, 16)
         .padding(.top, 6)
         .padding(.bottom, -12)   // sit lower, closer to the home indicator
         .background {
@@ -347,10 +347,8 @@ struct CurrencyCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            ViewThatFits(in: .horizontal) {
-                quoteLine(stacked: false)
-                quoteLine(stacked: true)
-            }
+            // Day change always sits right-aligned under the price and the blue inverse.
+            quoteLine(stacked: true)
         }
     }
 
@@ -369,13 +367,17 @@ struct CurrencyCard: View {
                 }
                 if let change {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Color.clear.frame(width: 76, height: 1)
+                        Spacer(minLength: 0)
+                        // fixed-width box, text left-aligned inside: right edge under the price,
+                        // and the arrows of all rows still start at the same x
                         Text(change.text)
                             .font(.system(size: 12))
                             .foregroundStyle(dayChangeTone(change.delta))
                             .monospacedDigit()
                             .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .minimumScaleFactor(0.85)
+                            .frame(width: 150, alignment: .trailing)
+                        if grip { Color.clear.frame(width: 22, height: 1) }
                     }
                 }
             }
