@@ -46,7 +46,7 @@ struct AnsichtSheet: View {
                 ScrollView {
                     SheetColumn(minHeight: geo.size.height) {
                         VStack(alignment: .leading, spacing: 0) {
-                            toggle("Entwicklung der Währungen anzeigen", on: store.showCompare, hint: "Bezogen auf Berichtswährung", stacked: true) {
+                            toggle("Entwicklung der Währungen anzeigen", on: store.showCompare, hint: "Bezogen auf Berichtswährung.\nZeitraum kann durch Tippen auf die Grafik verändert werden.", stacked: true) {
                                 store.showCompare = $0
                                 store.saveView()
                                 Task { await store.loadHistoryIfNeeded() }
