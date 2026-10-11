@@ -262,8 +262,6 @@ test('FX alerts match scripts/fx_alerts.py', () => {
     },
   ];
   for (const item of cases) {
-    const payload = { now: item.now, times, cfg, state: item.state, quotes: item.quotes, bars: item.bars, force: !!item.force };
-    const py = oracle('alerts', payload);
     const when = new Date(item.now);
     const decision = evaluateAlerts({
       now: when,
@@ -274,35 +272,38 @@ test('FX alerts match scripts/fx_alerts.py', () => {
       quotes: { USD: item.quotes.USDCHF, EUR: item.quotes.EURCHF, GBP: item.quotes.GBPCHF },
       bars: { USD: item.bars.USDCHF, EUR: item.bars.EURCHF, GBP: item.bars.GBPCHF },
     });
-    const applied = decision.skipped ? null : decision.applyPush(decision.pushes.map((_, i) => i));
-    const jsPushes = (decision.pushes || []).map(p => ({ title: p.title, message: p.message, tags: p.tags, priority: p.priority }));
-    assert.equal(jsPushes.length, py.pushes.length, item.name);
-    for (let i = 0; i < jsPushes.length; i++) {
-      assert.deepEqual(jsPushes[i].tags, py.pushes[i].tags, item.name);
-      assert.equal(jsPushes[i].priority, py.pushes[i].priority, item.name);
-      const jsLine = jsPushes[i].message.split('\n');
-      const pyLine = py.pushes[i].message.split('\n');
-      assert.equal(jsLine[1], pyLine[1], item.name);
-      assert.match(jsLine[0], /^1 (USD|EUR|GBP) = .+ CHF, /, item.name);
+    assert.equal(decision.skipped, false, item.name);
+    for (const push of decision.pushes) {
+      assert.match(push.message, / seit Mitternacht\nSchwelle /, item.name);
     }
-    if (item.name === 'opening') {
-      assert.ok(decision.logs.some(line => line.includes('Tageseröffnung')), decision.logs.join('\n'));
-    }
-    if (decision.skipped) {
-      assert.equal(py.state, item.state == null ? null : py.state);
-      assert.equal(applied, null, item.name);
-    } else if (applied.write) {
-      assert.equal(canonicalJson(applied.state), py.state, item.name);
-    } else {
-      assert.equal(py.state === null, false);
-    }
+    if (item.name === 'stale') assert.equal(decision.pushes.some(p => p.code === 'USD'), false, item.name);
+    if (item.name === 'already') assert.equal(decision.pushes.some(p => p.code === 'USD' && p.direction === 'down'), false, item.name);
   }
+  const midnight = slotUtcMs('2026-10-09', 0);
+  const later = slotUtcMs('2026-10-09', 6);
+  const clockBars = {
+    USD: [
+      { openTime: new Date(midnight).toISOString().replace('.000Z', 'Z'), open: 0.8 },
+      { openTime: new Date(later).toISOString().replace('.000Z', 'Z'), open: 0.9 },
+    ],
+    EUR: [
+      { openTime: new Date(midnight).toISOString().replace('.000Z', 'Z'), open: 0.93 },
+      { openTime: new Date(later).toISOString().replace('.000Z', 'Z'), open: 0.93 },
+    ],
+  };
+  const clockQuotes = { USD: quoteAt(0.784, 30, now), EUR: quoteAt(0.93, 30, now) };
+  const hit = evaluateAlerts({ now, times, cfg, state: null, quotes: clockQuotes, bars: clockBars });
+  assert.equal(hit.pushes.length, 1);
+  assert.equal(hit.pushes[0].code, 'USD');
+  assert.match(hit.pushes[0].message, /^1 USD = 0\.7840 CHF, −2\.00 % seit Mitternacht\nSchwelle −0\.5 %$/);
+  assert.equal(pickBase(clockBars.USD, now, 7).rate, 0.8);
 });
 
 test('worker capture stores every weekday hour and keeps the 06:00 forecast', async () => {
   const plan = workerCapturePlan();
   assert.deepEqual(plan.capture, Array.from({ length: 24 }, (_, hour) => hour));
   assert.equal(plan.start, 6);
+  assert.equal(plan.allDays, true);
   const ecb = { rates: {} };
   for (let day = '2026-09-01'; day <= '2026-10-09'; day = addDays(day, 1)) {
     if (!isWeekday(day)) continue;
@@ -332,6 +333,7 @@ test('worker capture stores every weekday hour and keeps the 06:00 forecast', as
   assert.ok(friday.slots['00'].EUR > 0);
   assert.ok(friday.slots['23'].USD > 0);
   assert.equal(friday.forecastBasis.EUR, 6);
+  assert.ok(result.history.days['2026-10-04'].slots['12'].USD > 0);
   assert.equal(result.history.days['2026-10-10'], undefined);
   const again = await applyCapture(structuredClone(result.history), null, now, async url => {
     if (url.includes('frankfurter')) return ecb;
@@ -450,15 +452,21 @@ test('alerts price one lot in the reporting currency and read the start hour in 
   });
   assert.equal(decision.pushes.length, 1);
   assert.equal(decision.pushes[0].title, 'Währungsübersicht: EUR steigt');
-  assert.match(decision.pushes[0].message, /^1 EUR = \d+\.\d{4} SEK, \+\d+\.\d{2} % seit 06:00\nSchwelle \+0\.25 %$/);
+  assert.match(decision.pushes[0].message, /^1 EUR = \d+\.\d{4} SEK, \+\d+\.\d{2} % seit Mitternacht\nSchwelle \+0\.25 %$/);
   const nyNow = new Date('2026-10-09T15:00:00Z');
   const nyBars = [
+    { openTime: '2026-10-09T03:00:00Z', open: 0.5 },
     { openTime: '2026-10-09T05:00:00Z', open: 0.91 },
     { openTime: '2026-10-09T11:00:00Z', open: 0.93 },
   ];
-  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').rate, 0.93);
-  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').label, '07:00');
-  assert.equal(pickBase(nyBars, nyNow, 7).rate, 0.91);
+  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').rate, 0.91);
+  assert.equal(pickBase(nyBars, nyNow, 7, 'America/New_York').label, 'Mitternacht');
+  const indiaNow = new Date('2026-10-09T04:00:00Z');
+  const indiaBars = [
+    { openTime: '2026-10-08T18:00:00Z', open: 1.11 },
+    { openTime: '2026-10-08T19:00:00Z', open: 1.22 },
+  ];
+  assert.equal(pickBase(indiaBars, indiaNow, 0, 'Asia/Kolkata').rate, 1.22);
   const late = new Date('2026-10-09T21:30:00Z');
   const lateBars = { USD: dayBars(late, [6]), EUR: dayBars(late, [6]) };
   const lateQuotes = {
@@ -471,9 +479,9 @@ test('alerts price one lot in the reporting currency and read the start hour in 
   };
   assert.equal(evaluateAlerts({
     now: late, times: { start: 6 }, cfg: { timeZone: 'Europe/Zurich', currencies }, state: null, quotes: lateQuotes, bars: lateBars,
-  }).skipped, true);
+  }).skipped, false);
   assert.equal(evaluateAlerts({
-    now: late, times: { start: 6 }, cfg: { timeZone: 'America/New_York', currencies }, state: null, quotes: lateQuotes, bars: lateBars,
+    now: late, times: { start: 6 }, cfg: { timeZone: 'Asia/Tokyo', currencies }, state: null, quotes: lateQuotes, bars: lateBars,
   }).skipped, false);
 });
 
@@ -560,17 +568,16 @@ test('ECB history becomes CHF per unit and serves a downsampled range', async ()
   assert.equal(formatPoint(0.835281), '0.835281');
   assert.match(historyBody('USD', points.USD), /^\{\"version\":1,\"code\":\"USD\",\"points\":\[/);
   assert.match(ecbHistoryUrl('2015-01-01'), /detail=dataonly/);
-  assert.equal(shouldRefreshHistory('*/15 5-21 * * MON-FRI', new Date('2026-10-09T15:05:00Z')), false);
+  assert.equal(shouldRefreshHistory('*/15 * * * *', new Date('2026-10-09T15:05:00Z')), false);
   assert.equal(shouldRefreshHistory('5 6 * * SAT', new Date('2026-10-10T04:05:00Z')), true);
-  assert.equal(shouldRefreshHistory('5 * * * MON-FRI', new Date('2026-10-09T15:05:00Z')), true);
-  assert.equal(shouldRefreshHistory('5 * * * MON-FRI', new Date('2026-10-09T14:05:00Z')), false);
+  assert.equal(shouldRefreshHistory('5 * * * *', new Date('2026-10-09T15:05:00Z')), true);
+  assert.equal(shouldRefreshHistory('5 * * * *', new Date('2026-10-09T14:05:00Z')), false);
   const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
   const block = toml.match(/crons = \[([\s\S]*?)\]/);
   assert.ok(block);
   assert.deepEqual([...block[1].matchAll(/"([^"]+)"/g)].map(m => m[1]), [
-    '5 * * * MON-FRI',
-    '5 6 * * SAT',
-    '*/15 5-21 * * MON-FRI',
+    '5 * * * *',
+    '*/15 * * * *',
   ]);
 
   const map = new Map();

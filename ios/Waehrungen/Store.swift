@@ -7,6 +7,7 @@ final class RatesStore: ObservableObject {
     @Published var base = "CHF"
     @Published var order: [String] = ["CHF", "EUR", "USD", "GBP"]
     @Published var hidden: Set<String> = []
+    @Published var showCompare = false
     @Published var showChart = false
     @Published var showIntervals = false
     @Published var showForecast = false
@@ -286,7 +287,7 @@ final class RatesStore: ObservableObject {
     }
 
     func loadHistoryIfNeeded() async {
-        guard showChart, span != .day, span != .week else { return }
+        guard showChart || showCompare, span != .day, span != .week else { return }
         var codes = visible.filter { $0 != base }
         if base != "CHF" { codes.append(base) }
         let span = self.span
@@ -321,7 +322,7 @@ final class RatesStore: ObservableObject {
         return Quote(value: value, raw: per)
     }
 
-    /// Move from the user's start hour on the quoted day, or that day's first stored rate, to the shown price.
+    /// Move from the first rate after local midnight to the shown price.
     func dayChange(_ code: String) -> (text: String, delta: Double)? {
         guard code != base, let close = quote(code).value, abs(close) > 0.00005 else { return nil }
         guard let open = dayOpen(code), abs(open) > 0.00005 else { return nil }
@@ -337,19 +338,16 @@ final class RatesStore: ObservableObject {
         return directPrice(code, per)
     }
 
-    /// Stored slots are Zurich hours. `hour` is a wall hour on the device.
+    /// First stored Zurich slot at or after local midnight. A half-hour zone uses the next hour, not the one before midnight.
     private func dayOpen(_ code: String) -> Double? {
         let today = Self.localTodayKey()
         for offset in 0..<12 {
-            guard let day = Self.addDays(today, -offset) else { continue }
-            if let slot = Self.zurichSlot(localDay: day, localHour: timeStart),
-               let price = priceAt(code, day: slot.day, hour: slot.hour) {
-                return price
-            }
-            if let first = slotsOnLocalDay(code, localDay: day).first,
-               let price = priceAt(code, day: first.zurichDay, hour: first.zurichHour) {
-                return price
-            }
+            guard let day = Self.addDays(today, -offset),
+                  let from = Self.localWall(day, hour: 0),
+                  let next = Self.addDays(day, 1),
+                  let until = Self.localWall(next, hour: 0),
+                  let price = firstPrice(code, from: from, until: until) else { continue }
+            return price
         }
         return nil
     }
@@ -359,36 +357,45 @@ final class RatesStore: ObservableObject {
         let today = Self.localTodayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset),
-                  let slot = Self.zurichSlot(localDay: day, localHour: hour) else { continue }
-            if let price = priceAt(code, day: slot.day, hour: slot.hour) { return price }
+                  let from = Self.localWall(day, hour: hour) else { continue }
+            let until: Date?
+            if hour < 23 {
+                until = Self.localWall(day, hour: hour + 1)
+            } else if let next = Self.addDays(day, 1) {
+                until = Self.localWall(next, hour: 0)
+            } else {
+                until = nil
+            }
+            guard let until, let price = firstPrice(code, from: from, until: until) else { continue }
+            return price
         }
         return nil
     }
 
-    private struct LocalSlot {
-        var zurichDay: String
-        var zurichHour: Int
-        var localHour: Int
-    }
-
-    /// Zurich slots whose wall time falls on this local calendar day, earliest local hour first.
-    private func slotsOnLocalDay(_ code: String, localDay: String) -> [LocalSlot] {
-        var hits: [LocalSlot] = []
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .current
-        for shift in [-1, 0, 1] {
-            guard let zDay = Self.addDays(localDay, shift), let slots = days[zDay]?.slots else { continue }
-            for (key, codes) in slots {
-                guard let zh = Int(key), let chf = codes[code], chf > 0 else { continue }
-                guard let instant = Self.dayDate(zDay, hour: zh) else { continue }
-                let c = cal.dateComponents([.year, .month, .day, .hour], from: instant)
-                guard let y = c.year, let m = c.month, let d = c.day, let h = c.hour else { continue }
-                let day = String(format: "%04d-%02d-%02d", y, m, d)
-                if day != localDay { continue }
-                hits.append(LocalSlot(zurichDay: zDay, zurichHour: zh, localHour: h))
+    /// Earliest stored rate whose Zurich timestamp is in `[from, until)`.
+    private func firstPrice(_ code: String, from: Date, until: Date) -> Double? {
+        guard let start = Self.addDays(Self.zurichKey(from), -1) else { return nil }
+        let end = Self.zurichKey(until)
+        var bestAt: Date?
+        var best: Double?
+        var day = start
+        while day <= end {
+            if let slots = days[day]?.slots {
+                for (key, codes) in slots {
+                    guard let hour = Int(key), (codes[code] ?? 0) > 0,
+                          let instant = Self.dayDate(day, hour: hour),
+                          instant >= from, instant < until,
+                          let price = priceAt(code, day: day, hour: hour) else { continue }
+                    if bestAt == nil || instant < bestAt! {
+                        bestAt = instant
+                        best = price
+                    }
+                }
             }
+            guard let next = Self.addDays(day, 1) else { break }
+            day = next
         }
-        return hits.sorted { $0.localHour < $1.localHour }
+        return best
     }
 
     func forecast(_ code: String) -> ForecastLine? {
@@ -405,10 +412,7 @@ final class RatesStore: ObservableObject {
             }
         }
         guard found, let day = days[dayKey] else { return nil }
-        let basisHour = day.forecastBasis?[code] ?? day.forecast7Basis?[code]
-        let basisKey = basisHour.map { String(format: "%02d", $0) }
-        let basisChf = basisHour.flatMap { day.slots?[String(format: "%02d", $0)]?[code] }
-        let basis = directPrice(code, basisChf.flatMap { reportingFromCHF($0, day: dayKey, hourKey: basisKey) })
+        let basis = dayOpen(code)
         let todayV = directPrice(code, forecastInReporting(day.forecast?[code], day: day))
         let weekV = directPrice(code, forecastInReporting(day.forecast7?[code], day: day))
         return ForecastLine(
@@ -451,9 +455,11 @@ final class RatesStore: ObservableObject {
         return local
     }
 
-    func moveVisible(from source: IndexSet, to destination: Int) {
-        var shown = visible
-        shown.move(fromOffsets: source, toOffset: destination)
+    /// `ids` includes the comparison-chart row when it is on the list. That row is not a currency.
+    func moveBoard(ids: [String], from source: IndexSet, to destination: Int) {
+        var rows = ids
+        rows.move(fromOffsets: source, toOffset: destination)
+        let shown = rows.filter { $0 != "compare" }
         order = shown + order.filter { !shown.contains($0) }
         if let top = shown.first, top != base {
             base = top
@@ -856,6 +862,7 @@ final class RatesStore: ObservableObject {
            let list = try? JSONDecoder().decode([String].self, from: data) {
             hidden = Set(list)
         }
+        if defaults.object(forKey: "wu.showCompare") != nil { showCompare = defaults.bool(forKey: "wu.showCompare") }
         if defaults.object(forKey: "wu.showChart") != nil { showChart = defaults.bool(forKey: "wu.showChart") }
         if defaults.object(forKey: "wu.showIntervals") != nil { showIntervals = defaults.bool(forKey: "wu.showIntervals") }
         if defaults.object(forKey: "wu.showForecast") != nil { showForecast = defaults.bool(forKey: "wu.showForecast") }
@@ -881,6 +888,7 @@ final class RatesStore: ObservableObject {
         defaults.set(base, forKey: "wu.baseCurrency")
         if let data = try? JSONEncoder().encode(order) { defaults.set(data, forKey: "wu.currencyOrder") }
         if let data = try? JSONEncoder().encode(Array(hidden)) { defaults.set(data, forKey: "wu.currencyHidden") }
+        defaults.set(showCompare, forKey: "wu.showCompare")
         defaults.set(showChart, forKey: "wu.showChart")
         defaults.set(showIntervals, forKey: "wu.showIntervals")
         defaults.set(showForecast, forKey: "wu.showForecast")
@@ -911,6 +919,11 @@ final class RatesStore: ObservableObject {
         return fmt.string(from: Date())
     }
 
+    /// Device view options. A future iCloud sync of settings should copy every one of these keys.
+    static let viewSettingKeys = [
+        "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference", "wu.chartSpan",
+    ]
+
     static func localTodayKey() -> String {
         let fmt = DateFormatter()
         fmt.calendar = Calendar(identifier: .gregorian)
@@ -920,9 +933,17 @@ final class RatesStore: ObservableObject {
         return fmt.string(from: Date())
     }
 
-    /// Zurich calendar day and hour that contain this local wall hour. Offsets that are not a whole hour floor to the Zurich hour.
-    static func zurichSlot(localDay: String, localHour: Int) -> (day: String, hour: Int)? {
-        let bits = localDay.split(separator: "-")
+    static func zurichKey(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: date)
+    }
+
+    static func localWall(_ day: String, hour: Int) -> Date? {
+        let bits = day.split(separator: "-")
         guard bits.count == 3, let y = Int(bits[0]), let m = Int(bits[1]), let d = Int(bits[2]) else { return nil }
         var local = Calendar(identifier: .gregorian)
         local.timeZone = .current
@@ -932,15 +953,34 @@ final class RatesStore: ObservableObject {
         parts.year = y
         parts.month = m
         parts.day = d
-        parts.hour = localHour
+        parts.hour = hour
         parts.minute = 0
         parts.second = 0
-        guard let instant = local.date(from: parts) else { return nil }
-        var zurich = Calendar(identifier: .gregorian)
-        zurich.timeZone = TimeZone(identifier: "Europe/Zurich") ?? .current
-        let z = zurich.dateComponents([.year, .month, .day, .hour], from: instant)
-        guard let zy = z.year, let zm = z.month, let zd = z.day, let zh = z.hour else { return nil }
-        return (String(format: "%04d-%02d-%02d", zy, zm, zd), zh)
+        return local.date(from: parts)
+    }
+
+    struct CompareSample: Identifiable {
+        var code: String
+        var day: String
+        var date: Date
+        var percent: Double
+        var id: String { "\(code)|\(day)|\(date.timeIntervalSince1970)" }
+    }
+
+    /// Percent change versus the reporting currency. Every line is 0 at its first point in the selected period.
+    func compareLines() -> [(code: String, points: [CompareSample])] {
+        visible.filter { $0 != base }.compactMap { code in
+            let series = series(code)
+            guard series.count >= 2, let first = series.first?.value, abs(first) > 0.00005 else { return nil }
+            let points = series.map { point in
+                CompareSample(code: code, day: point.day, date: point.date, percent: (point.value / first - 1) * 100)
+            }
+            return (code, points)
+        }
+    }
+
+    func compareIndex(_ code: String) -> Int {
+        visible.filter { $0 != base }.firstIndex(of: code) ?? 0
     }
 
     static func addDays(_ key: String, _ count: Int) -> String? {

@@ -364,3 +364,245 @@ private enum ChartFormat {
         return pretty(point.day)
     }
 }
+
+enum ComparePalette {
+    static let colors: [Color] = [
+        Color(red: 0.000, green: 0.478, blue: 1.000),
+        Color(red: 1.000, green: 0.584, blue: 0.000),
+        Color(red: 0.686, green: 0.322, blue: 0.871),
+        Color(red: 0.204, green: 0.780, blue: 0.349),
+        Color(red: 1.000, green: 0.231, blue: 0.188),
+        Color(red: 0.353, green: 0.784, blue: 0.980),
+        Color(red: 1.000, green: 0.176, blue: 0.333),
+        Color(red: 1.000, green: 0.800, blue: 0.000),
+        Color(red: 0.188, green: 0.690, blue: 0.780),
+        Color(red: 0.345, green: 0.337, blue: 0.839),
+        Color(red: 0.635, green: 0.518, blue: 0.369),
+        Color(red: 0.557, green: 0.557, blue: 0.576),
+        Color(red: 0.000, green: 0.780, blue: 0.745),
+        Color(red: 0.910, green: 0.310, blue: 0.600),
+        Color(red: 0.400, green: 0.800, blue: 0.200),
+        Color(red: 0.550, green: 0.350, blue: 0.150),
+        Color(red: 0.250, green: 0.450, blue: 0.850),
+        Color(red: 0.850, green: 0.250, blue: 0.150),
+    ]
+
+    static func color(_ index: Int) -> Color {
+        colors[index % colors.count]
+    }
+}
+
+private struct CompareReadout: Identifiable {
+    var code: String
+    var color: Color
+    var percent: Double
+    var id: String { code }
+}
+
+private struct CompareLine {
+    var code: String
+    var color: Color
+    var full: [RatePoint]
+    var drawn: [RatePoint]
+}
+
+private func compareLines(from store: RatesStore) -> [CompareLine] {
+    store.compareLines().map { line in
+        let full = line.points.map { RatePoint(day: $0.day, hour: nil, value: $0.percent, raw: $0.percent, date: $0.date) }
+        return CompareLine(code: line.code, color: ComparePalette.color(store.compareIndex(line.code)), full: full, drawn: downsample(full, max: 240))
+    }
+}
+
+struct CompareChartCard: View {
+    @EnvironmentObject private var store: RatesStore
+    var preview: Bool = false
+    @State private var showDetail = false
+
+    var body: some View {
+        let lines = compareLines(from: store)
+        return VStack(alignment: .leading, spacing: 0) {
+            if lines.contains(where: { $0.drawn.count >= 2 }) {
+                ComparePlot(lines: lines, height: 80, scrubbing: false, caption: store.span.caption, preview: preview) {
+                    open()
+                }
+            } else {
+                Text("Keine Kurse in diesem Zeitraum.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+            }
+        }
+        .sheet(isPresented: $showDetail) {
+            CompareDetailSheet().environmentObject(store)
+        }
+    }
+
+    private func open() {
+        guard !preview else { return }
+        showDetail = true
+    }
+}
+
+struct CompareDetailSheet: View {
+    @EnvironmentObject private var store: RatesStore
+
+    var body: some View {
+        let lines = compareLines(from: store)
+        return NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Bezogen auf \(store.base)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if lines.contains(where: { $0.drawn.count >= 2 }) {
+                        ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.span.caption, preview: false, onOpen: {})
+                        spanPicker
+                    } else {
+                        Text("Keine Kurse in diesem Zeitraum.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        spanPicker
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("Entwicklung")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .background(Color(uiColor: .systemGroupedBackground))
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private var spanPicker: some View {
+        Picker("Zeitraum", selection: Binding(
+            get: { store.span },
+            set: { newValue in
+                guard newValue != store.span else { return }
+                store.span = newValue
+                store.saveView()
+                Task { await store.loadHistoryIfNeeded() }
+            }
+        )) {
+            ForEach(ChartSpan.allCases) { item in
+                Text(item.rawValue).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+}
+
+private struct ComparePlot: View {
+    let lines: [CompareLine]
+    let height: CGFloat
+    let scrubbing: Bool
+    let caption: String
+    var preview: Bool = false
+    var onOpen: () -> Void
+    @State private var scrubDate: Date?
+
+    var body: some View {
+        let drawn = lines.flatMap(\.drawn)
+        let hi = max(drawn.map(\.value).max() ?? 1, 0)
+        let lo = min(drawn.map(\.value).min() ?? -1, 0)
+        let span = max(hi - lo, 0.4)
+        let pad = span * 0.12
+        let readout = scrubbing ? scrubReadout : nil
+        return Chart {
+            ForEach(lines, id: \.code) { line in
+                ForEach(line.drawn) { point in
+                    LineMark(
+                        x: .value("Zeit", point.date),
+                        y: .value("Prozent", point.value),
+                        series: .value("Währung", line.code)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(line.color)
+                    .lineStyle(StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+                }
+            }
+            RuleMark(y: .value("Null", 0))
+                .foregroundStyle(Color.gray.opacity(0.45))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartXScale(range: .plotDimension(startPadding: 0, endPadding: 3))
+        .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
+        .chartPlotStyle { $0.clipped() }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                if scrubbing {
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                            guard let plotFrame = proxy.plotFrame else { return }
+                            let x = value.location.x - geo[plotFrame].origin.x
+                            scrubDate = proxy.value(atX: x, as: Date.self)
+                        }.onEnded { _ in scrubDate = nil })
+                }
+            }
+        }
+        .frame(height: height)
+        .clipped()
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .topLeading) {
+            Group {
+                if preview {
+                    Text(caption)
+                } else {
+                    Button(action: onOpen) { Text(caption) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Zeitraum \(caption)")
+        }
+        .overlay(alignment: .top) {
+            if let readout, scrubbing {
+                readoutView(readout)
+                    .padding(.top, 16)
+            }
+        }
+    }
+
+    private var scrubReadout: [CompareReadout]? {
+        guard let scrubDate else { return nil }
+        return lines.compactMap { line in
+            guard let point = line.full.min(by: { abs($0.date.timeIntervalSince(scrubDate)) < abs($1.date.timeIntervalSince(scrubDate)) }) else { return nil }
+            return CompareReadout(code: line.code, color: line.color, percent: point.value)
+        }
+    }
+
+    private func readoutView(_ rows: [CompareReadout]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(rows) { row in
+                HStack(spacing: 6) {
+                    Circle().fill(row.color).frame(width: 7, height: 7)
+                    Text(row.code)
+                    Text(formatComparePercent(row.percent))
+                }
+            }
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .monospacedDigit()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 8))
+        .foregroundStyle(.white)
+    }
+}
+
+private func formatComparePercent(_ value: Double) -> String {
+    let pct = NumberFormatter()
+    pct.locale = Locale(identifier: "de_CH")
+    pct.minimumFractionDigits = 2
+    pct.maximumFractionDigits = 2
+    pct.numberStyle = .decimal
+    let body = pct.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+    let sign = value > 0.005 ? "+" : value < -0.005 ? "−" : ""
+    return "\(sign)\(body) %"
+}

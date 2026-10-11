@@ -268,7 +268,7 @@ export default {
   fetch: handle,
   async scheduled(event, env) {
     const cron = String(event.cron || '');
-    // `*/15 5-21 * * MON-FRI` sind die Alarme. `5 * * * MON-FRI` und `5 6 * * SAT` erfassen.
+    // `*/15 * * * *` sind die Alarme. `5 * * * *` erfasst, auch wenn der Markt geschlossen ist.
     if (cron.startsWith('*/15')) {
       await runFxAlerts(env);
       return;

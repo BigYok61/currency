@@ -76,6 +76,7 @@ let showDevWeek = true;
 let viewMode = 'intervals';
 let chartRange = '1M';
 /** Additive Ansicht (Version 2.1). Erster Start: keine Blöcke, nur Name, Kurs und Kehrwert. */
+let showCompare = false;
 let showChart = false;
 let showIntervals = false;
 let showForecast = false;
@@ -246,11 +247,26 @@ function localToday() {
   const p = zoneParts(new Date(), DEVICE_TZ);
   return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
 }
-/** Zurich day and hour containing a local wall hour. A half-hour offset floors to the Zurich hour. */
-function zurichSlot(localDay, localHour) {
-  const instant = zonedWall(localDay, localHour, DEVICE_TZ);
-  const p = zoneParts(instant, TZ);
-  return { day: `${p.year}-${pad(p.month)}-${pad(p.day)}`, hour: p.hour };
+/** Earliest Zurich slot whose timestamp is in [fromMs, untilMs). Half-hour zones take the next hour, not the one before. */
+function firstSlotAt(code, fromMs, untilMs) {
+  const startParts = zoneParts(new Date(fromMs - 36 * 3600000), TZ);
+  let day = `${startParts.year}-${pad(startParts.month)}-${pad(startParts.day)}`;
+  const endParts = zoneParts(new Date(Math.max(untilMs - 1, fromMs)), TZ);
+  const endDay = `${endParts.year}-${pad(endParts.month)}-${pad(endParts.day)}`;
+  let best = null;
+  for (let i = 0; i < 5; i++) {
+    const slots = history.days[day]?.slots || {};
+    for (const key of Object.keys(slots)) {
+      const hour = parseHour(key);
+      if (hour == null || val({ code }, day, hour) == null) continue;
+      const t = zonedWall(day, hour, TZ).getTime();
+      if (t < fromMs || t >= untilMs) continue;
+      if (!best || t < best.t) best = { t, day, hour };
+    }
+    if (day >= endDay) break;
+    day = addDays(day, 1);
+  }
+  return best;
 }
 function weekdayKeys(from, to) {
   const out = []; const d = new Date(from + 'T12:00:00Z'); const end = new Date(to + 'T12:00:00Z');
@@ -346,8 +362,8 @@ function shownActual7(c, k) {
 }
 /** Stunde für «Veränderung seit …»: Start, sonst erste erfasste Stunde des Tages, sonst 08:00. */
 function changeBasis(c, dayKey) {
-  const slot = zurichSlot(dayKey, schedule.start);
-  const startHour = slot && slot.day === dayKey ? slot.hour : null;
+  const hit = firstSlotAt(c.code, zonedWall(dayKey, 0, DEVICE_TZ).getTime(), zonedWall(addDays(dayKey, 1), 0, DEVICE_TZ).getTime());
+  const startHour = hit && hit.day === dayKey ? hit.hour : null;
   if (c.code === 'CHF' && baseCurrency !== 'CHF') return startHour != null && baseDenom(dayKey, startHour) != null ? startHour : null;
   if (startHour != null && val(c, dayKey, startHour) != null) return startHour;
   const slots = history.days[dayKey]?.slots || {};
@@ -427,11 +443,13 @@ function clientForecast7(code, day, basisHour) {
 function displayForecast(c, dayKey, kind) {
   const stored = kind === '7' ? fc7(c, dayKey) : fc(c, dayKey);
   const basis = forecastBasisHour(c, dayKey, kind);
-  const start = zurichSlot(dayKey, schedule.start);
-  const sameSlot = start.day === dayKey && basis === start.hour;
+  const open = firstSlotAt(c.code, zonedWall(dayKey, 0, DEVICE_TZ).getTime(), zonedWall(addDays(dayKey, 1), 0, DEVICE_TZ).getTime());
+  const sameSlot = open && open.day === dayKey && basis === open.hour;
   if (runtime !== 'cloudflare' || (stored != null && sameSlot)) return { value: stored, basis };
-  const computed = kind === '7' ? clientForecast7(c.code, start.day, start.hour) : clientForecastDay(c.code, start.day, start.hour);
-  if (computed != null) return { value: computed, basis: start.hour };
+  if (open) {
+    const computed = kind === '7' ? clientForecast7(c.code, open.day, open.hour) : clientForecastDay(c.code, open.day, open.hour);
+    if (computed != null) return { value: computed, basis: open.hour };
+  }
   return { value: stored, basis };
 }
 
@@ -771,6 +789,7 @@ function readViewOptions() {
     if (!raw) return;
     const data = JSON.parse(raw);
     if (data && data.v === 21) {
+      showCompare = data.compare === true;
       showChart = data.chart !== false;
       showIntervals = data.intervals !== false;
       showForecast = data.forecast !== false;
@@ -812,6 +831,7 @@ function writeViewOptions() {
   try {
     localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({
       v: 21,
+      compare: showCompare,
       chart: showChart,
       intervals: showIntervals,
       forecast: showForecast,

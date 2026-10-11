@@ -171,11 +171,12 @@ function pointList(points) {
   return bits.join(',');
 }
 
-/** Werktags um 17 Uhr Zürich (5 * * * MON-FRI) und am Samstag (5 6 * * SAT). Der 15-Minuten-Cron bleibt aussen vor. */
+/** Stündliche Erfassung um 17 Uhr Zürich. Der 15-Minuten-Cron bleibt aussen vor. */
 export function shouldRefreshHistory(cron, date = new Date()) {
   const text = String(cron || '');
   if (text.startsWith('*/15')) return false;
   if (text.startsWith('5 6')) return true;
+  if (!text.startsWith('5 ')) return false;
   return zurichParts(date).hour === 17;
 }
 

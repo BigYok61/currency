@@ -256,23 +256,6 @@ function dayMoveText(delta, pct) {
   return `${arrowOf(delta)} ${signedRate(delta)} ${baseCurrency} (${sign}${body} %)`.trim();
 }
 /** Change from the user's start hour today, or the first stored rate that day, to the shown price. */
-function slotsOnLocalDay(c, localDay) {
-  const hits = [];
-  for (const shift of [-1, 0, 1]) {
-    const zDay = addDays(localDay, shift);
-    const slots = history.days[zDay]?.slots || {};
-    for (const key of Object.keys(slots)) {
-      const hour = parseHour(key);
-      if (hour == null || val(c, zDay, hour) == null) continue;
-      const p = zoneParts(zonedWall(zDay, hour, TZ), DEVICE_TZ);
-      const day = `${p.year}-${pad(p.month)}-${pad(p.day)}`;
-      if (day !== localDay) continue;
-      hits.push({ day: zDay, hour, localHour: p.hour });
-    }
-  }
-  hits.sort((a, b) => a.localHour - b.localHour || a.hour - b.hour);
-  return hits;
-}
 function dayMove(c) {
   if (!c || c.code === baseCurrency) return null;
   const q = quoteOf(c);
@@ -280,12 +263,9 @@ function dayMove(c) {
   const today = localToday();
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
-    const start = zurichSlot(day, schedule.start);
-    let open = directPrice(c.code, shown(c, start.day, start.hour));
-    if (open == null) {
-      const hits = slotsOnLocalDay(c, day);
-      if (hits.length) open = directPrice(c.code, shown(c, hits[0].day, hits[0].hour));
-    }
+    const hit = firstSlotAt(c.code, zonedWall(day, 0, DEVICE_TZ).getTime(), zonedWall(addDays(day, 1), 0, DEVICE_TZ).getTime());
+    if (!hit) continue;
+    const open = directPrice(c.code, shown(c, hit.day, hit.hour));
     if (open == null || !(Math.abs(open) > EPS)) continue;
     const delta = q.v - open;
     return { delta, text: dayMoveText(delta, delta / open * 100), cls: forecastTone(delta) };
@@ -319,9 +299,12 @@ function hourHit(code, hour) {
   const today = localToday();
   for (let i = 0; i < 12; i++) {
     const day = addDays(today, -i);
-    const slot = zurichSlot(day, hour);
-    const raw = shown({ code }, slot.day, slot.hour);
-    if (raw != null) return { v: directPrice(code, raw), raw, day: slot.day };
+    const from = zonedWall(day, hour, DEVICE_TZ).getTime();
+    const until = hour < 23 ? zonedWall(day, hour + 1, DEVICE_TZ).getTime() : zonedWall(addDays(day, 1), 0, DEVICE_TZ).getTime();
+    const hit = firstSlotAt(code, from, until);
+    if (!hit) continue;
+    const raw = shown({ code }, hit.day, hit.hour);
+    if (raw != null) return { v: directPrice(code, raw), raw, day: hit.day };
   }
   return null;
 }
@@ -339,10 +322,8 @@ function forecastBits(c) {
   const day = latestForecastDay();
   const dayFc = shownForecast(c, day, 'day');
   const weekFc = shownForecast(c, day, '7');
-  const basisHour = dayFc.basis != null ? dayFc.basis : weekFc.basis;
-  const start = zurichSlot(day, schedule.start);
-  const basisDay = start && basisHour === start.hour ? start.day : day;
-  const basisRaw = basisHour != null ? shown(c, basisDay, basisHour) : null;
+  const open = firstSlotAt(c.code, zonedWall(day, 0, DEVICE_TZ).getTime(), zonedWall(addDays(day, 1), 0, DEVICE_TZ).getTime());
+  const basisRaw = open ? shown(c, open.day, open.hour) : null;
   const basis = directPrice(c.code, basisRaw);
   const todayV = directPrice(c.code, dayFc.value);
   const weekV = directPrice(c.code, weekFc.value);
@@ -568,6 +549,73 @@ function chartBlock(c, suffix, given) {
 function rangeCaption() {
   return CHART_RANGES.find(item => item.id === chartRange)?.caption || '1 Monat';
 }
+const COMPARE_COLORS = ['#007aff', '#ff9500', '#af52de', '#34c759', '#ff3b30', '#5ac8fa', '#ff2d55', '#ffcc00', '#30b0c7', '#5856d6', '#a2845e', '#8e8e93', '#00c7be', '#e84f99', '#66cc33', '#8c5930', '#4073d9', '#d94026'];
+let compareDetailLines = [];
+function compareColor(code) {
+  const foreign = boardRows().filter(c => c.code !== baseCurrency);
+  const index = Math.max(0, foreign.findIndex(c => c.code === code));
+  return COMPARE_COLORS[index % COMPARE_COLORS.length];
+}
+function compareSeries() {
+  return boardRows().filter(c => c.code !== baseCurrency).map(c => {
+    const pts = chartPoints(c.code);
+    if (!pts || pts.length < 2 || !(Math.abs(pts[0].v) > EPS)) return null;
+    const origin = pts[0].v;
+    const mapped = pts.map(p => ({ ...p, v: (p.v / origin - 1) * 100 }));
+    return { code: c.code, color: compareColor(c.code), points: downsamplePoints(mapped, 240) };
+  }).filter(Boolean);
+}
+function comparePctText(value) {
+  const body = Math.abs(value).toFixed(2);
+  const sign = value > 0.005 ? '+' : value < -0.005 ? '−' : '';
+  return `${sign}${body} %`;
+}
+function compareSvg(lines, height) {
+  const all = lines.flatMap(line => line.points);
+  let lo = Math.min(0, ...all.map(p => p.v));
+  let hi = Math.max(0, ...all.map(p => p.v));
+  if (!(hi - lo > 1e-9)) { lo = -1; hi = 1; }
+  const padY = (hi - lo) * 0.12;
+  lo -= padY;
+  hi += padY;
+  const days = [...new Set(all.map(p => p.day))].sort();
+  const xOf = day => (days.length < 2 ? 160 : (days.indexOf(day) / (days.length - 1)) * 320);
+  const yOf = pct => 8 + (1 - (pct - lo) / (hi - lo)) * (height - 16);
+  const zero = yOf(0);
+  const paths = lines.map(line => {
+    const d = line.points.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.day).toFixed(2)} ${yOf(p.v).toFixed(2)}`).join(' ');
+    return `<path d="${d}" fill="none" stroke="${line.color}" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }).join('');
+  return `<svg class="plot" viewBox="0 0 320 ${height}" role="img" aria-label="Entwicklung der Währungen"><line x1="0" x2="320" y1="${zero.toFixed(2)}" y2="${zero.toFixed(2)}" stroke="#8e8e93" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>${paths}</svg>`;
+}
+function compareChartHtml(preview) {
+  const lines = compareSeries();
+  if (!lines.length) return '<div class="cmp-card"><p class="ref-src">Keine Kurse in diesem Zeitraum.</p></div>';
+  const open = preview ? '' : ' data-compare="1"';
+  return `<div class="cmp-card"${open}><div class="cmp-frame">${compareSvg(lines, 80)}<span class="cmp-caption">${esc(rangeCaption())}</span></div></div>`;
+}
+function openCompare() {
+  chartDetail = '__compare__';
+  const dlg = $('chartDlg');
+  if (!dlg) return;
+  dlg.classList.add('sheet');
+  paintChartDetail();
+  bindSwipe(dlg);
+  if (!dlg.open) dlg.showModal();
+}
+function paintCompareDetail() {
+  const dlg = $('chartDlg');
+  if (!dlg) return;
+  const lines = compareSeries();
+  compareDetailLines = lines;
+  const buttons = CHART_RANGES.map(item => `<button type="button" data-range="${item.id}" aria-pressed="${item.id === chartRange ? 'true' : 'false'}" aria-label="${esc(item.aria)}">${esc(item.label)}</button>`).join('');
+  const rows = lines.map(line => {
+    const last = line.points[line.points.length - 1];
+    return `<div class="cmp-row"><span class="cmp-dot" style="background:${line.color}"></span><span>${esc(line.code)}</span><span>${esc(comparePctText(last.v))}</span></div>`;
+  }).join('');
+  dlg.setAttribute('aria-label', 'Entwicklung der Währungen');
+  dlg.innerHTML = `${sheetHead('Entwicklung')}<p class="tm-note">Bezogen auf ${esc(baseCurrency)}</p><div class="cmp-detail" data-compare-plot="1">${lines.length ? compareSvg(lines, 240) : '<p class="ref-src">Keine Kurse in diesem Zeitraum.</p>'}</div><div class="rangebar" role="toolbar" aria-label="Zeitraum">${buttons}</div><div id="cmpReadout">${rows}</div>`;
+}
 function knownSlotRates(code) {
   const out = [];
   for (const hr of HOURS) {
@@ -667,11 +715,12 @@ function cardHtml(c, opts) {
     ? `<div class="amt"><span class="crate"><input data-amount-input inputmode="decimal" enterkeyhint="done" autocomplete="off" aria-label="Betrag in ${esc(c.code)}" value="${esc(convertDraft)}"><span class="unit">${esc(c.code)}</span></span></div>`
     : `<div class="amt">${preview ? `<span class="crate">${esc(rateText(c.code, q.v))}</span>` : amountBtn}</div>`;
   const cls = `ccard${isBase ? ' is-base' : ''}${!unitRates ? ' is-conv' : ''}${editing ? ' is-editing' : ''}`;
-  const sub = esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code));
+  const dot = !isBase && showCompare ? `<span class="cmp-dot" style="background:${compareColor(c.code)}"></span>` : '';
+  const sub = `${dot}${esc(isBase ? `${baseCurrency} · Berichtswährung` : lotCaption(c.code))}`;
   return `<article class="${cls}" data-code="${esc(c.code)}"><div class="crow"><div class="cleft"><div class="namerow"><div class="cname"><span class="name">${esc(ccyName(c))}</span>${alarmHint(c.code)}</div>${actions}</div></div><div class="cright">${amount}</div></div><div class="cmeta"><div class="${subCls}">${sub}</div>${chgSpan}${invSpan}</div>${blocks ? `<div class="blocks">${blocks}</div>` : ''}</article>`;
 }
 function queueHistory(rows, gen) {
-  if (!showChart || chartRange === '1T' || chartRange === '1W') return false;
+  if (!(showChart || showCompare) || chartRange === '1T' || chartRange === '1W') return false;
   const codes = [];
   for (const c of rows) {
     if (c.code !== baseCurrency && cachedHistory(c.code, chartRange) == null) codes.push(c.code);
@@ -693,7 +742,10 @@ function paintPreview() {
   const rows = boardRows();
   const base = rows.find(c => c.code === baseCurrency) || currencyRecord(baseCurrency);
   const foreign = rows.filter(c => c.code !== baseCurrency).slice(0, 2);
-  slot.innerHTML = [base, ...foreign].map(c => cardHtml(c, { preview: true })).join('');
+  slot.innerHTML = [base, ...foreign].map(c => {
+    const html = cardHtml(c, { preview: true });
+    return showCompare && c.code === base.code ? html + compareChartHtml(true) : html;
+  }).join('');
   requestAnimationFrame(() => fitPreview(slot));
 }
 function fitPreview(slot) {
@@ -723,7 +775,10 @@ function render(opts = {}) {
   plots.clear();
   const rows = boardRows();
   const pending = queueHistory(rows, gen);
-  const cards = rows.map(c => cardHtml(c)).join('');
+  const cards = rows.map(c => {
+    const html = cardHtml(c);
+    return showCompare && c.code === baseCurrency ? html + compareChartHtml(false) : html;
+  }).join('');
   const pill = isDefaultConvert() ? '' : `<div class="calc-pill"><span>${esc(pillFmt.format(convertAmount))} ${esc(convertSource)} umgerechnet</span><button type="button" data-calc-reset aria-label="Umrechnung zurücksetzen">×</button></div>`;
   board.innerHTML = `<div class="cap"><span>Währung</span><button type="button" id="baseBtn" class="cap-base">Preis in ${esc(baseCurrency)}</button></div>${pill}${cards}<button type="button" class="add-ccy" aria-label="Währung hinzufügen">${PLUS_ICON}</button>`;
   board.dataset.charts = pending ? 'loading' : 'ready';
@@ -763,8 +818,11 @@ function bindSwipe(dlg) {
   });
   dlg.addEventListener('pointercancel', () => { y0 = null; });
 }
-function checkRow(opt, label, on, extra) {
-  return `<button type="button" class="check" role="checkbox" data-opt="${opt}" aria-checked="${on ? 'true' : 'false'}"><span class="box">${on ? CHECK_MARK : ''}</span><span>${label}${extra || ''}</span></button>`;
+function checkRow(opt, label, on, extra, stacked) {
+  const copy = stacked
+    ? `<span class="check-copy"><span>${label}</span>${extra || ''}</span>`
+    : `<span>${label}${extra || ''}</span>`;
+  return `<button type="button" class="check${stacked ? ' is-stack' : ''}" role="checkbox" data-opt="${opt}" aria-checked="${on ? 'true' : 'false'}"><span class="box">${on ? CHECK_MARK : ''}</span>${copy}</button>`;
 }
 let chartDetail = null;
 function openChart(code) {
@@ -777,6 +835,7 @@ function openChart(code) {
   if (!dlg.open) dlg.showModal();
 }
 function paintChartDetail() {
+  if (chartDetail === '__compare__') { paintCompareDetail(); return; }
   const dlg = $('chartDlg');
   const c = currencyRecord(chartDetail);
   if (!dlg || !c) return;
@@ -813,12 +872,13 @@ function signedRate(v) {
 function renderView() {
   const dlg = $('viewDlg');
   dlg.classList.add('sheet');
-  dlg.innerHTML = `${sheetHead('Ansicht')}<div class="checks">${checkRow('chart', 'Grafik anzeigen', showChart)}${checkRow('intervals', 'Intervalle anzeigen', showIntervals)}${checkRow('forecast', 'Prognose', showForecast, ' <small>heute und 7 Tage</small>')}${checkRow('reference', 'Referenzkurse anzeigen', showReference)}</div><p class="disclaimer">${DISCLAIMER}</p><p class="vorschau-label">Vorschau</p><div class="thumb" id="preview"></div>`;
+  dlg.innerHTML = `${sheetHead('Ansicht')}<div class="checks">${checkRow('compare', 'Entwicklung der Währungen anzeigen', showCompare, '<small>Bezogen auf Berichtswährung</small>', true)}${checkRow('chart', 'Grafik anzeigen', showChart)}${checkRow('intervals', 'Intervalle anzeigen', showIntervals)}${checkRow('forecast', 'Prognose', showForecast, ' <small>heute und 7 Tage</small>')}${checkRow('reference', 'Referenzkurse anzeigen', showReference)}</div><p class="disclaimer">${DISCLAIMER}</p><p class="vorschau-label">Vorschau</p><div class="thumb" id="preview"></div>`;
   paintPreview();
   bindSwipe(dlg);
 }
 function setOpt(key, on) {
-  if (key === 'chart') showChart = on;
+  if (key === 'compare') showCompare = on;
+  else if (key === 'chart') showChart = on;
   else if (key === 'intervals') showIntervals = on;
   else if (key === 'forecast') showForecast = on;
   else if (key === 'reference') showReference = on;
@@ -1019,7 +1079,7 @@ function renderTimes() {
     const hours = state.step == null ? HOURS.slice() : expandSchedule(state.start, state.end, state.step);
     const pills = hours.map(hr => `<span class="pill">${pad(hr)}:00</span>`).join('');
     const seg = INTERVALS.map(n => `<button type="button" class="segbtn" data-step="${n}" aria-pressed="${n === state.step ? 'true' : 'false'}">${n} h</button>`).join('');
-    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<p class="tm-note">Gilt nur für die Anzeige auf diesem Gerät.</p><div class="tm"><div class="tm-row"><label for="tmStart">Von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">Bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p id="tmMsg" class="msg" hidden></p>`;
+    dlg.innerHTML = `${sheetHead('Erfassungszeiten und Intervalle')}<div class="tm"><div class="tm-row"><label for="tmStart">Intervalle anzeigen von</label><select id="tmStart" class="tm-time">${timeOptions(state.start)}</select></div><div class="tm-row"><label for="tmEnd">bis</label><select id="tmEnd" class="tm-time">${timeOptions(state.end)}</select></div><div class="tm-row tm-interval"><span id="tmIntLabel">Intervall</span><div class="seg" role="group" aria-labelledby="tmIntLabel">${seg}</div></div></div><div class="tm-preview"><div class="pills">${pills}</div><p class="tm-count">${hours.length ? measurementCaption(hours.length) : 'Beginn muss vor dem Ende liegen.'}</p></div><p class="tm-note">Gilt nur für die Zeilen in der Intervall-Ansicht. Kurse und Alarme werden rund um die Uhr verfolgt.</p><p id="tmMsg" class="msg" hidden></p>`;
     $('tmStart').onchange = () => { state.start = Number($('tmStart').value); draw(); saveTimes(state); };
     $('tmEnd').onchange = () => { state.end = Number($('tmEnd').value); draw(); saveTimes(state); };
     dlg.querySelectorAll('.segbtn').forEach(btn => {
@@ -1177,6 +1237,39 @@ function bindScrub() {
   };
   document.addEventListener('pointerup', end);
   document.addEventListener('pointercancel', end);
+  let cmpGesture = null;
+  const showCompareScrub = (plot, clientX) => {
+    const box = document.getElementById('cmpReadout');
+    const svg = plot.querySelector('.plot');
+    if (!box || !svg || !compareDetailLines.length) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const days = [...new Set(compareDetailLines.flatMap(line => line.points.map(p => p.day)))].sort();
+    if (!days.length) return;
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const target = days[Math.round(frac * (days.length - 1))];
+    const index = days.indexOf(target);
+    box.innerHTML = compareDetailLines.map(line => {
+      let best = line.points[0];
+      let dist = Math.abs(days.indexOf(best.day) - index);
+      for (const point of line.points) {
+        const d = Math.abs(days.indexOf(point.day) - index);
+        if (d < dist) { best = point; dist = d; }
+      }
+      return `<div class="cmp-row"><span class="cmp-dot" style="background:${line.color}"></span><span>${esc(line.code)}</span><span>${esc(comparePctText(best.v))}</span></div>`;
+    }).join('');
+  };
+  document.addEventListener('pointerdown', e => {
+    const plot = e.target.closest?.('[data-compare-plot]');
+    if (!plot) return;
+    cmpGesture = { id: e.pointerId, plot };
+    showCompareScrub(plot, e.clientX);
+  });
+  document.addEventListener('pointermove', e => {
+    if (!cmpGesture || cmpGesture.id !== e.pointerId) return;
+    showCompareScrub(cmpGesture.plot, e.clientX);
+  });
+  document.addEventListener('pointerup', () => { cmpGesture = null; });
 }
 function onDocClick(e) {
   const closer = e.target.closest('[data-close]');
@@ -1184,6 +1277,7 @@ function onDocClick(e) {
   const range = e.target.closest('[data-range]');
   const add = e.target.closest('[data-add]');
   const reset = e.target.closest('[data-calc-reset]');
+  const compareBtn = e.target.closest('[data-compare]');
   const chartBtn = e.target.closest('[data-chart]');
   const amountBtn = e.target.closest('[data-amount]');
   const inField = e.target.closest('[data-amount-input]');
@@ -1193,6 +1287,11 @@ function onDocClick(e) {
   const baseBtn = e.target.closest('#baseBtn');
   const inDialog = e.target.closest('dialog');
   const fertig = e.target.closest('#calcDone');
+  if (compareBtn && !e.target.closest('#preview') && !e.target.closest('#chartDlg')) {
+    if (convertEditing) finishConvert();
+    openCompare();
+    return;
+  }
   if (chartBtn && !e.target.closest('#preview') && !e.target.closest('#chartDlg')) {
     if (convertEditing) finishConvert();
     openChart(chartBtn.dataset.chart);

@@ -12,23 +12,33 @@ struct RootView: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(store.visible, id: \.self) { code in
-                        CurrencyCard(code: code, preview: false)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                if code != store.base {
-                                    Button(role: .destructive) { store.remove(code) } label: {
-                                        Label("Entfernen", systemImage: "trash")
+                    let boardIDs: [String] = store.visible.flatMap { code in
+                        code == store.base && store.showCompare ? [code, "compare"] : [code]
+                    }
+                    ForEach(boardIDs, id: \.self) { id in
+                        if id == "compare" {
+                            CompareChartCard()
+                                .moveDisabled(true)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 8))
+                                .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                        } else {
+                            CurrencyCard(code: id, preview: false)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    if id != store.base {
+                                        Button(role: .destructive) { store.remove(id) } label: {
+                                            Label("Entfernen", systemImage: "trash")
+                                        }
                                     }
                                 }
-                            }
-                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 8))
-                            .listRowBackground(
-                                Color(uiColor: .secondarySystemGroupedBackground)
-                                    .overlay(store.convertEditing && store.convertSource == code ? Color.blue.opacity(0.12) : Color.clear)
-                            )
+                                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 8))
+                                .listRowBackground(
+                                    Color(uiColor: .secondarySystemGroupedBackground)
+                                        .overlay(store.convertEditing && store.convertSource == id ? Color.blue.opacity(0.12) : Color.clear)
+                                )
+                        }
                     }
                     .onMove { from, to in
-                        store.moveVisible(from: from, to: to)
+                        store.moveBoard(ids: boardIDs, from: from, to: to)
                     }
                 } header: {
                     VStack(alignment: .leading, spacing: 8) {
@@ -190,11 +200,18 @@ struct CurrencyCard: View {
                     if code != store.base && !preview { handle }
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
-                        .font(.system(size: 13))
-                        .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
-                        .lineLimit(1)
-                        .frame(width: code == store.base ? nil : 76, alignment: .leading)
+                    HStack(alignment: .center, spacing: 4) {
+                        if code != store.base && store.showCompare {
+                            Circle()
+                                .fill(ComparePalette.color(store.compareIndex(code)))
+                                .frame(width: 8, height: 8)
+                        }
+                        Text(code == store.base ? "\(store.base) · Berichtswährung" : CurrencyNames.lotLine(code))
+                            .font(.system(size: 13))
+                            .foregroundStyle(code == store.base ? Color.blue : Color.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(width: code == store.base ? nil : 76, alignment: .leading)
                     if code != store.base, let day = store.dayChange(code) {
                         Text(day.text)
                             .font(.system(size: 12))

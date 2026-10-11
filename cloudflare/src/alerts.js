@@ -3,7 +3,7 @@ import { BICOTE_PAIRS, quoteLot } from './currencies.js';
 import { canonicalJson, formatFixed, roundHalfEven } from './json.js';
 import { basisHour } from './schedule.js';
 import {
-  ZURICH, pad, parseInstant, validTimeZone, zoneDateString, zoneHourMinute, zoneParts,
+  ZURICH, addDays, pad, parseInstant, validTimeZone, zoneDateString, zoneHourMinute, zoneWallUtcMs,
 } from './time.js';
 
 export const SYMBOLS = Object.fromEntries(Object.entries(BICOTE_PAIRS).map(([code, pair]) => [code, pair.symbol]));
@@ -78,26 +78,20 @@ function asFloat(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function pickBase(bars, now, hour, timeZone = ZURICH) {
+/** Erster Kurs ab lokaler Mitternacht, nicht die frühere volle Stunde davor. */
+export function pickBase(bars, now, _hour, timeZone = ZURICH) {
   const zone = alertZone(timeZone);
   const today = zoneDateString(now, zone);
-  let first = null;
-  let atLegacy = null;
-  const sorted = [...bars].sort((a, b) => a.openTime < b.openTime ? -1 : a.openTime > b.openTime ? 1 : 0);
-  for (const b of sorted) {
-    const t = new Date(parseInstant(String(b.openTime)));
-    const z = zoneParts(t, zone);
-    const key = `${z.year}-${pad(z.month)}-${pad(z.day)}`;
-    if (key !== today || z.minute !== 0) continue;
-    if (!first) first = { open: b.open, label: `${pad(z.hour)}:${pad(z.minute)}` };
-    if (z.hour === hour) return { rate: b.open, label: `${pad(hour)}:00` };
-    if (z.hour === LEGACY_BASIS_HOUR) atLegacy = { rate: b.open, label: '08:00' };
+  const midnight = zoneWallUtcMs(today, 0, 0, zone);
+  const next = zoneWallUtcMs(addDays(today, 1), 0, 0, zone);
+  let best = null;
+  for (const b of bars || []) {
+    const t = parseInstant(String(b.openTime));
+    if (t < midnight || t >= next) continue;
+    if (!best || t < best.t) best = { t, rate: b.open };
   }
-  const zh = zoneParts(now, zone).hour;
-  if (first && zh < hour) return { rate: first.open, label: 'Tageser\u00f6ffnung' };
-  if (first) return { rate: first.open, label: first.label };
-  if (atLegacy) return atLegacy;
-  return { rate: null, label: null };
+  if (!best) return { rate: null, label: null };
+  return { rate: best.rate, label: 'Mitternacht' };
 }
 
 /** Preis eines Anzeige-Loses der Fremdwährung in der Berichtswährung. Kurse sind CHF je 1 Einheit. */
@@ -112,8 +106,8 @@ function lotLabel(code) {
   return `${lot === 1 ? '1' : String(lot)} ${code}`;
 }
 
-export function moveLine(code, reporting, price, change, since) {
-  return `${lotLabel(code)} = ${formatNum(price)} ${reporting}, ${formatPct(change)} seit ${since}`;
+export function moveLine(code, reporting, price, change) {
+  return `${lotLabel(code)} = ${formatNum(price)} ${reporting}, ${formatPct(change)} seit Mitternacht`;
 }
 
 export function readQuote(ticker, now) {
@@ -137,17 +131,7 @@ function defaultState(date) {
 export function evaluateAlerts({ now, times, cfg, state, force = false, quotes, bars }) {
   const logs = [];
   const pushes = [];
-  if (!force) {
-    const zone = alertZone(cfg && cfg.timeZone);
-    if (isWeekend(now, zone)) {
-      logs.push('Wochenende – keine Prüfung.');
-      return { logs, pushes, state, write: false, skipped: true };
-    }
-    if (!inWindow(now, zone)) {
-      logs.push(`Ausserhalb ${pad(WINDOW[0])}:00–${pad(WINDOW[1])}:00 ${zone === ZURICH ? 'Zürich' : zone} – keine Prüfung.`);
-      return { logs, pushes, state, write: false, skipped: true };
-    }
-  }
+  void force;
   const currencies = (cfg && cfg.currencies) || DEFAULTS;
   const useCfg = currencies && Object.keys(currencies).length ? currencies : DEFAULTS;
   const zone = alertZone(cfg && cfg.timeZone);
@@ -205,11 +189,11 @@ export function evaluateAlerts({ now, times, cfg, state, force = false, quotes, 
       continue;
     }
     const change = (nowPrice / openPrice - 1) * 100;
-    logs.push(`${moveLine(code, reporting, nowPrice, change, base.label)}; Schwellen −${down} / +${up} %`);
+    logs.push(`${moveLine(code, reporting, nowPrice, change)}; Schwellen −${down} / +${up} %`);
     for (const [direction, hit] of [['down', change < -down], ['up', change > up]]) {
       const k = `${code}:${direction}`;
       if (!hit || Object.prototype.hasOwnProperty.call(next.sent, k)) continue;
-      const msg = moveLine(code, reporting, nowPrice, change, base.label);
+      const msg = moveLine(code, reporting, nowPrice, change);
       const title = `Währungsübersicht: ${code} ${direction === 'down' ? 'fällt' : 'steigt'}`;
       const tags = direction === 'down' ? ['chart_with_downwards_trend'] : ['chart_with_upwards_trend'];
       const threshold = direction === 'down' ? down : up;
@@ -274,7 +258,7 @@ export function testLines(now, times, quotes, bars, cfg = {}) {
       const base = pickBase(bars[code], now, hour, zone);
       const nowPrice = quote.mid ? priceInBase(quote.mid, denNow, code) : null;
       const openPrice = base.rate ? priceInBase(base.rate, denOpen, code) : null;
-      if (nowPrice && openPrice) lines.push(moveLine(code, reporting, nowPrice, (nowPrice / openPrice - 1) * 100, base.label));
+      if (nowPrice && openPrice) lines.push(moveLine(code, reporting, nowPrice, (nowPrice / openPrice - 1) * 100));
       else if (nowPrice) lines.push(`${lotLabel(code)} aktuell ${formatNum(nowPrice)} ${reporting}`);
     } catch (e) {
       lines.push(`${code}: Kurs nicht abrufbar (${e && e.name ? e.name : 'Error'})`);
@@ -411,22 +395,8 @@ export async function runFxAlerts(env, opts = {}) {
     config: JSON.parse(row.config),
     state: JSON.parse(row.state),
   }));
-  const due = [];
-  for (const sub of parsed) {
-    const zone = alertZone(sub.config && sub.config.timeZone);
-    if (!force && (isWeekend(now, zone) || !inWindow(now, zone))) {
-      const { hour, minute } = zoneHourMinute(now, zone);
-      const where = zone === ZURICH ? 'Zürich' : zone;
-      console.log(`${sub.id.slice(0, 8)} ${isWeekend(now, zone)
-        ? 'Wochenende – keine Prüfung.'
-        : `Ausserhalb ${pad(WINDOW[0])}:00–${pad(WINDOW[1])}:00 ${where} (${pad(hour)}:${pad(minute)}) – keine Prüfung.`}`);
-      continue;
-    }
-    due.push(sub);
-  }
-  if (!due.length) return { skipped: true, subscriptions: rows.length, pruned };
   const codes = new Set();
-  for (const sub of due) {
+  for (const sub of parsed) {
     const reporting = (sub.config && typeof sub.config.base === 'string' && sub.config.base) || 'CHF';
     if (reporting !== 'CHF' && SYMBOLS[reporting]) codes.add(reporting);
     const currencies = sub.config && sub.config.currencies ? sub.config.currencies : {};
@@ -441,7 +411,7 @@ export async function runFxAlerts(env, opts = {}) {
   }
   const data = await fetchPairs([...codes], fetchImpl);
   let pushes = 0;
-  for (const sub of due) {
+  for (const sub of parsed) {
     const times = { start: sub.config.start ?? 6 };
     const decision = evaluateAlerts({
       now,

@@ -56,11 +56,11 @@ export function ohlcUrl(symbol, limit) {
   return `https://biquote.io/api/${symbol}/ohlc?interval=1h&limit=${limit}`;
 }
 
-/** Alle vollen Stunden 00–23. Prognose im gemeinsamen rates.json bleibt auf 06:00 (Mac-App). */
+/** Alle vollen Stunden, auch am Wochenende. Prognose im gemeinsamen rates.json bleibt auf 06:00 (Mac-App). */
 export function workerCapturePlan() {
   const capture = [];
   for (let hour = 0; hour < 24; hour++) capture.push(hour);
-  return { start: 6, grid: capture.slice(), capture };
+  return { start: 6, grid: capture.slice(), capture, allDays: true };
 }
 
 /**
@@ -72,7 +72,9 @@ export function workerCapturePlan() {
 export async function applyCapture(history, timesDoc, now, getJson, plan, currencies = CURRENCIES) {
   if (!history.version) history.version = 1;
   if (!history.days) history.days = {};
-  const { start, grid, capture } = plan || loadTimes(timesDoc);
+  const resolved = plan || loadTimes(timesDoc);
+  const { start, grid, capture } = resolved;
+  const allDays = !!(plan && plan.allDays);
   const captureSet = new Set(capture);
   const today = zurichDateString(now);
   const firstKey = START_DAY;
@@ -123,7 +125,7 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
       candles.push({ t, o, h: Math.max(hi, lo), l: Math.min(hi, lo) });
       const z = zurichParts(new Date(t));
       const key = dateKey(z);
-      if (!isWeekday(key) || z.minute !== 0 || !captureSet.has(z.hour)) continue;
+      if ((!allDays && !isWeekday(key)) || z.minute !== 0 || !captureSet.has(z.hour)) continue;
       if (key < firstKey) continue;
       const slot = dayRec(history, key).slots[pad(z.hour)] || (dayRec(history, key).slots[pad(z.hour)] = {});
       if (put(slot, code, o)) changed += 1;

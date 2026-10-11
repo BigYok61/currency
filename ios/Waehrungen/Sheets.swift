@@ -42,6 +42,11 @@ struct AnsichtSheet: View {
                 ScrollView {
                     SheetColumn(minHeight: geo.size.height) {
                         VStack(alignment: .leading, spacing: 0) {
+                            toggle("Entwicklung der Währungen anzeigen", on: store.showCompare, hint: "Bezogen auf Berichtswährung", stacked: true) {
+                                store.showCompare = $0
+                                store.saveView()
+                                Task { await store.loadHistoryIfNeeded() }
+                            }
                             toggle("Grafik anzeigen", on: store.showChart, hint: nil) { store.showChart = $0; store.saveView() }
                             toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
                             toggle("Prognose", on: store.showForecast, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
@@ -72,17 +77,26 @@ struct AnsichtSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func toggle(_ title: String, on: Bool, hint: String?, set: @escaping (Bool) -> Void) -> some View {
+    private func toggle(_ title: String, on: Bool, hint: String?, stacked: Bool = false, set: @escaping (Bool) -> Void) -> some View {
         Button {
             set(!on)
         } label: {
-            HStack(spacing: 12) {
+            HStack(alignment: stacked ? .top : .center, spacing: 12) {
                 Image(systemName: on ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22))
                     .foregroundStyle(Color.blue)
-                HStack(spacing: 6) {
-                    Text(title).foregroundStyle(.primary)
-                    if let hint { Text(hint).font(.subheadline).foregroundStyle(.secondary) }
+                if stacked {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).foregroundStyle(.primary)
+                        if let hint {
+                            Text(hint).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        Text(title).foregroundStyle(.primary)
+                        if let hint { Text(hint).font(.subheadline).foregroundStyle(.secondary) }
+                    }
                 }
                 Spacer()
             }
@@ -114,6 +128,7 @@ private struct PreviewMetricsKey: PreferenceKey {
 
 /// The same list as the main screen. When the next currency runs past the card, it clips under a soft fade.
 private struct FadingPreview: View {
+    @EnvironmentObject private var store: RatesStore
     let codes: [String]
     @State private var contentHeight: CGFloat = 0
     @State private var contentTop: CGFloat = 0
@@ -129,6 +144,11 @@ private struct FadingPreview: View {
                             .padding(.bottom, 8)
                             .padding(.leading, 20)
                             .padding(.trailing, 8)
+                        if code == store.base && store.showCompare {
+                            CompareChartCard(preview: true)
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 8)
+                        }
                         if index < codes.count - 1 {
                             Divider().padding(.leading, 20)
                         }
@@ -186,11 +206,9 @@ struct TimesSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Gilt nur für die Anzeige auf diesem Gerät.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Stepper("Von \(String(format: "%02d:00", start))", value: $start, in: 0...22)
-                    Stepper("Bis \(String(format: "%02d:00", end))", value: $end, in: 1...23)
+                    Text("Intervalle anzeigen")
+                    Stepper("von \(String(format: "%02d:00", start))", value: $start, in: 0...22)
+                    Stepper("bis \(String(format: "%02d:00", end))", value: $end, in: 1...23)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Intervall")
                         HStack(spacing: 2) {
@@ -218,6 +236,9 @@ struct TimesSheet: View {
                         }
                     }
                     Text(previewHours.count == 1 ? "1 Messung pro Tag" : "\(previewHours.count) Messungen pro Tag")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Gilt nur für die Zeilen in der Intervall-Ansicht. Kurse und Alarme werden rund um die Uhr verfolgt.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

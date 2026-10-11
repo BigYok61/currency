@@ -1162,6 +1162,18 @@ body.v21 .check .box {
 }
 body.v21 .check[aria-checked="true"] .box { background: #007aff; border-color: #007aff; }
 body.v21 .check small { margin-left: 6px; font-size: 13px; font-weight: 400; color: rgba(60,60,67,.55); }
+body.v21 .check.is-stack { align-items: flex-start; }
+body.v21 .check-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+body.v21 .check.is-stack small { margin-left: 0; font-size: 12px; }
+body.v21 .cmp-dot { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; vertical-align: 1px; flex: none; }
+body.v21 .cmp-card { position: relative; margin: 2px 0 4px; cursor: pointer; }
+body.v21 .cmp-frame { position: relative; height: 80px; overflow: hidden; }
+body.v21 .cmp-frame .plot { display: block; width: 100%; height: 80px; }
+body.v21 .cmp-caption { position: absolute; left: 0; top: 0; font-size: 10px; line-height: 1.2; color: rgba(60,60,67,.6); pointer-events: none; }
+body.v21 .cmp-detail { position: relative; height: 240px; overflow: hidden; }
+body.v21 .cmp-detail .plot { display: block; width: 100%; height: 240px; }
+body.v21 .cmp-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 15px; font-variant-numeric: tabular-nums; }
+body.v21 .cmp-row span:last-child { margin-left: auto; }
 body.v21 .disclaimer { margin: 10px 2px 12px; font-size: 12px; line-height: 1.35; color: rgba(60,60,67,.62); }
 body.v21 .vorschau-label { margin: 0 2px 6px; font-size: 12px; color: rgba(60,60,67,.55); }
 body.v21 .thumb {

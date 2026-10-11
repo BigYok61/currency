@@ -88,10 +88,25 @@ export function zoneHourMinute(date, timeZone = ZURICH) {
   return { hour: p.hour, minute: p.minute, label: `${pad(p.hour)}:${pad(p.minute)}` };
 }
 
-function offsetMs(date) {
-  const p = zurichParts(date);
+function zoneOffsetMs(date, timeZone) {
+  const p = zoneParts(date, timeZone);
   const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
   return asUtc - date.getTime();
+}
+
+function offsetMs(date) {
+  return zoneOffsetMs(date, ZURICH);
+}
+
+/** UTC epoch ms of a wall time in an IANA zone. A non-hour offset is exact, not floored. */
+export function zoneWallUtcMs(dayStr, hour, minute, timeZone = ZURICH) {
+  const [y, m, d] = dayStr.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hour, minute || 0, 0);
+  const off1 = zoneOffsetMs(new Date(guess), timeZone);
+  let utc = guess - off1;
+  const off2 = zoneOffsetMs(new Date(utc), timeZone);
+  if (off2 !== off1) utc = guess - off2;
+  return utc;
 }
 
 /** UTC epoch ms of a Zurich wall time on a calendar day (yyyy-mm-dd, hour 0–23). */
