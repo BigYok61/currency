@@ -83,6 +83,15 @@ enum ViewBlock: String, CaseIterable, Identifiable {
 
 let disclaimerText = "Prognosen sind unverbindliche, automatisch berechnete Schätzungen und keine Anlage- oder Finanzberatung. Für Entscheidungen auf Basis dieser Angaben wird keine Haftung übernommen."
 
+/// ComputerWorks page linked from the About sheet. Change this one address to retarget the link.
+let computerWorksAppURL = URL(string: "https://www.computerworks.ch/waehrungen")!
+/// Privacy policy linked from the About sheet.
+let privacyPolicyURL = URL(string: "https://www.computerworks.ch/datenschutz")!
+let feedbackAddress = "feedback@computerworks.ch"
+let supportAddress = "support@computerworks.ch"
+/// Numeric App Store id. Nil hides „App bewerten“ until the app is live.
+let appStoreID: String? = nil
+
 let alertIntroText = "Die Alarmeinstellungen gelten nur für dieses Gerät. Wenn sich der Kurs gegenüber der Standardwährung innerhalb des Tages stärker als die unten gesetzten Schwellen verändert, werden Sie mit einer Push-Mitteilung gewarnt. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
 
 let appStoreURL = URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!

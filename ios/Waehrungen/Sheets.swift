@@ -1,4 +1,8 @@
 import SwiftUI
+import PhotosUI
+import MessageUI
+import StoreKit
+import UIKit
 
 struct SheetClose: View {
     @Environment(\.dismiss) private var dismiss
@@ -527,6 +531,358 @@ struct AddSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
         }
         .presentationDragIndicator(.visible)
+    }
+}
+
+struct AboutSheet: View {
+    @Environment(\.requestReview) private var requestReview
+    @State private var mail: AboutMail?
+
+    private var versionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+        let year = Calendar.current.component(.year, from: .now)
+        return "Version \(version) · © \(year) ComputerWorks AG"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ViewThatFits(in: .vertical) {
+                aboutColumn(expands: true)
+                ScrollView { aboutColumn(expands: false) }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Über Währungen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+        }
+        .sheet(item: $mail) { AboutMessageSheet(kind: $0) }
+        .presentationDragIndicator(.visible)
+    }
+
+    private func aboutColumn(expands: Bool) -> some View {
+        VStack(spacing: 18) {
+            aboutIcon
+                .padding(.top, 8)
+            VStack(spacing: 4) {
+                Text("Währungen")
+                    .font(.system(size: 28, weight: .semibold))
+                Text(versionText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Text("Entwickelt von Jörg A. Weber, [ComputerWorks\u{00A0}AG](\(computerWorksAppURL.absoluteString))")
+                .font(.system(size: 14))
+                .multilineTextAlignment(.center)
+                .tint(Color.blue)
+            Text("Wir freuen uns über Ihr Feedback, Ihre Ideen und Anregungen.")
+                .font(.body)
+                .multilineTextAlignment(.center)
+            HStack(alignment: .center, spacing: 10) {
+                aboutMailButton(.feedback)
+                aboutMailButton(.support)
+            }
+            if let appStoreID, !appStoreID.isEmpty {
+                Button("App bewerten") { requestReview() }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+            }
+            if expands { Spacer(minLength: 16) }
+            VStack(spacing: 8) {
+                Text("biquote.io (Mittelkurs), EZB (Referenzkurse)")
+                    .foregroundStyle(.secondary)
+                Text(disclaimerText)
+                    .foregroundStyle(.secondary)
+                Link("Datenschutzerklärung", destination: privacyPolicyURL)
+                    .foregroundStyle(Color.blue)
+            }
+            .font(.system(size: 11))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: expands ? .infinity : nil, alignment: .top)
+    }
+
+    private var aboutIcon: some View {
+        Group {
+            if let image = UIImage(named: "AboutIcon"), image.size.width > 0 {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color(red: 0.043, green: 0.361, blue: 0.678)
+                    Image(systemName: "plus")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: 84, height: 84)
+        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private func aboutMailButton(_ kind: AboutMail) -> some View {
+        Button { mail = kind } label: {
+            Text(kind.title)
+                .font(.system(size: 13, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
+private enum AboutMail: Identifiable {
+    case feedback, support
+
+    var id: String { title }
+    var address: String { self == .feedback ? feedbackAddress : supportAddress }
+    var subject: String { self == .feedback ? "Feedback Währungen" : "Support Währungen" }
+    var title: String { self == .feedback ? "Feedback senden" : "Support kontaktieren" }
+}
+
+private struct AboutPhoto: Identifiable {
+    let id: String
+    let jpeg: Data
+    let preview: UIImage
+}
+
+private struct AboutMessageSheet: View {
+    @Environment(\.openURL) private var openURL
+    let kind: AboutMail
+
+    @State private var draft = ""
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var photos: [AboutPhoto] = []
+    @State private var loadToken = 0
+    @State private var showMail = false
+    @State private var hint: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    messageField
+                    PhotosPicker(selection: $pickerItems, maxSelectionCount: 3, matching: .images) {
+                        Label("Bild oder Screenshot hinzufügen", systemImage: "photo")
+                            .font(.system(size: 15))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    if !photos.isEmpty {
+                        photoRow
+                    }
+                    if let hint {
+                        Text(hint)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button { send() } label: {
+                        Text("Senden")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty)
+                }
+                .padding(20)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(kind.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { SheetClose() }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fertig") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
+        }
+        .presentationDragIndicator(.visible)
+        .onChange(of: pickerItems) { _, items in
+            Task { await loadPhotos(items) }
+        }
+        .sheet(isPresented: $showMail) {
+            MailComposeView(
+                recipient: kind.address,
+                subject: kind.subject,
+                body: messageBody,
+                attachments: photos.map(\.jpeg)
+            ) {
+                showMail = false
+            }
+        }
+    }
+
+    private var messageField: some View {
+        TextEditor(text: $draft)
+            .frame(minHeight: 140)
+            .padding(8)
+            .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                if draft.isEmpty {
+                    Text("Ihre Nachricht")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 16)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var photoRow: some View {
+        HStack(spacing: 12) {
+            ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                Image(uiImage: photo.preview)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(alignment: .topTrailing) {
+                        Button { removePhoto(at: index) } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(.black.opacity(0.6), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Bild entfernen")
+                        .offset(x: 6, y: -6)
+                    }
+                    .padding(.top, 6)
+                    .padding(.trailing, 6)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var messageBody: String {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return diagnostics }
+        return "\(text)\n\n—\n\(diagnostics)"
+    }
+
+    /// App version, iOS version, and the hardware identifier. Main-actor because it reads `UIDevice`.
+    private var diagnostics: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+        return "Währungen \(version)\niOS \(UIDevice.current.systemVersion)\n\(machineIdentifier())"
+    }
+
+    private func machineIdentifier() -> String {
+        var system = utsname()
+        uname(&system)
+        return withUnsafeBytes(of: system.machine) { raw in
+            let bytes = raw.prefix { $0 != 0 }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+        loadToken += 1
+        let token = loadToken
+        var loaded: [AboutPhoto] = []
+        for item in items.prefix(3) {
+            let id = item.itemIdentifier ?? UUID().uuidString
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.85) else { continue }
+            loaded.append(AboutPhoto(id: id, jpeg: jpeg, preview: image))
+        }
+        guard token == loadToken else { return }
+        photos = loaded
+    }
+
+    private func removePhoto(at index: Int) {
+        guard photos.indices.contains(index) else { return }
+        let photo = photos[index]
+        photos.remove(at: index)
+        if let match = pickerItems.firstIndex(where: { $0.itemIdentifier == photo.id }) {
+            pickerItems.remove(at: match)
+        } else if pickerItems.indices.contains(index) {
+            pickerItems.remove(at: index)
+        }
+    }
+
+    private func send() {
+        hint = nil
+        if MFMailComposeViewController.canSendMail() {
+            showMail = true
+            return
+        }
+        if let url = mailtoURL(address: kind.address, subject: kind.subject, body: messageBody) {
+            openURL(url)
+        }
+        hint = photos.isEmpty
+            ? "Kein E-Mail-Konto eingerichtet. Die Nachricht wird in der Mail-App geöffnet."
+            : "Kein E-Mail-Konto eingerichtet. Bilder müssen in der Mail-App manuell angehängt werden."
+    }
+
+    private func mailtoURL(address: String, subject: String, body: String) -> URL? {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        func encode(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        }
+        return URL(string: "mailto:\(address)?subject=\(encode(subject))&body=\(encode(body))")
+    }
+}
+
+private struct MailComposeView: UIViewControllerRepresentable {
+    var recipient: String
+    var subject: String
+    var body: String
+    var attachments: [Data]
+    var onFinish: () -> Void
+
+    func makeUIViewController(context: Context) -> MFMailComposeViewController {
+        let controller = MFMailComposeViewController()
+        controller.mailComposeDelegate = context.coordinator
+        controller.setToRecipients([recipient])
+        controller.setSubject(subject)
+        controller.setMessageBody(body, isHTML: false)
+        for (offset, data) in attachments.enumerated() {
+            controller.addAttachmentData(data, mimeType: "image/jpeg", fileName: "Bild-\(offset + 1).jpg")
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFinish: onFinish)
+    }
+
+    /// Main-actor delegate. `@preconcurrency` keeps the UIKit conformance legal under Swift 6.
+    @MainActor
+    final class Coordinator: NSObject, @preconcurrency MFMailComposeViewControllerDelegate {
+        private let onFinish: () -> Void
+
+        init(onFinish: @escaping () -> Void) {
+            self.onFinish = onFinish
+        }
+
+        func mailComposeController(
+            _ controller: MFMailComposeViewController,
+            didFinishWith result: MFMailComposeResult,
+            error: Error?
+        ) {
+            _ = result
+            _ = error
+            onFinish()
+        }
     }
 }
 

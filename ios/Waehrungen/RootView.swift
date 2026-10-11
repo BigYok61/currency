@@ -7,6 +7,7 @@ struct RootView: View {
     @State private var showTimes = false
     @State private var showAlerts = false
     @State private var showAdd = false
+    @State private var showAbout = false
 
     var body: some View {
         NavigationStack {
@@ -116,6 +117,7 @@ struct RootView: View {
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
+        .sheet(isPresented: $showAbout) { AboutSheet() }
     }
 
     @ToolbarContentBuilder
@@ -147,16 +149,26 @@ struct RootView: View {
     }
 
     private var sourceBar: some View {
-        VStack(spacing: 2) {
-            if !store.capturedLine.isEmpty {
-                Text(store.capturedLine)
+        HStack(alignment: .bottom, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                if !store.capturedLine.isEmpty {
+                    Text(store.capturedLine)
+                }
+                Text(store.sourceLine)
             }
-            Text(store.sourceLine)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button { showAbout = true } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.blue)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Über Währungen")
         }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 4)
         .background {
