@@ -149,7 +149,7 @@ struct RootView: View {
     }
 
     private var sourceBar: some View {
-        HStack(alignment: .bottom, spacing: 12) {
+        HStack(alignment: .lastTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 if !store.capturedLine.isEmpty {
                     Text(store.capturedLine)
@@ -162,15 +162,20 @@ struct RootView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Button { showAbout = true } label: {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 11))
+                    .font(.system(size: 18))
                     .foregroundStyle(Color.blue)
+                    .frame(width: 44, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // centre the icon on the "Quelle" line, aligned with the price column
+            .alignmentGuide(.lastTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+            .padding(.trailing, -2)
             .accessibilityLabel("Über Währungen")
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.bottom, -12)   // sit lower, closer to the home indicator
         .background {
             ZStack {
                 Rectangle().fill(.regularMaterial)
