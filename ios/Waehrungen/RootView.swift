@@ -564,6 +564,7 @@ private struct KeypadDismiss: UIViewRepresentable {
             guard let scroll = Self.listScroll(from: uiView) else { return }
             scroll.keyboardDismissMode = .interactive
             context.coordinator.attach(to: scroll)
+            if let window = uiView.window { context.coordinator.attachWindow(window) }
             scroll.refreshControl?.isEnabled = !context.coordinator.editing && !context.coordinator.blockRefresh
         }
     }
@@ -606,6 +607,22 @@ private struct KeypadDismiss: UIViewRepresentable {
             self.scroll = scroll
         }
 
+        weak var window: UIWindow?
+
+        /// A tap anywhere in the app window (header, empty space, footer) also closes the keypad.
+        /// The keypad itself lives in the system keyboard window, so taps on it never land here.
+        func attachWindow(_ window: UIWindow) {
+            guard self.window !== window else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesBegan = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            tap.name = "wae.keypadDismiss.window"
+            window.addGestureRecognizer(tap)
+            self.window = window
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard editing else { return false }
             var view: UIView? = touch.view
@@ -620,8 +637,13 @@ private struct KeypadDismiss: UIViewRepresentable {
             true
         }
 
+        private var lastClose = Date.distantPast
+
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             guard editing, gesture.state == .ended else { return }
+            // list and window recognisers can both fire for one tap
+            guard Date().timeIntervalSince(lastClose) > 0.3 else { return }
+            lastClose = Date()
             onTapOutside()
         }
 
