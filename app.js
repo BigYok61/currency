@@ -482,7 +482,7 @@ function regionGroup(region) {
 function defaultOrder(base, region) {
   const group = regionGroup(region);
   const tail = group === 'ch'
-    ? ['CHF', 'EUR', 'USD', 'GBP']
+    ? ['EUR', 'USD', 'GBP']
     : group === 'eu'
       ? ['EUR', 'USD', 'GBP', 'CHF']
       : ['USD', 'EUR', 'GBP', 'CHF'];
@@ -503,8 +503,8 @@ function readLocaleCurrency(tag) {
 /**
  * Ersteinrichtung nur aus der Locale, ohne Nachfrage.
  * Währung: (a) gültiger ISO-Code der Locale, nicht mit X, (b) Währung der Region, (c) CHF.
- * Liste: die Berichtswährung zuerst, dann je nach Region. CH/LI: CHF, EUR, USD, GBP.
- * Europa: lokal, EUR, USD, GBP, CHF. Amerika und alle übrigen Regionen: lokal, USD, EUR, GBP, CHF.
+ * Liste: die lokale Währung zuerst (auch wenn der Worker sie nicht erfasst), dann je nach Region.
+ * CH/LI: EUR, USD, GBP. Europa: EUR, USD, GBP, CHF. Amerika und übrige Welt: USD, EUR, GBP, CHF.
  */
 function firstInstallChoice(languages) {
   const list = Array.isArray(languages) ? languages : [];
@@ -1459,6 +1459,7 @@ function render(opts = {}) {
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
 
 async function load() {
+  if (typeof resetConvert === 'function') resetConvert();
   const rates = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
     .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
     .catch(e => e);
@@ -1684,6 +1685,7 @@ function initBase() {
   const choice = firstInstallChoice(languages);
   baseCurrency = choice.base;
   for (const code of choice.order) ensureCurrency(code);
+  persistHidden(new Set());
   try { localStorage.setItem(LS_BASE, choice.base); } catch { /* Anzeige gilt für diese Sitzung */ }
   persistOrder(choice.order.filter(code => code !== choice.base).map(code => ({ code })));
 }

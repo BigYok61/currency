@@ -25,7 +25,7 @@ final class RatesStore: ObservableObject {
     @Published var fired: [String: String] = [:]
     @Published var updated = ""
     @Published var errorText = ""
-    /// Session-only converter. Never written to UserDefaults; a launch starts at 1 of the reporting currency.
+    /// Session-only converter. Never written to UserDefaults; a launch starts at one quote lot of the reporting currency.
     @Published var convertSource = "CHF"
     @Published var convertAmount = 1.0
     @Published var convertDraft = "1"
@@ -99,19 +99,19 @@ final class RatesStore: ObservableObject {
             applyFirstInstall()
         }
         ensureAlertIdentity()
-        convertSource = base
+        resetConvert()
     }
 
     var isDefaultConvert: Bool {
-        convertSource == base && abs(convertAmount - 1) < 0.0000005
+        convertSource == base && abs(convertAmount - quoteLot(base)) < 0.0000005
     }
 
     var showConvertPill: Bool { !isDefaultConvert }
 
-    /// True while the entered money is still exactly 1 of the reporting currency, so the list keeps the unit rates.
+    /// True while the entered money is still one quote lot of the reporting currency, so the list keeps the unit rates.
     var showsUnitRates: Bool {
         guard let value = valueInBase() else { return isDefaultConvert }
-        return abs(value - 1) < 0.0000005
+        return abs(value - quoteLot(base)) < 0.0000005
     }
 
     var convertPillText: String {
@@ -120,19 +120,10 @@ final class RatesStore: ObservableObject {
 
     func beginConvert(_ code: String) {
         if convertEditing && convertSource == code { return }
-        let next: Double
-        if convertSource == code {
-            next = convertAmount
-        } else if showsUnitRates {
-            if let per = reportingPerUnit(code), per > 0 { next = 1 / per }
-            else { next = 1 }
-        } else {
-            next = converted(code) ?? 1
-        }
         convertSource = code
-        convertAmount = next
-        convertDraft = Self.draftString(next)
-        convertReplace = true
+        convertAmount = 0
+        convertDraft = ""
+        convertReplace = false
         convertEditing = true
     }
 
@@ -149,17 +140,20 @@ final class RatesStore: ObservableObject {
 
     func finishConvert() {
         guard convertEditing else { return }
-        if let value = Self.parseAmount(convertDraft) {
+        if let value = Self.parseAmount(convertDraft), value > 0 {
             convertAmount = value
+            convertEditing = false
+            convertReplace = false
+        } else {
+            resetConvert()
         }
-        convertEditing = false
-        convertReplace = false
     }
 
     func resetConvert() {
         convertSource = base
-        convertAmount = 1
-        convertDraft = "1"
+        let lot = quoteLot(base)
+        convertAmount = lot
+        convertDraft = Self.draftString(lot)
         convertEditing = false
         convertReplace = false
     }
@@ -274,6 +268,7 @@ final class RatesStore: ObservableObject {
     }
 
     func reload() async {
+        resetConvert()
         do {
             let url = Self.origin.appendingPathComponent("data/rates.json")
             let (data, response) = try await URLSession.shared.data(from: url)
@@ -430,6 +425,11 @@ final class RatesStore: ObservableObject {
         var shown = visible
         shown.move(fromOffsets: source, toOffset: destination)
         order = shown + order.filter { !shown.contains($0) }
+        if let top = shown.first, top != base {
+            base = top
+            resetConvert()
+            Task { await loadHistoryIfNeeded() }
+        }
         saveLocal()
     }
 
@@ -759,27 +759,59 @@ final class RatesStore: ObservableObject {
         return days[day]?.ecb?[code]
     }
 
+    /// Region → local currency. Missing regions fall through to CHF.
+    static let regionCurrency: [String: String] = [
+        "CH": "CHF", "LI": "CHF",
+        "AD": "EUR", "AT": "EUR", "BE": "EUR", "CY": "EUR", "DE": "EUR", "EE": "EUR", "ES": "EUR", "FI": "EUR", "FR": "EUR",
+        "GR": "EUR", "HR": "EUR", "IE": "EUR", "IT": "EUR", "LT": "EUR", "LU": "EUR", "LV": "EUR", "MC": "EUR", "MT": "EUR",
+        "NL": "EUR", "PT": "EUR", "SI": "EUR", "SK": "EUR", "SM": "EUR", "VA": "EUR", "ME": "EUR", "XK": "EUR",
+        "GB": "GBP", "SE": "SEK", "NO": "NOK", "DK": "DKK", "PL": "PLN", "CZ": "CZK", "HU": "HUF", "RO": "RON",
+        "BG": "BGN", "IS": "ISK", "RS": "RSD", "UA": "UAH", "RU": "RUB", "BY": "BYN", "MD": "MDL", "BA": "BAM",
+        "MK": "MKD", "AL": "ALL", "TR": "TRY",
+        "US": "USD", "CA": "CAD", "MX": "MXN", "BR": "BRL", "AR": "ARS", "CL": "CLP", "CO": "COP", "PE": "PEN",
+        "UY": "UYU", "PY": "PYG", "BO": "BOB", "VE": "VES", "EC": "USD", "PA": "USD", "SV": "USD", "PR": "USD",
+        "GT": "GTQ", "HN": "HNL", "NI": "NIO", "CR": "CRC", "DO": "DOP", "CU": "CUP", "HT": "HTG", "JM": "JMD",
+        "TT": "TTD", "BS": "BSD", "BB": "BBD", "GY": "GYD", "SR": "SRD", "BZ": "BZD",
+        "JP": "JPY", "CN": "CNY", "AU": "AUD", "NZ": "NZD", "IN": "INR", "KR": "KRW", "SG": "SGD", "HK": "HKD",
+        "TW": "TWD", "TH": "THB", "ZA": "ZAR", "IL": "ILS", "AE": "AED", "SA": "SAR", "PH": "PHP", "MY": "MYR",
+        "ID": "IDR", "VN": "VND",
+    ]
+
+    static let europeRegions: Set<String> = [
+        "AD", "AL", "AT", "AX", "BA", "BE", "BG", "BY", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FO",
+        "FR", "GB", "GG", "GI", "GR", "HR", "HU", "IE", "IM", "IS", "IT", "JE", "LT", "LU", "LV", "MC",
+        "MD", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "RU", "SE", "SI", "SJ", "SK", "SM",
+        "TR", "UA", "VA", "XK",
+    ]
+
+    static let americasRegions: Set<String> = [
+        "AG", "AI", "AR", "AW", "BB", "BL", "BM", "BO", "BQ", "BR", "BS", "BZ", "CA", "CL", "CO", "CR",
+        "CU", "CW", "DM", "DO", "EC", "FK", "GD", "GF", "GL", "GP", "GT", "GY", "HN", "HT", "JM", "KN",
+        "KY", "LC", "MF", "MQ", "MS", "MX", "NI", "PA", "PE", "PM", "PR", "PY", "SR", "SV", "SX", "TC",
+        "TT", "US", "UY", "VC", "VE", "VG", "VI",
+    ]
+
     private func applyFirstInstall() {
-        let region = Locale.current.region?.identifier ?? "CH"
-        let europe: Set<String> = ["DE", "FR", "IT", "AT", "ES", "NL", "BE", "PT", "IE", "FI", "GR", "LU"]
+        let region = Locale.current.region?.identifier
+        let fromRegion = region.flatMap { Self.regionCurrency[$0] }
+        let local = Locale.current.currency?.identifier ?? fromRegion ?? "CHF"
+        base = local
+        let rest: [String]
         if region == "CH" || region == "LI" {
-            base = "CHF"
-            order = ["CHF", "EUR", "USD", "GBP"]
-        } else if europe.contains(region) {
-            base = "EUR"
-            order = ["EUR", "USD", "GBP", "CHF"]
-        } else if region == "GB" {
-            base = "GBP"
-            order = ["GBP", "EUR", "USD", "CHF"]
-        } else if region == "US" || region == "CA" {
-            base = region == "CA" ? "CAD" : "USD"
-            order = [base, "USD", "EUR", "GBP", "CHF"].reduce(into: [String]()) { acc, code in
-                if !acc.contains(code) { acc.append(code) }
-            }
+            rest = ["EUR", "USD", "GBP"]
+        } else if let region, Self.europeRegions.contains(region) {
+            rest = ["EUR", "USD", "GBP", "CHF"]
+        } else if let region, Self.americasRegions.contains(region) {
+            rest = ["USD", "EUR", "GBP", "CHF"]
         } else {
-            base = "CHF"
-            order = ["CHF", "EUR", "USD", "GBP"]
+            rest = ["USD", "EUR", "GBP", "CHF"]
         }
+        var next = [local]
+        for code in rest where !next.contains(code) {
+            next.append(code)
+        }
+        order = next
+        hidden = []
         saveLocal()
     }
 

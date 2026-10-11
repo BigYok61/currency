@@ -73,8 +73,8 @@ function inverseLine(code, perUnit) {
 const moneyFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pillFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
 let convertSource = baseCurrency;
-let convertAmount = 1;
-let convertDraft = '1';
+let convertAmount = quoteLot(baseCurrency);
+let convertDraft = draftString(quoteLot(baseCurrency));
 let convertEditing = false;
 let convertReplace = false;
 function parseAmount(text) {
@@ -113,10 +113,11 @@ function convertValue(code) {
 }
 function showsUnitRates() {
   const v = valueInBase();
-  return v == null ? convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7 : Math.abs(v - 1) < 5e-7;
+  const lot = quoteLot(baseCurrency);
+  return v == null ? convertSource === baseCurrency && Math.abs(convertAmount - lot) < 5e-7 : Math.abs(v - lot) < 5e-7;
 }
 function isDefaultConvert() {
-  return convertSource === baseCurrency && Math.abs(convertAmount - 1) < 5e-7;
+  return convertSource === baseCurrency && Math.abs(convertAmount - quoteLot(baseCurrency)) < 5e-7;
 }
 function moneyText(n) {
   return n == null || Number.isNaN(n) ? '–' : moneyFmt.format(n);
@@ -141,16 +142,10 @@ function beginConvert(code) {
     if (input) input.focus();
     return;
   }
-  let next;
-  if (convertSource === code) next = convertAmount;
-  else if (showsUnitRates()) {
-    const q = quoteOf(currencyRecord(code));
-    next = q && q.raw != null && Math.abs(q.raw) > EPS ? 1 / q.raw : 1;
-  } else next = convertValue(code) ?? 1;
   convertSource = code;
-  convertAmount = next;
-  convertDraft = draftString(next);
-  convertReplace = true;
+  convertAmount = 0;
+  convertDraft = '';
+  convertReplace = false;
   convertEditing = true;
   render({ keepScroll: true, keepCaret: true });
 }
@@ -163,7 +158,8 @@ function applyConvertDraft(text) {
 function finishConvert() {
   if (!convertEditing) return;
   const n = parseAmount(convertDraft);
-  if (n != null) convertAmount = n;
+  if (n == null || !(n > 0)) { resetConvert(); return; }
+  convertAmount = n;
   convertEditing = false;
   convertReplace = false;
   render({ keepScroll: true });
@@ -199,8 +195,9 @@ function onConvertInput(value) {
 }
 function resetConvert() {
   convertSource = baseCurrency;
-  convertAmount = 1;
-  convertDraft = '1';
+  const lot = quoteLot(baseCurrency);
+  convertAmount = lot;
+  convertDraft = draftString(lot);
   convertEditing = false;
   convertReplace = false;
   render({ keepScroll: true });
@@ -1071,23 +1068,26 @@ function moveRow(code, dir) {
   const next = rows.slice();
   const [item] = next.splice(i, 1);
   next.splice(j, 0, item);
+  const previous = baseCurrency;
   writeListOrder(next);
+  const top = next[0] && next[0].code;
+  if (top && top !== baseCurrency) {
+    baseCurrency = top;
+    ensureCurrency(top);
+    try { localStorage.setItem(LS_BASE, top); } catch { /* Anzeige gilt für diese Sitzung */ }
+  }
   persistOrder(next.filter(c => c.code !== baseCurrency));
   announce(`${ccyName(item)}, Position ${j + 1} von ${next.length}`);
-  render({ keepScroll: true });
+  if (baseCurrency !== previous) resetConvert();
+  else render({ keepScroll: true });
 }
 function deleteRow(code) {
   if (code === baseCurrency) return;
-  if (code === convertSource) {
-    convertSource = baseCurrency;
-    convertAmount = 1;
-    convertDraft = '1';
-    convertEditing = false;
-    convertReplace = false;
-  }
+  const reset = code === convertSource;
   const next = boardRows().filter(c => c.code !== code);
   writeListOrder(next);
   hideCurrency(code);
+  if (reset) resetConvert();
 }
 function bindScrub() {
   let gesture = null;
@@ -1213,11 +1213,7 @@ if (typeof document !== 'undefined') {
   const setBaseSaved = setBaseCurrency;
   setBaseCurrency = function (code) {
     setBaseSaved(code);
-    convertSource = baseCurrency;
-    convertAmount = 1;
-    convertDraft = '1';
-    convertEditing = false;
-    convertReplace = false;
+    resetConvert();
   };
   const syncDock = () => { calcDock.hidden = !convertEditing; };
   const renderList = render;
