@@ -406,7 +406,7 @@ private struct CompareLine {
     var drawn: [RatePoint]
 }
 
-private func compareLines(from store: RatesStore) -> [CompareLine] {
+@MainActor private func compareLines(from store: RatesStore) -> [CompareLine] {
     store.compareLines().map { line in
         let full = line.points.map { RatePoint(day: $0.day, hour: nil, value: $0.percent, raw: $0.percent, date: $0.date) }
         return CompareLine(code: line.code, color: ComparePalette.color(store.compareIndex(line.code)), full: full, drawn: downsample(full, max: 240))
