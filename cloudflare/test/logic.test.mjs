@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { evaluateAlerts, formatNum, formatPct, inactiveCutoff, nextHits, testLines, validAlertId, validTopic } from '../src/alerts.js';
-import { applyCapture, ecbUrl, historyJson, ohlcUrl, workerCapturePlan } from '../src/capture.js';
+import { applyCapture, ecbUrl, historyJson, ohlcUrl, pruneDays, workerCapturePlan } from '../src/capture.js';
 import { forecast7Days, forecastEndOfDay, resolveBasisHour } from '../src/forecast.js';
 import { canonicalJson, formatPyFloat, roundHalfEven } from '../src/json.js';
 import { loadTimes } from '../src/schedule.js';
@@ -372,19 +372,71 @@ test('alert ids, topics, and the 90-day cutoff', () => {
   assert.equal(normalizeSubscription({ topic: 'nope', start: 6, currencies: body.currencies }), null);
   assert.equal(normalizeAlerts({ currencies: {} }), null);
   assert.equal(normalizeAlerts({ currencies: { USD: { enabled: true, down: 0.5, up: 0.25 } } }), null);
+  const withJpy = normalizeAlerts({
+    currencies: {
+      USD: { enabled: true, down: 0.5, up: 0.25 },
+      EUR: { enabled: true, down: 0.5, up: 0.25 },
+      JPY: { enabled: true, down: 1, up: 1 },
+    },
+  });
+  assert.equal(withJpy.currencies.JPY.down, 1);
+  assert.equal(normalizeAlerts({
+    currencies: {
+      USD: { enabled: true, down: 0.5, up: 0.25 },
+      EUR: { enabled: true, down: 0.5, up: 0.25 },
+      XXX: { enabled: true, down: 1, up: 1 },
+    },
+  }), null);
+  assert.equal(normalizeAlerts({
+    currencies: {
+      USD: { enabled: true, down: 0.5, up: 0.25 },
+      EUR: { enabled: true, down: 0.5, up: 0.25 },
+      CNY: { enabled: true, down: 1, up: 1 },
+    },
+  }), null);
 });
 
-test('requested currencies stay inside the ECB and biquote lists', async () => {
-  const { currenciesFor, mergeCurrencyRequests, inBase, EXTRA_CAP } = await import('../src/currencies.js');
+test('capture covers the shared picker and stores JPY as CHF per 1 yen', async () => {
+  const { currenciesFor, mergeCurrencyRequests, inBase, captureList, isAlertCode } = await import('../src/currencies.js');
   const list = currenciesFor(['SEK', 'CNY', 'usd', 'EUR', 'nope']);
-  assert.deepEqual(list.map(c => c.code), ['USD', 'EUR', 'GBP', 'SEK']);
+  assert.deepEqual(list.map(c => c.code), captureList().map(c => c.code));
   assert.equal(list.find(c => c.code === 'SEK').symbol, 'CHFSEK');
   assert.equal(list.find(c => c.code === 'SEK').inv, true);
-  assert.equal(mergeCurrencyRequests(['SEK'], { codes: ['JPY', 'CNY', 'sek'] }).join(','), 'SEK,JPY');
+  assert.equal(list.find(c => c.code === 'JPY').unit, 1);
+  assert.equal(list.find(c => c.code === 'CAD').symbol, 'CADCHF');
+  assert.equal(list.find(c => c.code === 'CNY').symbol, null);
+  assert.equal(mergeCurrencyRequests(['SEK'], { codes: ['JPY', 'CNY', 'sek', 'nope'] }).join(','), 'SEK,JPY,CNY');
   assert.equal(mergeCurrencyRequests([], { codes: 'SEK' }), null);
-  const many = mergeCurrencyRequests([], { codes: ['SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR', 'AUD', 'CAD', 'NZD'] });
-  assert.equal(many.length, EXTRA_CAP);
+  assert.equal(isAlertCode('JPY'), true);
+  assert.equal(isAlertCode('CNY'), false);
   assert.ok(Math.abs(inBase(0.94, 1 / 12) - 11.28) < 1e-9);
+
+  const now = new Date('2026-10-09T06:05:00Z');
+  const jpy = await applyCapture({ version: 1, days: {} }, null, now, async url => {
+    if (url.includes('frankfurter')) return { rates: { '2026-10-09': { CHF: 1, JPY: 190 } } };
+    return { bars: [{ openTime: '2026-10-09T06:00:00Z', open: 190, high: 191, low: 189 }] };
+  }, { start: 6, grid: [8], capture: [8] }, [{ code: 'JPY', symbol: 'CHFJPY', inv: true, unit: 1 }]);
+  const stored = roundHalfEven(1 / 190, 6);
+  assert.equal(jpy.history.days['2026-10-09'].slots['08'].JPY, stored);
+  assert.equal(jpy.history.days['2026-10-09'].ecb.JPY, stored);
+  assert.notEqual(stored, roundHalfEven(100 / 190, 6));
+  assert.equal(jpy.fatal, false);
+
+  const ecbOnly = await applyCapture({ version: 1, days: {} }, null, now, async url => {
+    if (url.includes('frankfurter')) return { rates: { '2026-10-09': { CHF: 0.93, USD: 1.08, CNY: 7.6 } } };
+    throw new Error('down');
+  }, { start: 6, grid: [8], capture: [8] }, [
+    { code: 'USD', symbol: 'USDCHF', inv: false, unit: 1 },
+    { code: 'CNY', symbol: null, inv: false, unit: 1 },
+  ]);
+  assert.equal(ecbOnly.fatal, false);
+  assert.equal(ecbOnly.history.days['2026-10-09'].ecb.CNY, roundHalfEven(0.93 / 7.6, 6));
+  assert.equal(ecbOnly.history.days['2026-10-09'].slots['08'], undefined);
+
+  const windowed = { version: 1, days: { '2026-08-01': { slots: {} }, '2026-10-09': { slots: {} } } };
+  pruneDays(windowed, '2026-10-09', 45);
+  assert.equal(windowed.days['2026-08-01'], undefined);
+  assert.ok(windowed.days['2026-10-09']);
 });
 
 test('forecast helpers stay null without enough history', () => {

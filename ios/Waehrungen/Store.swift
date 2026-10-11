@@ -197,15 +197,21 @@ final class RatesStore: ObservableObject {
         return "\(formatRate(1 / per)) \(code)"
     }
 
+    /// Hourly capture first. Until that exists, the newest ECB reference (CHF per 1 unit).
     private func chfPerUnit(_ code: String) -> Double? {
         if code == "CHF" { return 1 }
         let today = Self.todayKey()
-        for offset in 0..<12 {
+        for offset in 0..<45 {
             guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
             let hours = slots.keys.compactMap(Int.init).sorted(by: >)
             for hour in hours {
                 if let raw = slots[String(format: "%02d", hour)]?[code], raw > 0 { return raw }
             }
+        }
+        for offset in 0..<45 {
+            guard let day = Self.addDays(today, -offset),
+                  let raw = days[day]?.ecb?[code], raw > 0 else { continue }
+            return raw
         }
         return nil
     }
@@ -486,7 +492,7 @@ final class RatesStore: ObservableObject {
         }
     }
 
-    /// Stores the current switches locally and registers USD and EUR with the Worker.
+    /// Stores the current switches locally and registers every biquote currency with the Worker.
     func registerAlerts() async throws {
         ensureAlertIdentity()
         let payload = try alertPayload()
@@ -552,7 +558,7 @@ final class RatesStore: ObservableObject {
         }
     }
 
-    /// Worker cron only evaluates USD and EUR. Other codes stay on the device. Master off keeps the subscription and stores `enabled: false`, the same as the web sheet.
+    /// Worker cron evaluates every biquote code in the subscription. CNY, HKD and INR have no live quote and stay on the device. Master off keeps the subscription and stores `enabled: false`.
     private func alertPayload() throws -> AlertUpload {
         func level(_ code: String) throws -> AlertUpload.Level {
             let entry = threshold(for: code)
@@ -562,11 +568,11 @@ final class RatesStore: ObservableObject {
             let enabled = alertsMaster && visible.contains(code) && entry.enabled
             return AlertUpload.Level(enabled: enabled, down: down, up: up)
         }
-        return AlertUpload(
-            topic: topic,
-            start: timeStart,
-            currencies: AlertUpload.Pair(USD: try level("USD"), EUR: try level("EUR"))
-        )
+        var currencies: [String: AlertUpload.Level] = [:]
+        for code in Self.alertCodes {
+            currencies[code] = try level(code)
+        }
+        return AlertUpload(topic: topic, start: timeStart, currencies: currencies)
     }
 
     private func alertCall(method: String, test: Bool = false, body: Data?) async throws -> Data {
@@ -597,7 +603,7 @@ final class RatesStore: ObservableObject {
         return data
     }
 
-    static let alertCodes = ["USD", "EUR"]
+    static let alertCodes = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "SEK", "JPY", "NOK", "DKK", "PLN", "HUF", "TRY", "SGD", "MXN", "ZAR"]
 
     static func validAlertId(_ id: String) -> Bool {
         id.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
@@ -871,12 +877,7 @@ final class RatesStore: ObservableObject {
 private struct AlertUpload: Encodable {
     var topic: String
     var start: Int
-    var currencies: Pair
-
-    struct Pair: Encodable {
-        var USD: Level
-        var EUR: Level
-    }
+    var currencies: [String: Level]
 
     struct Level: Encodable {
         var enabled: Bool

@@ -6,10 +6,14 @@ import { readJson, writeRaw } from './storage.js';
 
 export const HISTORY_CODES = [
   'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'NZD', 'SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR',
+  'CNY', 'HKD', 'INR',
 ];
 
 /** Fremdwährung je 1 EUR, plus CHF als Umrechnung. EUR selbst steht nicht in der SDMX-Reihe. */
-const SDMX_CODES = ['USD', 'GBP', 'CHF', 'AUD', 'CAD', 'NZD', 'SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR'];
+const SDMX_CODES = [
+  'USD', 'GBP', 'CHF', 'AUD', 'CAD', 'NZD', 'SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR',
+  'CNY', 'HKD', 'INR',
+];
 
 const CODE_SET = new Set(HISTORY_CODES);
 

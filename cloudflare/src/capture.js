@@ -5,7 +5,7 @@ import { forecast7Days, forecastEndOfDay, forecastTargetDay, resolveBasisHour } 
 import {
   ECB_LOOKBACK_DAYS, START_DAY, addDays, isWeekday, pad, parseInstant, slotUtcMs, weekdays, zurichDateString, zurichParts,
 } from './time.js';
-import { currenciesFor } from './currencies.js';
+import { captureList } from './currencies.js';
 
 export const CURRENCIES = [
   { code: 'USD', symbol: 'USDCHF', inv: false, unit: 1 },
@@ -103,7 +103,8 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
   }
 
   const limit = ohlcLimit(now);
-  for (const { code, symbol, inv, unit } of currencies) {
+  const fetchable = currencies.filter(c => c.symbol);
+  for (const { code, symbol, inv, unit } of fetchable) {
     let bars;
     try {
       const body = await getJson(ohlcUrl(symbol, limit));
@@ -163,8 +164,17 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
   }
 
   if (changed) history.updated = now.toISOString().slice(0, 19) + 'Z';
+  pruneDays(history, today, ECB_LOOKBACK_DAYS);
   history.days = Object.fromEntries(Object.entries(history.days).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
-  return { history, changed, errors, fatal: errors.length === currencies.length + 1 };
+  return { history, changed, errors, fatal: errors.length === fetchable.length + 1 };
+}
+
+/** Tageskarte behält das Fenster, das Prognose und die Clients lesen. Älteres liegt in data/history. */
+export function pruneDays(history, today, keepDays) {
+  const min = addDays(today, -(keepDays - 1));
+  for (const key of Object.keys(history.days || {})) {
+    if (key < min) delete history.days[key];
+  }
 }
 
 function dateKey(z) {
@@ -187,8 +197,7 @@ export async function runCapture(env, opts = {}) {
   const { readJson, readRaw, writeRaw } = await import('./storage.js');
   const stored = await readJson(env, 'rates');
   const history = stored && typeof stored === 'object' ? stored : emptyHistory();
-  const requested = await readJson(env, 'currency-requests');
-  const list = currenciesFor(requested && requested.codes);
+  const list = captureList();
   const result = await applyCapture(history, null, now, url => fetchJson(url, fetchImpl), workerCapturePlan(), list);
   const body = historyJson(result.history);
   const prev = await readRaw(env, 'rates');

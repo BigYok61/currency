@@ -1,4 +1,4 @@
-// Einmaliger EZB-Tagesverlauf ab 2015-01-01 nach D1 (history-USD, history-EUR, …).
+// Einmaliger EZB-Tagesverlauf ab 1999-01-01 nach D1 (history-USD, history-EUR, …).
 // Lokal:  node history-backfill.mjs
 // Remote: node history-backfill.mjs --remote
 // Der Samstags-Cron und werktags 17 Uhr Zürich ziehen danach die letzten Wochen nach.
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { ecbHistoryUrl, historyBody, HISTORY_CODES, toChfPoints, parseEcbRates } from './src/history.js';
 
-const START = '2015-01-01';
+const START = '1999-01-01';
 const here = dirname(fileURLToPath(import.meta.url));
 const remote = process.argv.includes('--remote');
 
@@ -48,9 +48,20 @@ for (const code of HISTORY_CODES) {
   }
   const body = historyBody(code, series);
   console.log(`${code} ${series.length} Tage, ${series[0][0]} … ${series[series.length - 1][0]}, ${body.length} Bytes`);
-  statements.push(
-    `INSERT INTO documents (key, body) VALUES (${sqlLiteral(`history-${code}`)}, ${sqlLiteral(body)}) ON CONFLICT(key) DO UPDATE SET body = excluded.body;`,
+  statements.push(...upsertStatements(`history-${code}`, body));
+}
+
+/** D1 nimmt höchstens 100 KB je SQL-Anweisung. Der Rumpf wird in Stücken angehängt. */
+function upsertStatements(key, body) {
+  const chunk = 70000;
+  const out = [];
+  out.push(
+    `INSERT INTO documents (key, body) VALUES (${sqlLiteral(key)}, ${sqlLiteral(body.slice(0, chunk))}) ON CONFLICT(key) DO UPDATE SET body = excluded.body;`,
   );
+  for (let i = chunk; i < body.length; i += chunk) {
+    out.push(`UPDATE documents SET body = body || ${sqlLiteral(body.slice(i, i + chunk))} WHERE key = ${sqlLiteral(key)};`);
+  }
+  return out;
 }
 
 if (remote) {

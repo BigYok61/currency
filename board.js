@@ -284,7 +284,7 @@ function quoteOf(c) {
   const liveRaw = shownLive(c);
   if (liveRaw != null) return { v: directPrice(c.code, liveRaw), raw: liveRaw, live: true };
   const today = zurichToday();
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 45; i++) {
     const day = addDays(today, -i);
     const slots = history.days[day]?.slots || {};
     const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null && val(c, day, h) != null).sort((a, b) => b - a);
@@ -292,6 +292,12 @@ function quoteOf(c) {
     const raw = shown(c, day, hours[0]);
     if (raw == null) continue;
     return { v: directPrice(c.code, raw), raw, day, hour: hours[0] };
+  }
+  for (let i = 0; i < 45; i++) {
+    const day = addDays(today, -i);
+    const raw = shownEcb(c, day);
+    if (raw == null || !(raw > 0)) continue;
+    return { v: directPrice(c.code, raw), raw, day, ecb: true };
   }
   return { v: null, raw: null };
 }
@@ -915,7 +921,16 @@ async function postPendingAlerts() {
   pendingAlertForm = null;
   try {
     const serverVals = {};
-    for (const code of ['USD', 'EUR']) if (form.vals[code]) serverVals[code] = form.vals[code];
+    for (const code of ALERT_CODES) if (form.vals[code]) serverVals[code] = form.vals[code];
+    for (const code of ['USD', 'EUR']) {
+      if (serverVals[code]) continue;
+      const entry = alarmEntry(code);
+      serverVals[code] = {
+        enabled: !!(alertsMasterOn() && entry.enabled && alarmCodes().includes(code)),
+        down: Math.round(Number(entry.down) * 100) / 100,
+        up: Math.round(Number(entry.up) * 100) / 100,
+      };
+    }
     if (Object.keys(serverVals).length) await applyAlertForm(serverVals);
     return true;
   } catch (e) {

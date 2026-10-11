@@ -3,7 +3,7 @@ import { runCapture } from './capture.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
 import { parseHour } from './schedule.js';
-import { currenciesFor, mergeCurrencyRequests } from './currencies.js';
+import { currenciesFor, isAlertCode, mergeCurrencyRequests } from './currencies.js';
 import {
   historyKey, historyResponseBody, isHistoryCode, readHistoryDocument, selectRange, shouldRefreshHistory, updateRecentHistory,
   RANGES,
@@ -25,8 +25,17 @@ const JSON_HEADERS = {
   'cache-control': 'no-store',
 };
 
-const ALERT_CODES = ['USD', 'EUR'];
+const REQUIRED_ALERTS = ['USD', 'EUR'];
 const MAX_BODY = 4096;
+
+function readAlertLevel(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  if (typeof c.enabled !== 'boolean') return null;
+  const down = typeof c.down === 'number' ? c.down : Number(c.down);
+  const up = typeof c.up === 'number' ? c.up : Number(c.up);
+  if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) return null;
+  return { enabled: c.enabled, down, up };
+}
 
 function jsonResponse(body, status = 200) {
   const text = typeof body === 'string' ? body : canonicalJson(body);
@@ -38,16 +47,18 @@ export function normalizeAlerts(body) {
   const currencies = body.currencies;
   if (!currencies || typeof currencies !== 'object' || Array.isArray(currencies)) return null;
   const out = {};
-  for (const code of ALERT_CODES) {
-    const c = currencies[code];
-    if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
-    if (typeof c.enabled !== 'boolean') return null;
-    const down = typeof c.down === 'number' ? c.down : Number(c.down);
-    const up = typeof c.up === 'number' ? c.up : Number(c.up);
-    if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) return null;
-    out[code] = { enabled: c.enabled, down, up };
+  for (const code of REQUIRED_ALERTS) {
+    const level = readAlertLevel(currencies[code]);
+    if (!level) return null;
+    out[code] = level;
   }
-  if (Object.keys(currencies).some(code => !ALERT_CODES.includes(code))) return null;
+  for (const code of Object.keys(currencies)) {
+    if (REQUIRED_ALERTS.includes(code)) continue;
+    if (!isAlertCode(code)) return null;
+    const level = readAlertLevel(currencies[code]);
+    if (!level) return null;
+    out[code] = level;
+  }
   return { version: 1, currencies: out };
 }
 

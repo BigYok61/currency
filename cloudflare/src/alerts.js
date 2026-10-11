@@ -1,9 +1,10 @@
 // FX-Push-Alarme via ntfy. Gleiche Regeln wie scripts/fx_alerts.py.
+import { BICOTE_PAIRS } from './currencies.js';
 import { canonicalJson, formatFixed, roundHalfEven } from './json.js';
 import { basisHour } from './schedule.js';
 import { parseInstant, zurichDateString, zurichHourMinute, zurichParts, pad } from './time.js';
 
-export const SYMBOLS = { USD: 'USDCHF', EUR: 'EURCHF', GBP: 'GBPCHF' };
+export const SYMBOLS = Object.fromEntries(Object.entries(BICOTE_PAIRS).map(([code, pair]) => [code, pair.symbol]));
 export const DEFAULTS = {
   USD: { enabled: true, down: 0.5, up: 0.25 },
   EUR: { enabled: true, down: 0.5, up: 0.25 },
@@ -274,6 +275,33 @@ function wrapFetch(quotes, bars, errors, codes) {
   return { quotes: wrappedQuotes, bars: wrappedBars };
 }
 
+/** CHFXXX notiert Fremdwährung je 1 CHF. Alarm und Basis brauchen CHF je 1 Einheit. */
+function directTicker(code, ticker) {
+  if (!BICOTE_PAIRS[code]?.inv || !ticker || typeof ticker !== 'object') return ticker;
+  const out = { ...ticker };
+  if (typeof ticker.mid === 'number' && ticker.mid > 0) out.mid = 1 / ticker.mid;
+  const bid = typeof ticker.bid === 'number' && ticker.bid > 0 ? 1 / ticker.bid : null;
+  const ask = typeof ticker.ask === 'number' && ticker.ask > 0 ? 1 / ticker.ask : null;
+  if (bid != null && ask != null) {
+    out.bid = Math.min(bid, ask);
+    out.ask = Math.max(bid, ask);
+  } else {
+    if (bid != null) out.bid = bid;
+    if (ask != null) out.ask = ask;
+  }
+  return out;
+}
+
+function directBars(code, bars) {
+  if (!BICOTE_PAIRS[code]?.inv || !Array.isArray(bars)) return bars;
+  return bars.map(b => {
+    const open = b.open > 0 ? 1 / b.open : b.open;
+    const high = b.low > 0 ? 1 / b.low : b.high;
+    const low = b.high > 0 ? 1 / b.high : b.low;
+    return { ...b, open, high, low };
+  });
+}
+
 async function fetchPairs(codes, fetchImpl) {
   const quotes = {};
   const bars = {};
@@ -281,8 +309,8 @@ async function fetchPairs(codes, fetchImpl) {
   for (const code of codes) {
     if (!SYMBOLS[code]) continue;
     try {
-      quotes[code] = await getJson(`https://biquote.io/api/${SYMBOLS[code]}`, fetchImpl);
-      bars[code] = (await getJson(`https://biquote.io/api/${SYMBOLS[code]}/ohlc?interval=1h&limit=30`, fetchImpl)).bars;
+      quotes[code] = directTicker(code, await getJson(`https://biquote.io/api/${SYMBOLS[code]}`, fetchImpl));
+      bars[code] = directBars(code, (await getJson(`https://biquote.io/api/${SYMBOLS[code]}/ohlc?interval=1h&limit=30`, fetchImpl)).bars);
     } catch (e) {
       errors[code] = e;
     }
@@ -332,7 +360,18 @@ export async function runFxAlerts(env, opts = {}) {
     config: JSON.parse(row.config),
     state: JSON.parse(row.state),
   }));
-  const codes = new Set(ALERT_CODES);
+  const codes = new Set();
+  for (const sub of parsed) {
+    const currencies = sub.config && sub.config.currencies ? sub.config.currencies : {};
+    for (const [code, level] of Object.entries(currencies)) {
+      if (!SYMBOLS[code] || (level && level.enabled === false)) continue;
+      codes.add(code);
+    }
+  }
+  if (!codes.size) {
+    console.log('Keine aktiven Währungen.');
+    return { skipped: true, subscriptions: rows.length, pruned };
+  }
   const data = await fetchPairs([...codes], fetchImpl);
   let pushes = 0;
   for (const sub of parsed) {

@@ -21,6 +21,7 @@ const PAIRS = {
   DKK: { symbol: 'CHFDKK', inv: true }, PLN: { symbol: 'CHFPLN', inv: true }, HUF: { symbol: 'CHFHUF', inv: true },
   TRY: { symbol: 'CHFTRY', inv: true }, SGD: { symbol: 'CHFSGD', inv: true }, MXN: { symbol: 'CHFMXN', inv: true },
   ZAR: { symbol: 'CHFZAR', inv: true },
+  CNY: { symbol: null, inv: false }, HKD: { symbol: null, inv: false }, INR: { symbol: null, inv: false },
 };
 const CHF_CCY = { code: 'CHF', label: '1 CHF', flag: '🇨🇭', symbol: null };
 /** Eindeutige Symbole. Danach das Symbol der Locale, danach der ISO-Code. */
@@ -1614,7 +1615,7 @@ function bindPullToRefresh() {
 
 async function fetchQuote(code) {
   const spec = PAIRS[code];
-  if (!spec) return;
+  if (!spec || !spec.symbol) return;
   try {
     const res = await fetch(`https://biquote.io/api/${spec.symbol}?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -1770,7 +1771,7 @@ const LS_VIEW = 'wu.viewSchedule';
 const LS_ALERT_ID = 'wu.alertId';
 const LS_ALERT_TOPIC = 'wu.alertTopic';
 const TIMES_FRESH_MS = 10 * 60 * 1000;
-const ALERT_CODES = ['USD', 'EUR'];
+const ALERT_CODES = ['USD', 'EUR', 'GBP', 'AUD', 'CAD', 'NZD', 'SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
 const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
 /** 'github' auf Pages und lokal, 'cloudflare' wenn /api/runtime vom Worker kommt. */
@@ -1949,6 +1950,9 @@ async function saveAlerts(mutate) {
     const cur = structuredClone(DEFAULT_ALERTS);
     if (alertCfg?.currencies) cur.currencies = structuredClone(alertCfg.currencies);
     mutate(cur);
+    for (const code of Object.keys(cur.currencies)) {
+      if (!ALERT_CODES.includes(code)) delete cur.currencies[code];
+    }
     const res = await fetch(`api/alerts/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2002,7 +2006,7 @@ function renderCloudAlerts() {
     </ol>
     <div class="row"><a class="btnlink" href="${esc(href)}" target="_blank" rel="noopener">Thema abonnieren</a><button id="alTest" type="button">Test-Push senden</button></div>`;
   for (const code of ALERT_CODES) {
-    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code] || { enabled: false, down: 0.5, up: 0.25 };
     h += `<section class="alcard"><h3>${code}/${esc(baseCurrency)}</h3>
       <label class="alfield"><span>Aktiv</span><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''}></label>
       <label class="alfield"><span>Fällt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}"> %</span></label>
@@ -2068,7 +2072,7 @@ function renderAlerts() {
     Geprüft alle 15 Minuten, werktags ca. 07:00–22:00 Uhr; je Währung und Richtung höchstens eine Meldung pro Tag.</p>
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
-    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code] || { enabled: false, down: 0.5, up: 0.25 };
     h += `<tr><td>${code}/${esc(baseCurrency)}</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${sentLabel(sent, code)}</td></tr>`;
