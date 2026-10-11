@@ -51,7 +51,7 @@ struct AnsichtSheet: View {
                                 store.saveView()
                                 Task { await store.loadHistoryIfNeeded() }
                             }
-                            toggle("Grafik anzeigen", on: store.showChart, hint: nil) { store.showChart = $0; store.saveView() }
+                            toggle("Grafik anzeigen", on: store.showChart, hint: "Zeitraum kann durch Tippen auf die Grafik verändert werden.", stacked: true) { store.showChart = $0; store.saveView() }
                             toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
                             toggle("Prognose", on: store.showForecast, hint: "heute und 7 Tage") { store.showForecast = $0; store.saveView() }
                             toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
