@@ -575,7 +575,7 @@ struct AboutSheet: View {
                 .font(.system(size: 14))
                 .multilineTextAlignment(.center)
                 .tint(Color.blue)
-            Text("Wir freuen uns über Ihr Feedback, Ihre Ideen und Anregungen.")
+            Text("Wir freuen uns über Ihr Feedback und Ihre Anregungen. Danke für Ihr Vertrauen!")
                 .font(.body)
                 .multilineTextAlignment(.center)
             HStack(alignment: .center, spacing: 10) {
