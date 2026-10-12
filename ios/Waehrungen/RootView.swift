@@ -233,7 +233,7 @@ struct CurrencyCard: View {
         let anyPast = !past.isEmpty
         return VStack(spacing: 3) {
             if anyPast {
-                HStack(spacing: 6) {
+                HStack(spacing: 14) {
                     Spacer(minLength: 0)
                     ForEach(past, id: \.self) { day in
                         Text(store.pastDayHeader(day))
@@ -264,7 +264,7 @@ struct CurrencyCard: View {
             }
             VStack(spacing: 3) {
                 ForEach(store.hours, id: \.self) { hour in
-                    HStack(spacing: 6) {
+                    HStack(spacing: 14) {
                         Text(String(format: "%02d:00", hour))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
