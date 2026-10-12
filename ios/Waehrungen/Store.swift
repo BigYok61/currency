@@ -286,6 +286,8 @@ final class RatesStore: ObservableObject {
             }
             let file = try JSONDecoder().decode(RatesFile.self, from: data)
             days = file.days
+            dataGeneration += 1
+            seriesCache.removeAll()
             updated = file.updated ?? ""
             errorText = ""
             await loadHistoryIfNeeded()
@@ -321,6 +323,8 @@ final class RatesStore: ObservableObject {
                 return RatePoint(day: day, hour: nil, value: raw, raw: raw, date: date)
             }
             historyCache["\(code)|\(span.query)"] = points
+            dataGeneration += 1
+            seriesCache.removeAll()
         } catch { /* lokale Reihe bleibt die Anzeige */ }
     }
 
@@ -373,8 +377,8 @@ final class RatesStore: ObservableObject {
             guard let prev = Self.addDays(cursor, -1) else { break }
             cursor = prev
             if let date = Self.dayDate(prev, hour: 12) {
-                var cal = Calendar(identifier: .gregorian)
-                cal.timeZone = TimeZone(identifier: "Europe/Zurich") ?? .current
+                var cal = Self.gregorian
+                cal.timeZone = Self.zurichZone
                 if cal.isDateInWeekend(date) { continue }
             }
             keys.append(prev)
@@ -505,7 +509,20 @@ final class RatesStore: ObservableObject {
         return nil
     }
 
+    /// Bumped whenever `days` or `historyCache` change; part of the series cache key.
+    private var dataGeneration = 0
+    private var seriesCache: [String: [RatePoint]] = [:]
+
     func series(_ code: String) -> [RatePoint] {
+        let key = "\(code)|\(span.query)|\(base)|\(dataGeneration)|\(Self.todayKey())"
+        if let hit = seriesCache[key] { return hit }
+        let result = computeSeries(code)
+        if seriesCache.count > 200 { seriesCache.removeAll() }
+        seriesCache[key] = result
+        return result
+    }
+
+    private func computeSeries(_ code: String) -> [RatePoint] {
         if span == .day || span == .week {
             return hourlySeries(code, daysBack: span.dayCount)
         }
@@ -747,8 +764,7 @@ final class RatesStore: ObservableObject {
         let today = Self.todayKey()
         guard let from = Self.addDays(today, -(daysBack - 1)) else { return [] }
         var points: [RatePoint] = []
-        var day = from
-        while day <= today {
+        for day in storedDays(from: from, through: today) {
             if let slots = days[day]?.slots {
                 for hour in slots.keys.compactMap(Int.init).sorted() {
                     let key = String(format: "%02d", hour)
@@ -763,8 +779,6 @@ final class RatesStore: ObservableObject {
                     }
                 }
             }
-            guard let next = Self.addDays(day, 1) else { break }
-            day = next
         }
         if points.isEmpty, daysBack == 1 {
             for offset in 1..<12 {
@@ -796,8 +810,7 @@ final class RatesStore: ObservableObject {
         let today = Self.todayKey()
         guard let from = Self.addDays(today, -(daysBack - 1)) else { return [] }
         var points: [RatePoint] = []
-        var day = from
-        while day <= today {
+        for day in storedDays(from: from, through: today) {
             if code == base {
                 if days[day]?.slots?["12"]?["EUR"] != nil || days[day]?.ecb?["EUR"] != nil, let date = Self.dayDate(day) {
                     points.append(RatePoint(day: day, hour: nil, value: 1, raw: 1, date: date))
@@ -808,10 +821,14 @@ final class RatesStore: ObservableObject {
                       let date = Self.dayDate(day) {
                 points.append(RatePoint(day: day, hour: nil, value: value, raw: per, date: date))
             }
-            guard let next = Self.addDays(day, 1) else { break }
-            day = next
         }
         return points
+    }
+
+    /// Day keys actually present in rates.json within [from, through], oldest first.
+    /// "yyyy-MM-dd" sorts the same as the dates.
+    private func storedDays(from: String, through: String) -> [String] {
+        days.keys.filter { $0 >= from && $0 <= through }.sorted()
     }
 
     /// Reporting currency per 1 foreign unit, from a CHF mid and the reporting currency's CHF mid.
@@ -974,12 +991,28 @@ final class RatesStore: ObservableObject {
         return Array(stride(from: start, through: end, by: step))
     }
 
-    static func todayKey() -> String {
+    /// Shared, built once. Creating a DateFormatter per call froze the 5/10-year charts.
+    nonisolated static let gregorian = Calendar(identifier: .gregorian)
+    nonisolated static let zurichZone = TimeZone(identifier: "Europe/Zurich") ?? .current
+    private static func keyFormatter(_ zone: TimeZone) -> DateFormatter {
         let fmt = DateFormatter()
-        fmt.calendar = Calendar(identifier: .gregorian)
-        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.calendar = gregorian
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = zone
         fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: Date())
+        return fmt
+    }
+    private static let zurichKeyFormatter = keyFormatter(zurichZone)
+    private static let utcKeyFormatter = keyFormatter(TimeZone(identifier: "UTC")!)
+    private static let localKeyFormatter = keyFormatter(.autoupdatingCurrent)
+    private static let utcCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }()
+
+    static func todayKey() -> String {
+        zurichKeyFormatter.string(from: Date())
     }
 
     /// Device view options. A future iCloud sync of settings should copy every one of these keys.
@@ -988,27 +1021,18 @@ final class RatesStore: ObservableObject {
     ]
 
     static func localTodayKey() -> String {
-        let fmt = DateFormatter()
-        fmt.calendar = Calendar(identifier: .gregorian)
-        fmt.locale = Locale(identifier: "en_US_POSIX")
-        fmt.timeZone = .current
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: Date())
+        localKeyFormatter.timeZone = .current
+        return localKeyFormatter.string(from: Date())
     }
 
     static func zurichKey(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.calendar = Calendar(identifier: .gregorian)
-        fmt.locale = Locale(identifier: "en_US_POSIX")
-        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: date)
+        zurichKeyFormatter.string(from: date)
     }
 
     static func localWall(_ day: String, hour: Int) -> Date? {
         let bits = day.split(separator: "-")
         guard bits.count == 3, let y = Int(bits[0]), let m = Int(bits[1]), let d = Int(bits[2]) else { return nil }
-        var local = Calendar(identifier: .gregorian)
+        var local = gregorian
         local.timeZone = .current
         var parts = DateComponents()
         parts.calendar = local
@@ -1047,11 +1071,8 @@ final class RatesStore: ObservableObject {
     }
 
     static func addDays(_ key: String, _ count: Int) -> String? {
-        let fmt = DateFormatter()
-        fmt.calendar = Calendar(identifier: .gregorian)
-        fmt.timeZone = TimeZone(identifier: "UTC")
-        fmt.dateFormat = "yyyy-MM-dd"
-        guard let date = fmt.date(from: key), let next = Calendar(identifier: .gregorian).date(byAdding: .day, value: count, to: date) else { return nil }
+        let fmt = utcKeyFormatter
+        guard let date = fmt.date(from: key), let next = utcCalendar.date(byAdding: .day, value: count, to: date) else { return nil }
         return fmt.string(from: next)
     }
 
@@ -1063,8 +1084,8 @@ final class RatesStore: ObservableObject {
         parts.month = m
         parts.day = d
         parts.hour = hour ?? 12
-        parts.timeZone = TimeZone(identifier: "Europe/Zurich")
-        return Calendar(identifier: .gregorian).date(from: parts)
+        parts.timeZone = zurichZone
+        return gregorian.date(from: parts)
     }
 
     static func hex(_ bytes: Int) -> String {
