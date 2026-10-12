@@ -196,7 +196,6 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @FocusState private var amountFocused: Bool
-    @State private var rowWidth: CGFloat = 0
 
     var body: some View {
         let unitRates = preview || store.showsUnitRates
@@ -228,7 +227,7 @@ struct CurrencyCard: View {
         }
     }
 
-    /// Today's column stays at the right. Swiping right over the rows adds earlier trading days on the left.
+    /// Today's column stays at the right. Swiping right shows one earlier trading day in a single column to its left.
     private var intervals: some View {
         let past = preview ? [] : store.visiblePastDays(capacity: pastCapacity)
         let anyPast = !past.isEmpty
@@ -297,7 +296,8 @@ struct CurrencyCard: View {
                 }
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+        // keep today's column under the price, clear of the reorder handle (22pt + 8pt spacing)
+        .padding(.trailing, preview ? 0 : 30)
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: page(-1)
@@ -309,12 +309,8 @@ struct CurrencyCard: View {
 
     static let pastColumnWidth: CGFloat = 78
 
-    /// Past columns that fit between the time label (~44pt) and today's column (~84pt).
-    private var pastCapacity: Int {
-        guard rowWidth > 0 else { return 2 }
-        let free = rowWidth - 44 - 4 - 84 - 6
-        return max(1, Int(free / (Self.pastColumnWidth + 6)))
-    }
+    /// One past column next to today; each swipe moves it one trading day further back.
+    private var pastCapacity: Int { 1 }
 
     private func pastValue(_ hour: Int, _ day: String) -> String {
         guard let value = store.intervalValue(code, hour: hour, on: day) else { return "–" }
