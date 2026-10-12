@@ -31,6 +31,8 @@ final class RatesStore: ObservableObject {
     @Published var convertAmount = 1.0
     @Published var convertDraft = "1"
     @Published var convertEditing = false
+    /// Interval paging: 0 = today, n = n trading days back. Shared by every currency, never persisted.
+    @Published var dayOffset = 0
     var convertReplace = false
 
     private var days: [String: DayFile] = [:]
@@ -275,6 +277,7 @@ final class RatesStore: ObservableObject {
 
     func reload() async {
         resetConvert()
+        dayOffset = 0
         do {
             let url = Self.origin.appendingPathComponent("data/rates.json")
             let (data, response) = try await URLSession.shared.data(from: url)
@@ -357,8 +360,63 @@ final class RatesStore: ObservableObject {
         return nil
     }
 
+    static let maxPastTradingDays = 7
+
+    /// Today plus up to 7 previous weekdays (Sa/So skipped), newest first.
+    var intervalDays: [String] {
+        let today = Self.localTodayKey()
+        var keys = [today]
+        var cursor = today
+        var guardSteps = 0
+        while keys.count <= Self.maxPastTradingDays, guardSteps < 20 {
+            guardSteps += 1
+            guard let prev = Self.addDays(cursor, -1) else { break }
+            cursor = prev
+            if let date = Self.dayDate(prev, hour: 12) {
+                var cal = Calendar(identifier: .gregorian)
+                cal.timeZone = TimeZone(identifier: "Europe/Zurich") ?? .current
+                if cal.isDateInWeekend(date) { continue }
+            }
+            keys.append(prev)
+        }
+        return keys
+    }
+
+    var selectedIntervalDay: String {
+        let list = intervalDays
+        return list[min(max(dayOffset, 0), list.count - 1)]
+    }
+
+    /// Returns true if the page changed.
+    @discardableResult
+    func pageDays(by step: Int) -> Bool {
+        let next = min(max(dayOffset + step, 0), intervalDays.count - 1)
+        guard next != dayOffset else { return false }
+        dayOffset = next
+        return true
+    }
+
+    /// 'Heute' or e.g. 'Fr, 9.10.2026', following the device locale.
+    var intervalDayLabel: String {
+        guard dayOffset > 0, let date = Self.dayDate(selectedIntervalDay, hour: 12) else { return "Heute" }
+        let fmt = DateFormatter()
+        fmt.locale = .current
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.setLocalizedDateFormatFromTemplate("EEEdMyyyy")
+        return fmt.string(from: date)
+    }
+
     func intervalValue(_ code: String, hour: Int) -> Double? {
         if code == base { return 1 }
+        if dayOffset > 0 {
+            // a past page shows exactly that day, no fallback to older days
+            let day = selectedIntervalDay
+            guard let from = Self.localWall(day, hour: hour) else { return nil }
+            let until: Date? = hour < 23 ? Self.localWall(day, hour: hour + 1)
+                : Self.addDays(day, 1).flatMap { Self.localWall($0, hour: 0) }
+            guard let until else { return nil }
+            return firstPrice(code, from: from, until: until)
+        }
         let today = Self.localTodayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset),

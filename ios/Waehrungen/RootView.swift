@@ -229,14 +229,70 @@ struct CurrencyCard: View {
 
     private var intervals: some View {
         VStack(spacing: 3) {
-            ForEach(store.hours, id: \.self) { hour in
-                HStack {
-                    Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(shownInterval(hour))
+            if !preview { dayPager }
+            VStack(spacing: 3) {
+                ForEach(store.hours, id: \.self) { hour in
+                    HStack {
+                        Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(shownInterval(hour))
+                    }
+                    .font(.system(size: 13))
+                    .monospacedDigit()
                 }
-                .font(.system(size: 13))
-                .monospacedDigit()
+            }
+            .overlay {
+                if !preview {
+                    DayPagingPan(
+                        canBack: store.dayOffset < store.intervalDays.count - 1,
+                        canForward: store.dayOffset > 0
+                    ) { step in
+                        page(step)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Date label with iOS-style page dots. Tap jumps back to today.
+    private var dayPager: some View {
+        let count = store.intervalDays.count
+        return Button {
+            if store.dayOffset != 0 { page(-store.dayOffset) }
+        } label: {
+            HStack(spacing: 6) {
+                Text(store.intervalDayLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(store.dayOffset == 0 ? Color.secondary : Color.blue)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                HStack(spacing: 4) {
+                    // oldest left, today right: swiping right moves back in time
+                    ForEach((0..<count).reversed(), id: \.self) { index in
+                        Circle()
+                            .fill(index == store.dayOffset ? Color.primary.opacity(0.75) : Color.secondary.opacity(0.3))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Intervalle: \(store.intervalDayLabel)")
+        .accessibilityHint(store.dayOffset == 0 ? "Wischen, um frühere Tage zu sehen" : "Tippen für heute")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: page(-1)
+            case .decrement: page(1)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func page(_ step: Int) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if store.pageDays(by: step) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
         }
     }
@@ -657,6 +713,67 @@ private struct KeypadDismiss: UIViewRepresentable {
                     blockRefresh = false
                     scroll.refreshControl?.isEnabled = !editing
                 }
+            }
+        }
+    }
+}
+
+/// Horizontal-only pan over the interval rows. It begins only for a clearly horizontal swipe in a
+/// direction that can still page, so vertical scrolling, long-press reorder and (on today, swiping left)
+/// the row's delete action keep working.
+private struct DayPagingPan: UIViewRepresentable {
+    var canBack: Bool
+    var canForward: Bool
+    /// +1 = one trading day back (swipe right), -1 = toward today (swipe left)
+    var onPage: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = true
+        pan.name = "wae.dayPaging"
+        view.addGestureRecognizer(pan)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.canBack = canBack
+        context.coordinator.canForward = canForward
+        context.coordinator.onPage = onPage
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var canBack = false
+        var canForward = false
+        var onPage: (Int) -> Void = { _ in }
+        private let threshold: CGFloat = 40
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            guard abs(v.x) > abs(v.y) * 1.5 else { return false }
+            return v.x > 0 ? canBack : canForward
+        }
+
+        /// While our pan is possible, the list's swipe-to-delete pan waits for it.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            guard other is UIPanGestureRecognizer, !(other.view is UIScrollView && other === (other.view as? UIScrollView)?.panGestureRecognizer) else { return false }
+            return true
+        }
+
+        @objc func panned(_ pan: UIPanGestureRecognizer) {
+            guard pan.state == .ended else { return }
+            let dx = pan.translation(in: pan.view).x
+            let vx = pan.velocity(in: pan.view).x
+            if dx > threshold || (dx > 15 && vx > 500) {
+                if canBack { onPage(1) }
+            } else if dx < -threshold || (dx < -15 && vx < -500) {
+                if canForward { onPage(-1) }
             }
         }
     }
