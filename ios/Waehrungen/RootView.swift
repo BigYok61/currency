@@ -221,8 +221,8 @@ struct CurrencyCard: View {
             if code != store.base {
                 if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
                 if store.showIntervals { intervals }
-                if store.showForecast { forecast }
-                if store.showReference { reference }
+                if store.showForecast { forecast.padding(.trailing, priceInset) }
+                if store.showReference { reference.padding(.trailing, priceInset) }
             }
         }
     }
@@ -297,7 +297,7 @@ struct CurrencyCard: View {
             }
         }
         // keep today's column under the price, clear of the reorder handle (22pt + 8pt spacing)
-        .padding(.trailing, preview ? 0 : 30)
+        .padding(.trailing, priceInset)
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: page(-1)
@@ -308,6 +308,10 @@ struct CurrencyCard: View {
     }
 
     static let pastColumnWidth: CGFloat = 78
+
+    /// Trailing inset that lines values up with the price column: reorder handle (22pt) + spacing (8pt).
+    /// The preview card and the reporting-currency row have no handle, so their price sits at the edge.
+    private var priceInset: CGFloat { preview || code == store.base ? 0 : 30 }
 
     /// One past column next to today; each swipe moves it one trading day further back.
     private var pastCapacity: Int { 1 }

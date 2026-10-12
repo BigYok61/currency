@@ -32,7 +32,7 @@ struct ChartBlock: View {
     }
 
     private func plot(_ points: [RatePoint], height: CGFloat, scrubbing: Bool) -> some View {
-        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, onOpen: openDetail)
+        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, labelInset: labelInset, onOpen: openDetail)
     }
 
     private func dateRow(_ points: [RatePoint]) -> some View {
@@ -44,7 +44,11 @@ struct ChartBlock: View {
         .font(.system(size: 10))
         .foregroundStyle(.secondary)
         .monospacedDigit()
+        .padding(.trailing, labelInset)
     }
+
+    /// Labels end under the price column (left of the reorder handle); the chart keeps the full width.
+    private var labelInset: CGFloat { preview || code == store.base ? 0 : 30 }
 }
 
 struct ChartDetailSheet: View {
@@ -181,6 +185,7 @@ private struct InlinePlot: View {
     let base: String
     var periodCaption: String? = nil
     var periodPreview: Bool = false
+    var labelInset: CGFloat = 0
     var onOpen: (() -> Void)? = nil
     @State private var scrub: RatePoint?
 
@@ -267,6 +272,7 @@ private struct InlinePlot: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
+            .padding(.trailing, labelInset)
             .allowsHitTesting(periodCaption != nil && !periodPreview)
         }
         .overlay(alignment: .bottomTrailing) {
@@ -274,6 +280,7 @@ private struct InlinePlot: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+                .padding(.trailing, labelInset)
                 .allowsHitTesting(false)
         }
     }
