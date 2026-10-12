@@ -274,14 +274,15 @@ struct CurrencyCard: View {
                             Text(pastValue(hour, day))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                                .frame(width: Self.pastColumnWidth, alignment: .trailing)
+                                .fixedSize()
+                                .frame(minWidth: Self.pastColumnWidth, alignment: .trailing)
                         }
                         Text(shownInterval(hour))
                             .lineLimit(1)
                             .fixedSize()
                     }
-                    .font(.system(size: 13))
+                    // one small size for the whole interval area (times, both columns, headers)
+                    .font(.system(size: 11))
                     .monospacedDigit()
                 }
             }
@@ -307,7 +308,7 @@ struct CurrencyCard: View {
         }
     }
 
-    static let pastColumnWidth: CGFloat = 78
+    static let pastColumnWidth: CGFloat = 66
 
     /// Trailing inset that lines values up with the price column: reorder handle (22pt) + spacing (8pt).
     /// The preview card and the reporting-currency row have no handle, so their price sits at the edge.

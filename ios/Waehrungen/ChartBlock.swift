@@ -187,38 +187,42 @@ private struct InlinePlot: View {
     var periodPreview: Bool = false
     var labelInset: CGFloat = 0
     var onOpen: (() -> Void)? = nil
-    @State private var scrub: RatePoint?
+    @State private var scrubIndex: Int?
 
     var body: some View {
-        let drawn = downsample(points, max: 240)
+        // Trading-time axis: x is the point's position in the series, so weekends and
+        // no-data gaps take no width and are not drawn as long flat lines.
+        let drawn = downsampleIndices(points, max: 240)
+        let lastX = max(points.count - 1, 1)
         let hi = points.map(\.value).max() ?? 0
         let lo = points.map(\.value).min() ?? 0
         let span = max(hi - lo, 0.004)
         let pad = span * 0.42
         return Chart {
-            ForEach(drawn) { point in
-                AreaMark(x: .value("Zeit", point.date), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
+            ForEach(drawn, id: \.self) { index in
+                let point = points[index]
+                AreaMark(x: .value("Zeit", index), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(LinearGradient(stops: [.init(color: tone.opacity(0.08), location: 0), .init(color: tone.opacity(0), location: 0.65)], startPoint: .top, endPoint: .bottom))
-                LineMark(x: .value("Zeit", point.date), y: .value("Kurs", point.value))
+                LineMark(x: .value("Zeit", index), y: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(tone)
                     .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .butt, lineJoin: .round))
             }
-            if let first = drawn.first {
+            if let first = points.first {
                 RuleMark(y: .value("Beginn", first.value))
                     .foregroundStyle(Color.gray.opacity(0.7))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
-            if let last = drawn.last {
-                PointMark(x: .value("Zeit", last.date), y: .value("Kurs", last.value))
+            if let last = points.last {
+                PointMark(x: .value("Zeit", points.count - 1), y: .value("Kurs", last.value))
                     .foregroundStyle(tone)
                     .symbolSize(14)
             }
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
-        .chartXScale(range: .plotDimension(startPadding: 0, endPadding: 3))
+        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: 3))
         .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
@@ -226,14 +230,15 @@ private struct InlinePlot: View {
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                            guard let plotFrame = proxy.plotFrame else { return }
+                            guard let plotFrame = proxy.plotFrame, !points.isEmpty else { return }
                             let origin = geo[plotFrame].origin
                             let x = value.location.x - origin.x
-                            if let date = proxy.value(atX: x, as: Date.self) {
-                                scrub = nearest(to: date)
+                            if let position = proxy.value(atX: x, as: Double.self) {
+                                scrubIndex = min(max(Int(position.rounded()), 0), points.count - 1)
                             }
-                        }.onEnded { _ in scrub = nil })
-                    if let scrub, let plotFrame = proxy.plotFrame, let x = proxy.position(forX: scrub.date) {
+                        }.onEnded { _ in scrubIndex = nil })
+                    if let scrubIndex, scrubIndex < points.count, let plotFrame = proxy.plotFrame, let x = proxy.position(forX: scrubIndex) {
+                        let scrub = points[scrubIndex]
                         let frame = geo[plotFrame]
                         Rectangle()
                             .fill(Color.primary.opacity(0.35))
@@ -300,9 +305,6 @@ private struct InlinePlot: View {
         .foregroundStyle(.white)
     }
 
-    private func nearest(to date: Date) -> RatePoint? {
-        points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
-    }
 }
 
 func chartTone(_ points: [RatePoint]) -> Color {
@@ -314,8 +316,13 @@ func chartTone(_ points: [RatePoint]) -> Color {
 
 /// Drawing subset. First, last, high, and low stay so the line and the labels still meet the extrema.
 func downsample(_ points: [RatePoint], max count: Int) -> [RatePoint] {
+    downsampleIndices(points, max: count).map { points[$0] }
+}
+
+/// Indices of the drawing subset, ascending.
+func downsampleIndices(_ points: [RatePoint], max count: Int) -> [Int] {
     let n = points.count
-    guard n > count, count >= 2 else { return points }
+    guard n > count, count >= 2 else { return Array(0..<n) }
     var high = 0
     var low = 0
     for index in 1..<n {
@@ -336,7 +343,7 @@ func downsample(_ points: [RatePoint], max count: Int) -> [RatePoint] {
             keep.remove(extras.remove(at: extras.count / 2))
         }
     }
-    return keep.sorted().map { points[$0] }
+    return keep.sorted()
 }
 
 func dayChangeTone(_ delta: Double) -> Color {
@@ -551,11 +558,15 @@ private struct ComparePlot: View {
         let span = max(hi - lo, 0.4)
         let pad = span * 0.12
         let readout = scrubbing ? scrubReadout : nil
+        // Shared trading-time axis: every date any line has gets one slot; weekends take no width.
+        let timeline = Array(Set(lines.flatMap { $0.full.map(\.date) })).sorted()
+        let slot = Dictionary(uniqueKeysWithValues: timeline.enumerated().map { ($0.element, $0.offset) })
+        let lastX = max(timeline.count - 1, 1)
         return Chart {
             ForEach(lines, id: \.code) { line in
                 ForEach(line.drawn) { point in
                     LineMark(
-                        x: .value("Zeit", point.date),
+                        x: .value("Zeit", slot[point.date] ?? 0),
                         y: .value("Prozent", point.value),
                         series: .value("Währung", line.code)
                     )
@@ -570,7 +581,7 @@ private struct ComparePlot: View {
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
-        .chartXScale(range: .plotDimension(startPadding: 0, endPadding: 3))
+        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: 3))
         .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
@@ -578,9 +589,11 @@ private struct ComparePlot: View {
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                            guard let plotFrame = proxy.plotFrame else { return }
+                            guard let plotFrame = proxy.plotFrame, !timeline.isEmpty else { return }
                             let x = value.location.x - geo[plotFrame].origin.x
-                            scrubDate = proxy.value(atX: x, as: Date.self)
+                            if let position = proxy.value(atX: x, as: Double.self) {
+                                scrubDate = timeline[min(max(Int(position.rounded()), 0), timeline.count - 1)]
+                            }
                         }.onEnded { _ in scrubDate = nil })
                 }
             }
