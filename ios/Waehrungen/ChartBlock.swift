@@ -422,7 +422,7 @@ struct CompareChartCard: View {
         let lines = compareLines(from: store)
         return VStack(alignment: .leading, spacing: 0) {
             if lines.contains(where: { $0.drawn.count >= 2 }) {
-                ComparePlot(lines: lines, height: 80, scrubbing: false, caption: store.span.caption, preview: preview) {
+                ComparePlot(lines: lines, height: 80, scrubbing: false, caption: store.compareSpan.caption, preview: preview) {
                     open()
                 }
             } else {
@@ -455,7 +455,7 @@ struct CompareDetailSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     if lines.contains(where: { $0.drawn.count >= 2 }) {
-                        ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.span.caption, preview: false, onOpen: {})
+                        ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.compareSpan.caption, preview: false, onOpen: {})
                         spanPicker
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
@@ -479,10 +479,10 @@ struct CompareDetailSheet: View {
 
     private var spanPicker: some View {
         Picker("Zeitraum", selection: Binding(
-            get: { store.span },
+            get: { store.compareSpan },
             set: { newValue in
-                guard newValue != store.span else { return }
-                store.span = newValue
+                guard newValue != store.compareSpan else { return }
+                store.compareSpan = newValue
                 store.saveView()
                 Task { await store.loadHistoryIfNeeded() }
             }

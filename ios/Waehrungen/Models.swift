@@ -72,7 +72,7 @@ struct ForecastLine {
 }
 
 enum ViewBlock: String, CaseIterable, Identifiable {
-    case chart = "Grafik anzeigen"
+    case chart = "Grafik für Fremdwährungen anzeigen"
     case intervals = "Intervalle anzeigen"
     case forecast = "Prognose"
     case reference = "Referenzkurse anzeigen"

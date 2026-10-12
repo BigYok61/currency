@@ -13,6 +13,8 @@ final class RatesStore: ObservableObject {
     @Published var showForecast = false
     @Published var showReference = false
     @Published var span: ChartSpan = .month
+    /// Own period of the comparison chart ('Entwicklung der Währungen'), independent of `span`.
+    @Published var compareSpan: ChartSpan = .month
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false
     @Published var timeStart = 7
@@ -31,7 +33,7 @@ final class RatesStore: ObservableObject {
     @Published var convertAmount = 1.0
     @Published var convertDraft = "1"
     @Published var convertEditing = false
-    /// Interval paging: 0 = today, n = n trading days back. Shared by every currency, never persisted.
+    /// Past-days swipe: number of trading days swiped back (0 = only today). Shared by every currency, never persisted.
     @Published var dayOffset = 0
     var convertReplace = false
 
@@ -297,14 +299,19 @@ final class RatesStore: ObservableObject {
     }
 
     func loadHistoryIfNeeded() async {
-        guard showChart || showCompare, span != .day, span != .week else { return }
+        var spans: [ChartSpan] = []
+        if showChart { spans.append(span) }
+        if showCompare && !spans.contains(compareSpan) { spans.append(compareSpan) }
+        spans.removeAll { $0 == .day || $0 == .week }
+        guard !spans.isEmpty else { return }
         var codes = visible.filter { $0 != base }
         if base != "CHF" { codes.append(base) }
-        let span = self.span
-        for code in codes {
-            let key = "\(code)|\(span.query)"
-            if historyCache[key] != nil { continue }
-            await fetchHistory(code: code, span: span)
+        for span in spans {
+            for code in codes {
+                let key = "\(code)|\(span.query)"
+                if historyCache[key] != nil { continue }
+                await fetchHistory(code: code, span: span)
+            }
         }
         objectWillChange.send()
     }
@@ -386,12 +393,7 @@ final class RatesStore: ObservableObject {
         return keys
     }
 
-    var selectedIntervalDay: String {
-        let list = intervalDays
-        return list[min(max(dayOffset, 0), list.count - 1)]
-    }
-
-    /// Returns true if the page changed.
+    /// Returns true if the number of swiped-in past days changed.
     @discardableResult
     func pageDays(by step: Int) -> Bool {
         let next = min(max(dayOffset + step, 0), intervalDays.count - 1)
@@ -400,27 +402,51 @@ final class RatesStore: ObservableObject {
         return true
     }
 
-    /// 'Heute' or e.g. 'Fr, 9.10.2026', following the device locale.
-    var intervalDayLabel: String {
-        guard dayOffset > 0, let date = Self.dayDate(selectedIntervalDay, hour: 12) else { return "Heute" }
+    /// Past trading days shown left of today, oldest first. `capacity` = columns that fit.
+    func visiblePastDays(capacity: Int) -> [String] {
+        let list = intervalDays
+        let n = min(dayOffset, list.count - 1)
+        guard n > 0, capacity > 0 else { return [] }
+        let newest = max(1, n - capacity + 1)
+        return (newest...n).reversed().map { list[$0] }
+    }
+
+    private static let pastWeekdayFormatter: DateFormatter = {
         let fmt = DateFormatter()
-        fmt.locale = .current
-        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-        fmt.setLocalizedDateFormatFromTemplate("EEEdMyyyy")
-        return fmt.string(from: date)
+        fmt.locale = .autoupdatingCurrent
+        fmt.timeZone = zurichZone
+        fmt.setLocalizedDateFormatFromTemplate("EEE")
+        return fmt
+    }()
+
+    private static let pastDayMonthFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = .autoupdatingCurrent
+        fmt.timeZone = zurichZone
+        fmt.setLocalizedDateFormatFromTemplate("dM")
+        return fmt
+    }()
+
+    /// Short column header, e.g. 'Fr 9.10.' (German) or 'Fri 10/9' (US English).
+    func pastDayHeader(_ day: String) -> String {
+        guard let date = Self.dayDate(day, hour: 12) else { return day }
+        var weekday = Self.pastWeekdayFormatter.string(from: date)
+        if weekday.hasSuffix(".") { weekday.removeLast() }
+        return "\(weekday) \(Self.pastDayMonthFormatter.string(from: date))"
+    }
+
+    /// Value of one interval hour on exactly `day` (no fallback to older days).
+    func intervalValue(_ code: String, hour: Int, on day: String) -> Double? {
+        if code == base { return 1 }
+        guard let from = Self.localWall(day, hour: hour) else { return nil }
+        let until: Date? = hour < 23 ? Self.localWall(day, hour: hour + 1)
+            : Self.addDays(day, 1).flatMap { Self.localWall($0, hour: 0) }
+        guard let until else { return nil }
+        return firstPrice(code, from: from, until: until)
     }
 
     func intervalValue(_ code: String, hour: Int) -> Double? {
         if code == base { return 1 }
-        if dayOffset > 0 {
-            // a past page shows exactly that day, no fallback to older days
-            let day = selectedIntervalDay
-            guard let from = Self.localWall(day, hour: hour) else { return nil }
-            let until: Date? = hour < 23 ? Self.localWall(day, hour: hour + 1)
-                : Self.addDays(day, 1).flatMap { Self.localWall($0, hour: 0) }
-            guard let until else { return nil }
-            return firstPrice(code, from: from, until: until)
-        }
         let today = Self.localTodayKey()
         for offset in 0..<12 {
             guard let day = Self.addDays(today, -offset),
@@ -513,23 +539,25 @@ final class RatesStore: ObservableObject {
     private var dataGeneration = 0
     private var seriesCache: [String: [RatePoint]] = [:]
 
-    func series(_ code: String) -> [RatePoint] {
+    /// `span` nil = the per-currency chart period.
+    func series(_ code: String, span requested: ChartSpan? = nil) -> [RatePoint] {
+        let span = requested ?? self.span
         let key = "\(code)|\(span.query)|\(base)|\(dataGeneration)|\(Self.todayKey())"
         if let hit = seriesCache[key] { return hit }
-        let result = computeSeries(code)
+        let result = computeSeries(code, span: span)
         if seriesCache.count > 200 { seriesCache.removeAll() }
         seriesCache[key] = result
         return result
     }
 
-    private func computeSeries(_ code: String) -> [RatePoint] {
+    private func computeSeries(_ code: String, span: ChartSpan) -> [RatePoint] {
         if span == .day || span == .week {
             return hourlySeries(code, daysBack: span.dayCount)
         }
         let remote = historyCache["\(code)|\(span.query)"] ?? []
         let local = dailySeries(code, daysBack: span.dayCount)
         if code != base, remote.count > local.count {
-            let mapped = remote.compactMap { pricedRemote(code, $0) }
+            let mapped = remote.compactMap { pricedRemote(code, $0, span: span) }
             if mapped.count > local.count { return mapped }
         }
         return local
@@ -846,7 +874,7 @@ final class RatesStore: ObservableObject {
     }
 
     /// A stored history point is CHF per 1 unit. Map it onto the direct quote in the reporting currency.
-    private func pricedRemote(_ code: String, _ point: RatePoint) -> RatePoint? {
+    private func pricedRemote(_ code: String, _ point: RatePoint, span: ChartSpan) -> RatePoint? {
         let per: Double?
         if base == "CHF" {
             per = point.raw
@@ -948,6 +976,12 @@ final class RatesStore: ObservableObject {
         if defaults.object(forKey: "wu.showForecast") != nil { showForecast = defaults.bool(forKey: "wu.showForecast") }
         if defaults.object(forKey: "wu.showReference") != nil { showReference = defaults.bool(forKey: "wu.showReference") }
         if let raw = defaults.string(forKey: "wu.chartSpan"), let span = ChartSpan(rawValue: raw) { self.span = span }
+        // migration: before 1.0.1 (4) both charts shared wu.chartSpan
+        if let raw = defaults.string(forKey: "wu.compareSpan"), let span = ChartSpan(rawValue: raw) {
+            compareSpan = span
+        } else {
+            compareSpan = span
+        }
         if let data = defaults.data(forKey: "wu.hours"), let list = try? JSONDecoder().decode([Int].self, from: data), !list.isEmpty {
             hours = list
             timesUserSet = defaults.bool(forKey: "wu.timesUserSet")
@@ -974,6 +1008,7 @@ final class RatesStore: ObservableObject {
         defaults.set(showForecast, forKey: "wu.showForecast")
         defaults.set(showReference, forKey: "wu.showReference")
         defaults.set(span.rawValue, forKey: "wu.chartSpan")
+        defaults.set(compareSpan.rawValue, forKey: "wu.compareSpan")
         if let data = try? JSONEncoder().encode(hours) { defaults.set(data, forKey: "wu.hours") }
         defaults.set(timesUserSet, forKey: "wu.timesUserSet")
         defaults.set(timeStart, forKey: "wu.timeStart")
@@ -1018,6 +1053,7 @@ final class RatesStore: ObservableObject {
     /// Device view options. A future iCloud sync of settings should copy every one of these keys.
     static let viewSettingKeys = [
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference", "wu.chartSpan",
+        "wu.compareSpan",
     ]
 
     static func localTodayKey() -> String {
@@ -1057,7 +1093,7 @@ final class RatesStore: ObservableObject {
     /// Percent change versus the reporting currency. Every line is 0 at its first point in the selected period.
     func compareLines() -> [(code: String, points: [CompareSample])] {
         visible.filter { $0 != base }.compactMap { code in
-            let series = series(code)
+            let series = series(code, span: compareSpan)
             guard series.count >= 2, let first = series.first?.value, abs(first) > 0.00005 else { return nil }
             let points = series.map { point in
                 CompareSample(code: code, day: point.day, date: point.date, percent: (point.value / first - 1) * 100)

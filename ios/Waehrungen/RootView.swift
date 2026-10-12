@@ -196,6 +196,7 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @FocusState private var amountFocused: Bool
+    @State private var rowWidth: CGFloat = 0
 
     var body: some View {
         let unitRates = preview || store.showsUnitRates
@@ -227,15 +228,59 @@ struct CurrencyCard: View {
         }
     }
 
+    /// Today's column stays at the right. Swiping right over the rows adds earlier trading days on the left.
     private var intervals: some View {
-        VStack(spacing: 3) {
-            if !preview { dayPager }
+        let past = preview ? [] : store.visiblePastDays(capacity: pastCapacity)
+        let anyPast = !past.isEmpty
+        return VStack(spacing: 3) {
+            if anyPast {
+                HStack(spacing: 6) {
+                    Spacer(minLength: 0)
+                    ForEach(past, id: \.self) { day in
+                        Text(store.pastDayHeader(day))
+                            .foregroundStyle(.secondary)
+                            .frame(width: Self.pastColumnWidth, alignment: .trailing)
+                    }
+                    Button {
+                        page(-store.dayOffset)
+                    } label: {
+                        Text("Heute")
+                            .foregroundStyle(anyPast ? Color.blue : Color.secondary)
+                            .frame(minWidth: 44, alignment: .trailing)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!anyPast)
+                    .accessibilityHint(anyPast ? "Frühere Tage ausblenden" : "")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+            } else if !preview {
+                // only today: small grey header, no extra columns
+                HStack {
+                    Spacer()
+                    Text("Heute").foregroundStyle(.secondary)
+                }
+                .font(.system(size: 11, weight: .medium))
+            }
             VStack(spacing: 3) {
                 ForEach(store.hours, id: \.self) { hour in
-                    HStack {
-                        Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
-                        Spacer()
+                    HStack(spacing: 6) {
+                        Text(String(format: "%02d:00", hour))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                        Spacer(minLength: 4)
+                        ForEach(past, id: \.self) { day in
+                            Text(pastValue(hour, day))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                                .frame(width: Self.pastColumnWidth, alignment: .trailing)
+                        }
                         Text(shownInterval(hour))
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     .font(.system(size: 13))
                     .monospacedDigit()
@@ -252,34 +297,7 @@ struct CurrencyCard: View {
                 }
             }
         }
-    }
-
-    /// Date label with iOS-style page dots. Tap jumps back to today.
-    private var dayPager: some View {
-        let count = store.intervalDays.count
-        return Button {
-            if store.dayOffset != 0 { page(-store.dayOffset) }
-        } label: {
-            HStack(spacing: 6) {
-                Text(store.intervalDayLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(store.dayOffset == 0 ? Color.secondary : Color.blue)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                HStack(spacing: 4) {
-                    // oldest left, today right: swiping right moves back in time
-                    ForEach((0..<count).reversed(), id: \.self) { index in
-                        Circle()
-                            .fill(index == store.dayOffset ? Color.primary.opacity(0.75) : Color.secondary.opacity(0.3))
-                            .frame(width: 5, height: 5)
-                    }
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Intervalle: \(store.intervalDayLabel)")
-        .accessibilityHint(store.dayOffset == 0 ? "Wischen, um frühere Tage zu sehen" : "Tippen für heute")
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: page(-1)
@@ -287,6 +305,20 @@ struct CurrencyCard: View {
             @unknown default: break
             }
         }
+    }
+
+    static let pastColumnWidth: CGFloat = 78
+
+    /// Past columns that fit between the time label (~44pt) and today's column (~84pt).
+    private var pastCapacity: Int {
+        guard rowWidth > 0 else { return 2 }
+        let free = rowWidth - 44 - 4 - 84 - 6
+        return max(1, Int(free / (Self.pastColumnWidth + 6)))
+    }
+
+    private func pastValue(_ hour: Int, _ day: String) -> String {
+        guard let value = store.intervalValue(code, hour: hour, on: day) else { return "–" }
+        return rateText(value)
     }
 
     private func page(_ step: Int) {
