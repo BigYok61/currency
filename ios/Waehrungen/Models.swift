@@ -92,7 +92,7 @@ let supportAddress = "support@computerworks.ch"
 /// Numeric App Store id. Nil hides „App bewerten“ until the app is live.
 let appStoreID: String? = nil
 
-let alertIntroText = "Die Alarmeinstellungen gelten nur für dieses Gerät. Der Server prüft die Kurse alle 15 Minuten und schickt eine Mitteilung aufs iPhone, sobald eine Schwelle erreicht wird – auch wenn die App geschlossen ist. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
+let alertIntroText = "Die Alarmeinstellungen werden über iCloud auf alle Ihre Geräte übertragen. Der Server prüft die Kurse alle 15 Minuten und schickt eine Mitteilung, sobald eine Schwelle erreicht wird – auch wenn die App geschlossen ist. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
 
 
 enum CurrencyNames {
