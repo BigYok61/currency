@@ -43,7 +43,6 @@ struct RootView: View {
                     }
                 } header: {
                     VStack(alignment: .leading, spacing: 8) {
-                        titleRow
                         HStack {
                             Text("Währung")
                             Spacer()
@@ -104,6 +103,7 @@ struct RootView: View {
             })
             .navigationTitle("Währungen")
             .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) { titleRow }
             .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -127,9 +127,9 @@ struct RootView: View {
         #endif
     }
 
-    /// Large title and the three tools in one row; part of the scrolling list, never collapses.
+    /// Pinned header: large title and the three tools in one row, outside the list; never collapses or scrolls.
     private var titleRow: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .lastTextBaseline) {
             Text("Währungen")
                 .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(Color(uiColor: .label))
@@ -137,11 +137,12 @@ struct RootView: View {
             Spacer(minLength: 8)
             headerButtons
         }
-        .padding(.leading, -20)
-        .padding(.trailing, -4)
-        .padding(.top, 4)
-        .padding(.bottom, 14)
-        .textCase(nil)
+        .padding(.leading, 20)
+        .padding(.trailing, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea(edges: .top))
     }
 
     @ToolbarContentBuilder
