@@ -136,6 +136,8 @@ struct RootView: View {
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             headerButtons
+                // icons' bottom edge sits on the title's text baseline (not the descender)
+                .alignmentGuide(.lastTextBaseline) { d in d[.bottom] - 1.5 }  // -1.5pt: SF Symbol glyph inset
         }
         .padding(.leading, 20)
         .padding(.trailing, 24)
