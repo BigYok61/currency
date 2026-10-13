@@ -20,7 +20,16 @@ struct WaehrungenApp: App {
                 .task {
                     appDelegate.store = store
                     await store.refreshPushAuthorization()
+                    #if DEBUG
+                    if let shot = ScreenshotMode.shot {
+                        store.showChart = true; store.showCompare = true; store.showIntervals = true
+                        _ = shot
+                    }
+                    #endif
                     await store.reload()
+                    #if DEBUG
+                    if ScreenshotMode.shot == "intervals" { store.dayOffset = 1 }
+                    #endif
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     Task { await store.refreshPushAuthorization() }
@@ -51,3 +60,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .list, .sound]
     }
 }
+
+#if DEBUG
+/// DEBUG-only: `-wuShot overview|detail|intervals|alerts|compare` opens a screen for App Store screenshots.
+enum ScreenshotMode {
+    static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
+    static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+}
+#endif

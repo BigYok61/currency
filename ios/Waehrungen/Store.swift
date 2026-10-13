@@ -698,7 +698,7 @@ final class RatesStore: ObservableObject {
 
     func saveView() { saveLocal() }
 
-    /// Stable device id (64 hex) and ntfy topic (`wae-` + 32 hex). Separate from the web app's topic.
+    /// Stable device id (64 hex) and server alert topic id (`wae-` + 32 hex, used for registration only). Separate from the web app's topic.
     func ensureAlertIdentity() {
         var changed = false
         if !Self.validTopic(topic) {

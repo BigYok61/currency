@@ -27,6 +27,11 @@ struct ChartBlock: View {
         .sheet(isPresented: $showDetail) {
             ChartDetailSheet(code: code).environmentObject(store)
         }
+        #if DEBUG
+        .task {
+            if ScreenshotMode.shot == "detail" && code == "EUR" && !preview { await ScreenshotMode.wait(); showDetail = true }
+        }
+        #endif
     }
 
     private func openDetail() {
@@ -526,6 +531,11 @@ struct CompareChartCard: View {
         .sheet(isPresented: $showDetail) {
             CompareDetailSheet().environmentObject(store)
         }
+        #if DEBUG
+        .task {
+            if ScreenshotMode.shot == "compare" && !preview { await ScreenshotMode.wait(); showDetail = true }
+        }
+        #endif
     }
 
     private func open() {

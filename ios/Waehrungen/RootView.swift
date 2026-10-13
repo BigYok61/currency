@@ -119,6 +119,11 @@ struct RootView: View {
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
         .sheet(isPresented: $showAbout) { AboutSheet() }
+        #if DEBUG
+        .task {
+            if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
+        }
+        #endif
     }
 
     @ToolbarContentBuilder

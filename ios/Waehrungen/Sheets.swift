@@ -313,7 +313,11 @@ struct AlertsSheet: View {
         .presentationDragIndicator(.visible)
         .task {
             // first alarm setup: ask for permission while Mitteilungen are on
+            #if DEBUG
+            if store.pushEnabled && ScreenshotMode.shot == nil { await store.requestPushPermission() }
+            #else
             if store.pushEnabled { await store.requestPushPermission() }
+            #endif
             if let error = await store.loadRemoteAlerts() {
                 message = error
             }
@@ -329,11 +333,16 @@ struct AlertsSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(alertIntroText).font(.footnote).foregroundStyle(.secondary)
                 notifications
-                Button("Test-Push senden") { Task { await sendTest() } }
-                    .buttonStyle(.bordered)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .disabled(busy || !store.pushEnabled)
+                #if DEBUG
+                // Xcode dev builds only: APNs test push (hidden in App Store screenshot mode)
+                if ScreenshotMode.shot == nil {
+                    Button("Test-Push senden") { Task { await sendTest() } }
+                        .buttonStyle(.bordered)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .disabled(busy || !store.pushEnabled)
+                }
+                #endif
                 ForEach(store.visible.filter { $0 != store.base }, id: \.self) { code in
                     AlarmCard(code: code)
                 }
@@ -374,6 +383,7 @@ struct AlertsSheet: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
     }
 
+    #if DEBUG
     private func sendTest() async {
         guard !busy else { return }
         resignField()
@@ -389,6 +399,7 @@ struct AlertsSheet: View {
             message = "Test-Push fehlgeschlagen: \(error.localizedDescription)"
         }
     }
+    #endif
 
     private func resignField() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
