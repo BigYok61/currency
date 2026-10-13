@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import UserNotifications
+import WidgetKit
 
 @MainActor
 final class RatesStore: ObservableObject {
@@ -112,6 +113,7 @@ final class RatesStore: ObservableObject {
 
     init() {
         loadLocal()
+        WidgetShared.publish(base: base, visible: visible)
         let localAlerts = (alertsMaster, try? JSONEncoder().encode(thresholds))
         let adopted = startCloudSync()
         if !adopted && defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
@@ -387,6 +389,7 @@ final class RatesStore: ObservableObject {
             seriesCache.removeAll()
             updated = file.updated ?? ""
             errorText = ""
+            publishToWidgets(force: true)
             await loadHistoryIfNeeded()
         } catch {
             errorText = "Die Kurse konnten nicht geladen werden."
@@ -1172,6 +1175,16 @@ final class RatesStore: ObservableObject {
         defaults.set(pushEnabled, forKey: "wu.pushEnabled")
         defaults.set(alertId, forKey: "wu.alertId")
         pushToCloud()
+        publishToWidgets()
+    }
+
+    /// Shares the reporting currency and the visible order with the widgets and refreshes them when it changed.
+    private func publishToWidgets(force: Bool = false) {
+        let shared = WidgetShared.read()
+        let foreign = visible.filter { $0 != base }
+        let changed = shared.base != base || shared.foreign != foreign
+        WidgetShared.publish(base: base, visible: visible)
+        if changed || force { WidgetCenter.shared.reloadAllTimelines() }
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {

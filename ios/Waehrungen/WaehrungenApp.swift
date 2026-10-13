@@ -31,6 +31,13 @@ struct WaehrungenApp: App {
                     if ScreenshotMode.shot == "intervals" { store.dayOffset = 1 }
                     #endif
                 }
+                // widget taps open the app (waehrungen://currency/<code>); the list itself is the destination
+                .onOpenURL { _ in }
+                #if DEBUG
+                .task {
+                    if UserDefaults.standard.bool(forKey: "wuWidgetShots") { await WidgetSnapshots.render() }
+                }
+                #endif
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     Task { await store.refreshPushAuthorization() }
                 }
@@ -66,5 +73,42 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 enum ScreenshotMode {
     static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
     static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+}
+#endif
+
+#if DEBUG
+/// DEBUG-only: `-wuWidgetShots YES` renders the widget layouts with live data into Documents/widget_*.png.
+@MainActor
+enum WidgetSnapshots {
+    static func render() async {
+        let shared = WidgetShared.read()
+        let snap = await WFetch.load(base: shared.base, codes: shared.foreign)
+        let code = shared.foreign.first ?? "EUR"
+        let cards: [(String, AnyView, CGSize, Bool)] = [
+            ("small_single", AnyView(SingleCurrencyView(snap: snap, code: code, colorIndex: 0)), CGSize(width: 170, height: 170), false),
+            ("small_triple", AnyView(TripleCurrencyView(snap: snap)), CGSize(width: 170, height: 170), false),
+            ("medium", AnyView(MediumOverviewView(snap: snap)), CGSize(width: 364, height: 170), false),
+            ("large", AnyView(LargeOverviewView(snap: snap)), CGSize(width: 364, height: 382), false),
+            ("lock", AnyView(LockRectView(snap: snap)), CGSize(width: 172, height: 76), true),
+        ]
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for (name, view, size, lock) in cards {
+            let pad: CGFloat = lock ? 8 : 16
+            let card = view
+                .padding(pad)
+                .frame(width: size.width, height: size.height)
+                .background(lock ? Color.white.opacity(0.18) : Color.white, in: RoundedRectangle(cornerRadius: lock ? 14 : 22))
+                .foregroundStyle(lock ? Color.white : Color.primary)
+                .environment(\.colorScheme, lock ? .dark : .light)
+                .padding(20)
+                .background(LinearGradient(colors: [Color(red: 0.25, green: 0.35, blue: 0.7), Color(red: 0.7, green: 0.35, blue: 0.6)], startPoint: .top, endPoint: .bottom))
+            let renderer = ImageRenderer(content: card)
+            renderer.scale = 3
+            if let data = renderer.uiImage?.pngData() {
+                try? data.write(to: dir.appendingPathComponent("widget_\(name).png"))
+            }
+        }
+        try? "done".write(to: dir.appendingPathComponent("widget_done.txt"), atomically: true, encoding: .utf8)
+    }
 }
 #endif

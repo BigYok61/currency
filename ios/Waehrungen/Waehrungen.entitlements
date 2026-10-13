@@ -6,5 +6,9 @@
 	<string>development</string>
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.ch.computerworks.waehrungen</string>
+	</array>
 </dict>
 </plist>
