@@ -43,6 +43,7 @@ struct RootView: View {
                     }
                 } header: {
                     VStack(alignment: .leading, spacing: 8) {
+                        titleRow
                         HStack {
                             Text("Währung")
                             Spacer()
@@ -102,9 +103,9 @@ struct RootView: View {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             })
             .navigationTitle("Währungen")
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
             .toolbar {
-                headerTools
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Fertig") {
@@ -124,6 +125,23 @@ struct RootView: View {
             if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
         }
         #endif
+    }
+
+    /// Large title and the three tools in one row; part of the scrolling list, never collapses.
+    private var titleRow: some View {
+        HStack(alignment: .center) {
+            Text("Währungen")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(Color(uiColor: .label))
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            headerButtons
+        }
+        .padding(.leading, -20)
+        .padding(.trailing, -4)
+        .padding(.top, 4)
+        .padding(.bottom, 14)
+        .textCase(nil)
     }
 
     @ToolbarContentBuilder
