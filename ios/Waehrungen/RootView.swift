@@ -240,6 +240,7 @@ struct CurrencyCard: View {
                     Spacer(minLength: 0)
                     ForEach(past, id: \.self) { day in
                         Text(store.pastDayHeader(day))
+                            .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .frame(width: Self.pastColumnWidth, alignment: .trailing)
                     }
@@ -304,6 +305,7 @@ struct CurrencyCard: View {
                 }
             }
         }
+        .monospacedDigit()
         .offset(x: hintOffset)
         .onAppear { runSwipeHint() }
         // keep today's column under the price, clear of the reorder handle (22pt + 8pt spacing)
@@ -368,6 +370,7 @@ struct CurrencyCard: View {
                 .font(.system(size: 11, weight: .regular))
             pair(tag: "7 Tage", value: line?.week, delta: line?.weekDelta)
         }
+        .monospacedDigit()
         .foregroundStyle(.secondary)
     }
 
@@ -393,6 +396,7 @@ struct CurrencyCard: View {
             Text(shownReference()).monospacedDigit()
         }
         .font(.system(size: 13))
+        .monospacedDigit()
     }
 
     private func priceLabel(unitRates: Bool, editing: Bool) -> some View {

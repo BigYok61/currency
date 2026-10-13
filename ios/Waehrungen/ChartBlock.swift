@@ -129,7 +129,7 @@ struct ChartDetailSheet: View {
                         .monospacedDigit()
                         .padding(.top, 4)
                     if points.count >= 2, let move {
-                        InlinePlot(points: points, tone: tone, height: 80, scrubbing: true, code: code, base: store.base)
+                        InlinePlot(points: points, tone: tone, height: 80, scrubbing: true, code: code, base: store.base, showDates: true, daySpan: store.span == .day)
                             .padding(.top, 14)
                         HStack {
                             Text(ChartFormat.pretty(points.first?.day))
@@ -224,6 +224,9 @@ private struct InlinePlot: View {
     let scrubbing: Bool
     let code: String
     let base: String
+    /// Detail chart only: a small date (or time for the 1-day span) under Hoch/Tief.
+    var showDates: Bool = false
+    var daySpan: Bool = false
     @State private var scrubIndex: Int?
 
     var body: some View {
@@ -268,8 +271,8 @@ private struct InlinePlot: View {
             GeometryReader { geo in
                 if let plotFrame = proxy.plotFrame, points.count >= 2 {
                     let frame = geo[plotFrame]
-                    extremeLabel("Hoch \(formatRate(hi))", index: highIndex, value: hi, above: true, proxy: proxy, frame: frame)
-                    extremeLabel("Tief \(formatRate(lo))", index: lowIndex, value: lo, above: false, proxy: proxy, frame: frame)
+                    extremeLabel("Hoch \(formatRate(hi))", index: highIndex, value: hi, above: true, labelColor: hi > (points.first?.value ?? hi) ? Color(red: 0.13, green: 0.6, blue: 0.25) : Color.secondary, sub: subText(points[highIndex]), proxy: proxy, frame: frame)
+                    extremeLabel("Tief \(formatRate(lo))", index: lowIndex, value: lo, above: false, labelColor: lo < (points.first?.value ?? lo) ? Color.red : Color.secondary, sub: subText(points[lowIndex]), proxy: proxy, frame: frame)
                 }
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
@@ -301,20 +304,34 @@ private struct InlinePlot: View {
 
     /// Small label with a dot at the high (above the line) or the low (below it), kept inside the plot.
     @ViewBuilder
-    private func extremeLabel(_ text: String, index: Int, value: Double, above: Bool, proxy: ChartProxy, frame: CGRect) -> some View {
+    private func extremeLabel(_ text: String, index: Int, value: Double, above: Bool, labelColor: Color, sub: String?, proxy: ChartProxy, frame: CGRect) -> some View {
         if let px = proxy.position(forX: index), let py = proxy.position(forY: value) {
             let x = frame.minX + px
             let y = frame.minY + py
-            let half = CGFloat(text.count) * 2.7 + 2
-            Circle().fill(Color.secondary).frame(width: 4.5, height: 4.5).position(x: x, y: y)
-            Text(text)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .fixedSize()
-                .position(x: min(max(x, frame.minX + half), frame.maxX - half),
-                          y: min(max(above ? y - 9 : y + 9, frame.minY + 6), frame.maxY - 6))
+            let half = CGFloat(max(text.count, sub?.count ?? 0)) * 2.7 + 2
+            let lift: CGFloat = sub == nil ? 9 : 15
+            let edge: CGFloat = sub == nil ? 6 : 12
+            Circle().fill(tone).frame(width: 5, height: 5).overlay(Circle().stroke(Color.white, lineWidth: 1.5)).position(x: x, y: y)
+            VStack(spacing: 0) {
+                Text(text)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(labelColor)
+                if let sub {
+                    Text(sub)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .monospacedDigit()
+            .fixedSize()
+            .position(x: min(max(x, frame.minX + half), frame.maxX - half),
+                      y: min(max(above ? y - lift : y + lift, frame.minY + edge), frame.maxY - edge))
         }
+    }
+
+    private func subText(_ point: RatePoint) -> String? {
+        guard showDates else { return nil }
+        return daySpan ? ChartFormat.time.string(from: point.date) : ChartFormat.shortDate.string(from: point.date)
     }
 
     private func bubble(_ point: RatePoint) -> some View {
@@ -380,6 +397,22 @@ func dayChangeTone(_ delta: Double) -> Color {
 }
 
 private enum ChartFormat {
+    /// Shared formatters for the Hoch/Tief sub-labels ("29.9.2026" / "14:00").
+    @MainActor static let shortDate: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "d.M.yyyy"
+        return fmt
+    }()
+    @MainActor static let time: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "HH:mm"
+        return fmt
+    }()
+
     static func pretty(_ day: String?) -> String {
         guard let day, let date = RatesStore.dayDate(day) else { return "" }
         let fmt = DateFormatter()
