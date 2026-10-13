@@ -9,18 +9,21 @@ struct ChartBlock: View {
 
     var body: some View {
         let points = store.series(code)
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 2) {
             if points.count >= 2 {
-                plot(points, height: 80, scrubbing: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture { openDetail() }
-                dateRow(points)
+                ChartBoxHeader(caption: store.span.caption, percent: periodPercent(points), tone: chartTone(points),
+                               range: ChartFormat.range(points.first?.date, points.last?.date))
+                plot(points, height: 70, scrubbing: false)
+                    .padding(.top, 2)
             } else {
                 Text("Keine Kurse in diesem Zeitraum.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
+        .chartBox()
+        .contentShape(Rectangle())
+        .onTapGesture { openDetail() }
         .sheet(isPresented: $showDetail) {
             ChartDetailSheet(code: code).environmentObject(store)
         }
@@ -32,23 +35,61 @@ struct ChartBlock: View {
     }
 
     private func plot(_ points: [RatePoint], height: CGFloat, scrubbing: Bool) -> some View {
-        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base, periodCaption: store.span.caption, periodPreview: preview, labelInset: labelInset, onOpen: openDetail)
+        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base)
+            .allowsHitTesting(false)
     }
 
-    private func dateRow(_ points: [RatePoint]) -> some View {
-        HStack {
-            Text(ChartFormat.pretty(points.first?.day))
-            Spacer()
-            Text(ChartFormat.pretty(points.last?.day))
+    private func periodPercent(_ points: [RatePoint]) -> Double? {
+        guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
+        return (last / first - 1) * 100
+    }
+}
+
+/// Grey rounded box shared by every list chart (currency charts and the comparison chart).
+private struct ChartBoxStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.leading, -8)   // text inside keeps the row's leading edge
+            .padding(.vertical, 4)
+    }
+}
+
+extension View {
+    fileprivate func chartBox() -> some View { modifier(ChartBoxStyle()) }
+}
+
+/// Blue period label, period change in the same size, date range underneath.
+private struct ChartBoxHeader: View {
+    let caption: String
+    var percent: Double?
+    var tone: Color = .secondary
+    let range: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(caption).foregroundStyle(Color.blue)
+                    .accessibilityLabel("Zeitraum \(caption)")
+                if let percent {
+                    Text(formatComparePercent(percent)).foregroundStyle(tone).monospacedDigit()
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            if !range.isEmpty {
+                Text(range)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
-        .font(.system(size: 10))
-        .foregroundStyle(.secondary)
-        .monospacedDigit()
-        .padding(.trailing, labelInset)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
-
-    /// Labels end under the price column (left of the reorder handle); the chart keeps the full width.
-    private var labelInset: CGFloat { preview || code == store.base ? 0 : 30 }
 }
 
 struct ChartDetailSheet: View {
@@ -183,10 +224,6 @@ private struct InlinePlot: View {
     let scrubbing: Bool
     let code: String
     let base: String
-    var periodCaption: String? = nil
-    var periodPreview: Bool = false
-    var labelInset: CGFloat = 0
-    var onOpen: (() -> Void)? = nil
     @State private var scrubIndex: Int?
 
     var body: some View {
@@ -197,7 +234,9 @@ private struct InlinePlot: View {
         let hi = points.map(\.value).max() ?? 0
         let lo = points.map(\.value).min() ?? 0
         let span = max(hi - lo, 0.004)
-        let pad = span * 0.42
+        let pad = span * 0.5
+        let highIndex = points.indices.max(by: { points[$0].value < points[$1].value }) ?? 0
+        let lowIndex = points.indices.min(by: { points[$0].value < points[$1].value }) ?? 0
         return Chart {
             ForEach(drawn, id: \.self) { index in
                 let point = points[index]
@@ -227,6 +266,11 @@ private struct InlinePlot: View {
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
             GeometryReader { geo in
+                if let plotFrame = proxy.plotFrame, points.count >= 2 {
+                    let frame = geo[plotFrame]
+                    extremeLabel("Hoch \(formatRate(hi))", index: highIndex, value: hi, above: true, proxy: proxy, frame: frame)
+                    extremeLabel("Tief \(formatRate(lo))", index: lowIndex, value: lo, above: false, proxy: proxy, frame: frame)
+                }
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -253,40 +297,23 @@ private struct InlinePlot: View {
         .frame(height: height)
         .clipped()
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .top) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let periodCaption {
-                    Group {
-                        if periodPreview {
-                            Text(periodCaption)
-                        } else {
-                            Button { onOpen?() } label: {
-                                Text(periodCaption)
-                            }
-                            .buttonStyle(.plain)
-                            .allowsHitTesting(true)
-                        }
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.blue)
-                    .accessibilityLabel("Zeitraum \(periodCaption)")
-                }
-                Spacer(minLength: 4)
-                Text("Hoch \(formatRate(hi))")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            .padding(.trailing, labelInset)
-            .allowsHitTesting(periodCaption != nil && !periodPreview)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            Text("Tief \(formatRate(lo))")
-                .font(.system(size: 10))
+    }
+
+    /// Small label with a dot at the high (above the line) or the low (below it), kept inside the plot.
+    @ViewBuilder
+    private func extremeLabel(_ text: String, index: Int, value: Double, above: Bool, proxy: ChartProxy, frame: CGRect) -> some View {
+        if let px = proxy.position(forX: index), let py = proxy.position(forY: value) {
+            let x = frame.minX + px
+            let y = frame.minY + py
+            let half = CGFloat(text.count) * 2.7 + 2
+            Circle().fill(Color.secondary).frame(width: 4.5, height: 4.5).position(x: x, y: y)
+            Text(text)
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-                .padding(.trailing, labelInset)
-                .allowsHitTesting(false)
+                .fixedSize()
+                .position(x: min(max(x, frame.minX + half), frame.maxX - half),
+                          y: min(max(above ? y - 9 : y + 9, frame.minY + 6), frame.maxY - 6))
         }
     }
 
@@ -362,6 +389,16 @@ private enum ChartFormat {
         return fmt.string(from: date)
     }
 
+    /// "14.9.2026 – 12.10.2026"
+    static func range(_ from: Date?, _ to: Date?) -> String {
+        guard let from, let to else { return "" }
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "d.M.yyyy"
+        return "\(fmt.string(from: from)) – \(fmt.string(from: to))"
+    }
+
     static func change(_ delta: Double, percent: Double, caption: String) -> String {
         let pct = NumberFormatter()
         pct.locale = Locale(identifier: "de_CH")
@@ -434,18 +471,25 @@ struct CompareChartCard: View {
 
     var body: some View {
         let lines = compareLines(from: store)
-        return VStack(alignment: .leading, spacing: 0) {
+        let dates = lines.flatMap { $0.full.map(\.date) }
+        return VStack(alignment: .leading, spacing: 2) {
             if lines.contains(where: { $0.drawn.count >= 2 }) {
-                ComparePlot(lines: lines, height: 80, scrubbing: false, caption: store.compareSpan.caption, preview: preview) {
+                ChartBoxHeader(caption: store.compareSpan.caption, range: ChartFormat.range(dates.min(), dates.max()))
+                ComparePlot(lines: lines, height: 56, scrubbing: false, caption: store.compareSpan.caption, preview: preview) {
                     open()
                 }
+                .allowsHitTesting(false)
+                .padding(.top, 2)
             } else {
                 Text("Keine Kurse in diesem Zeitraum.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             }
         }
+        .chartBox()
+        .contentShape(Rectangle())
+        .onTapGesture { open() }
         .sheet(isPresented: $showDetail) {
             CompareDetailSheet().environmentObject(store)
         }
@@ -519,36 +563,10 @@ private struct ComparePlot: View {
     @State private var scrubDate: Date?
 
     var body: some View {
-        let labelBand: CGFloat = scrubbing ? 0 : 16
-        return VStack(alignment: .leading, spacing: 0) {
-            if labelBand > 0 {
-                captionLabel
-                    .frame(maxWidth: .infinity, minHeight: labelBand, alignment: .topLeading)
-            }
-            compareChart
-                .frame(height: height - labelBand)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if !preview && !scrubbing { onOpen() }
-                }
-        }
+        compareChart
         .frame(height: height)
         .clipped()
         .frame(maxWidth: .infinity)
-    }
-
-    private var captionLabel: some View {
-        Group {
-            if preview {
-                Text(caption)
-            } else {
-                Button(action: onOpen) { Text(caption) }
-                    .buttonStyle(.plain)
-            }
-        }
-        .font(.system(size: 10))
-        .foregroundStyle(.secondary)
-        .accessibilityLabel("Zeitraum \(caption)")
     }
 
     private var compareChart: some View {
@@ -581,11 +599,14 @@ private struct ComparePlot: View {
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
-        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: 3))
+        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: scrubbing ? 3 : Self.endBand))
         .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
             GeometryReader { geo in
+                if !scrubbing, let plotFrame = proxy.plotFrame {
+                    endLabels(proxy: proxy, frame: geo[plotFrame])
+                }
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -602,6 +623,42 @@ private struct ComparePlot: View {
             if let readout, scrubbing {
                 readoutView(readout)
                     .padding(.top, 16)
+            }
+        }
+    }
+
+    /// Room at the right end of the list plot for the end labels.
+    static let endBand: CGFloat = 46
+
+    /// Each line's change over the period at its right end, in the line colour, nudged apart vertically.
+    private func endLabels(proxy: ChartProxy, frame: CGRect) -> some View {
+        var items: [(y: CGFloat, text: String, color: Color)] = lines.compactMap { line in
+            guard let last = line.full.last, let y = proxy.position(forY: last.value) else { return nil }
+            return (frame.minY + y, formatComparePercent(last.value), line.color)
+        }
+        items.sort { $0.y < $1.y }
+        let gap: CGFloat = 11
+        for i in items.indices.dropFirst() where items[i].y - items[i - 1].y < gap {
+            items[i].y = items[i - 1].y + gap
+        }
+        // keep the whole stack inside the plot
+        if let last = items.last, last.y > frame.maxY - 5 {
+            let shift = last.y - (frame.maxY - 5)
+            for i in items.indices { items[i].y -= shift }
+        }
+        if let first = items.first, first.y < frame.minY + 5 {
+            let shift = frame.minY + 5 - first.y
+            for i in items.indices { items[i].y += shift }
+        }
+        return ZStack(alignment: .topLeading) {
+            ForEach(items.indices, id: \.self) { i in
+                Text(items[i].text)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(items[i].color)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .frame(width: Self.endBand, alignment: .trailing)
+                    .position(x: frame.maxX - Self.endBand / 2, y: items[i].y)
             }
         }
     }

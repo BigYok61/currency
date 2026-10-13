@@ -196,6 +196,9 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @FocusState private var amountFocused: Bool
+    /// One-time swipe hint for the interval area (set after the first nudge, never shown again).
+    @AppStorage("wu.swipeHintShown") private var swipeHintShown = false
+    @State private var hintOffset: CGFloat = 0
 
     var body: some View {
         let unitRates = preview || store.showsUnitRates
@@ -256,10 +259,14 @@ struct CurrencyCard: View {
                 .lineLimit(1)
             } else if !preview {
                 // only today: small grey header, no extra columns
-                HStack {
+                HStack(spacing: 4) {
                     Spacer()
-                    Text("Heute").foregroundStyle(.secondary)
+                    if hasEarlierDays {
+                        Text("‹").accessibilityHidden(true)
+                    }
+                    Text("Heute")
                 }
+                .foregroundStyle(.secondary)
                 .font(.system(size: 11, weight: .medium))
             }
             VStack(spacing: 3) {
@@ -297,6 +304,8 @@ struct CurrencyCard: View {
                 }
             }
         }
+        .offset(x: hintOffset)
+        .onAppear { runSwipeHint() }
         // keep today's column under the price, clear of the reorder handle (22pt + 8pt spacing)
         .padding(.trailing, priceInset)
         .accessibilityAdjustableAction { direction in
@@ -309,6 +318,24 @@ struct CurrencyCard: View {
     }
 
     static let pastColumnWidth: CGFloat = 66
+
+    private var hasEarlierDays: Bool {
+        guard !preview, store.intervalDays.count > 1 else { return false }
+        let day = store.intervalDays[1]
+        return store.hours.contains { store.intervalValue(code, hour: $0, on: day) != nil }
+    }
+
+    /// The first time the interval area appears with earlier days, it nudges right and back once.
+    private func runSwipeHint() {
+        guard hasEarlierDays, !swipeHintShown, !UIAccessibility.isReduceMotionEnabled else { return }
+        swipeHintShown = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            withAnimation(.easeOut(duration: 0.25)) { hintOffset = 18 }
+            try? await Task.sleep(for: .milliseconds(280))
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { hintOffset = 0 }
+        }
+    }
 
     /// Trailing inset that lines values up with the price column: reorder handle (22pt) + spacing (8pt).
     /// The preview card and the reporting-currency row have no handle, so their price sits at the edge.
