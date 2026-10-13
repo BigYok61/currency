@@ -105,11 +105,98 @@ final class RatesStore: ObservableObject {
 
     init() {
         loadLocal()
-        if defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
+        let localAlerts = (alertsMaster, try? JSONEncoder().encode(thresholds))
+        let adopted = startCloudSync()
+        if !adopted && defaults.object(forKey: "wu.baseCurrency") == nil && defaults.object(forKey: "wu.currencyOrder") == nil {
             applyFirstInstall()
         }
         ensureAlertIdentity()
         resetConvert()
+        if !adopted {
+            pushToCloud()
+        } else if localAlerts.0 != alertsMaster || localAlerts.1 != (try? JSONEncoder().encode(thresholds)) {
+            // thresholds came from another device: register them with the worker for this device
+            scheduleAlertSync()
+        }
+    }
+
+    // MARK: - iCloud key-value sync
+
+    /// Settings shared across the user's devices. Per-device identities (wu.alertTopic, wu.alertId)
+    /// and transient state (dayOffset) are deliberately not synced.
+    static let cloudKeys: [String] = [
+        "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
+        "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference",
+        "wu.chartSpan", "wu.compareSpan",
+        "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep",
+        "wu.alertsMaster", "wu.thresholds",
+    ]
+    private static let cloudAlertKeys: Set<String> = ["wu.alertsMaster", "wu.thresholds"]
+    private let cloud = NSUbiquitousKeyValueStore.default
+    private var applyingCloud = false
+    private var cloudObserver: NSObjectProtocol?
+
+    /// Observes remote changes, synchronizes, and adopts iCloud data when there is any. Returns true if adopted.
+    private func startCloudSync() -> Bool {
+        cloudObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default,
+            queue: .main
+        ) { [weak self] note in
+            let reason = note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
+            let keys = note.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String] ?? []
+            MainActor.assumeIsolated {
+                self?.cloudChanged(reason: reason, keys: keys)
+            }
+        }
+        cloud.synchronize()
+        let present = Self.cloudKeys.filter { cloud.object(forKey: $0) != nil }
+        guard !present.isEmpty else { return false }
+        applyCloud(keys: present, notifyWorker: false)
+        return true
+    }
+
+    private func cloudChanged(reason: Int?, keys: [String]) {
+        if reason == NSUbiquitousKeyValueStoreQuotaViolationChange || reason == NSUbiquitousKeyValueStoreAccountChange && keys.isEmpty {
+            return
+        }
+        let relevant = keys.filter { Self.cloudKeys.contains($0) }
+        guard !relevant.isEmpty else { return }
+        applyCloud(keys: relevant, notifyWorker: true)
+    }
+
+    /// Copies iCloud values into UserDefaults and re-reads them. Never writes back (no echo).
+    private func applyCloud(keys: [String], notifyWorker: Bool) {
+        applyingCloud = true
+        defer { applyingCloud = false }
+        for key in keys {
+            if let value = cloud.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        if keys.contains("wu.timeStep") && cloud.object(forKey: "wu.timeStep") == nil { timeStep = nil }
+        loadLocal()
+        if notifyWorker {
+            if !Self.cloudAlertKeys.isDisjoint(with: keys) { scheduleAlertSync() }
+            dayOffset = min(dayOffset, intervalDays.count - 1)
+            dataGeneration += 1
+            seriesCache.removeAll()
+            Task { await self.loadHistoryIfNeeded() }
+        }
+    }
+
+    /// Mirrors the synced keys from UserDefaults to iCloud. Called after every local save.
+    private func pushToCloud() {
+        guard !applyingCloud else { return }
+        for key in Self.cloudKeys {
+            if let value = defaults.object(forKey: key) {
+                cloud.set(value, forKey: key)
+            } else {
+                cloud.removeObject(forKey: key)
+            }
+        }
     }
 
     var isDefaultConvert: Bool {
@@ -1013,11 +1100,12 @@ final class RatesStore: ObservableObject {
         defaults.set(timesUserSet, forKey: "wu.timesUserSet")
         defaults.set(timeStart, forKey: "wu.timeStart")
         defaults.set(timeEnd, forKey: "wu.timeEnd")
-        if let timeStep { defaults.set(timeStep, forKey: "wu.timeStep") }
+        if let timeStep { defaults.set(timeStep, forKey: "wu.timeStep") } else { defaults.removeObject(forKey: "wu.timeStep") }
         defaults.set(alertsMaster, forKey: "wu.alertsMaster")
         if let data = try? JSONEncoder().encode(thresholds) { defaults.set(data, forKey: "wu.thresholds") }
         defaults.set(topic, forKey: "wu.alertTopic")
         defaults.set(alertId, forKey: "wu.alertId")
+        pushToCloud()
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {
