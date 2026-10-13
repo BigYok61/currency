@@ -1,8 +1,10 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct WaehrungenApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = RatesStore()
 
     init() {
@@ -15,7 +17,37 @@ struct WaehrungenApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
-                .task { await store.reload() }
+                .task {
+                    appDelegate.store = store
+                    await store.refreshPushAuthorization()
+                    await store.reload()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    Task { await store.refreshPushAuthorization() }
+                }
         }
+    }
+}
+
+/// APNs registration callbacks and foreground presentation.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    weak var store: RatesStore?
+
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        store?.didRegisterPushToken(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("APNs-Registrierung fehlgeschlagen: \(error.localizedDescription)")
+    }
+
+    /// FX alarms also show while the app is open: banner with sound.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
     }
 }

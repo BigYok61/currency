@@ -2,6 +2,7 @@
 import { runCapture } from './capture.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
+import { apnsEnvironment, validApnsToken } from './apns.js';
 import { parseHour } from './schedule.js';
 import { currenciesFor, isAlertCode, mergeCurrencyRequests } from './currencies.js';
 import {
@@ -9,7 +10,7 @@ import {
   RANGES,
 } from './history.js';
 import {
-  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, updateSubscription, writeRaw,
+  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, setSubscriptionPush, updateSubscription, writeRaw,
 } from './storage.js';
 import { ZURICH, validTimeZone, zoneDateString, zurichDateString } from './time.js';
 
@@ -81,7 +82,19 @@ export function normalizeSubscription(body) {
     if (typeof body.timeZone !== 'string' || !validTimeZone(body.timeZone)) return null;
     timeZone = body.timeZone.trim();
   }
-  return { version: 1, topic: body.topic, start, base, timeZone, currencies: alerts.currencies };
+  const out = { version: 1, topic: body.topic, start, base, timeZone, currencies: alerts.currencies };
+  // Optional APNs device token (iPhone app). Absent: unchanged. null/'': cleared.
+  if (Object.prototype.hasOwnProperty.call(body, 'apnsToken')) {
+    if (body.apnsToken == null || body.apnsToken === '') {
+      out.apns = { token: null, environment: null };
+    } else {
+      const token = typeof body.apnsToken === 'string' ? body.apnsToken.toLowerCase() : '';
+      if (!validApnsToken(token)) return null;
+      if (body.apnsEnv != null && body.apnsEnv !== 'sandbox' && body.apnsEnv !== 'production') return null;
+      out.apns = { token, environment: apnsEnvironment(body.apnsEnv) };
+    }
+  }
+  return out;
 }
 
 function publicAlert(row, now = new Date()) {
@@ -97,6 +110,8 @@ function publicAlert(row, now = new Date()) {
     timeZone,
     currencies: config.currencies,
     sent: state.date === today ? (state.sent || {}) : {},
+    delivery: row.apns_token ? 'apns' : 'ntfy',
+    apnsEnv: row.apns_token ? row.apns_env || 'production' : null,
   };
 }
 
@@ -162,7 +177,7 @@ async function handleAlerts(request, env, id, test) {
     } catch (e) {
       return jsonResponse({ error: e && e.message ? e.message : 'Test-Push fehlgeschlagen' }, 502);
     }
-    return jsonResponse({ ok: true });
+    return jsonResponse({ ok: true, via: row.apns_token ? 'apns' : 'ntfy' });
   }
 
   if (method === 'POST' && !test) {
@@ -186,6 +201,7 @@ async function handleAlerts(request, env, id, test) {
     } else {
       await updateSubscription(env, id, config, now);
     }
+    if (next.apns) await setSubscriptionPush(env, id, next.apns.token, next.apns.environment);
     const row = await getSubscription(env, id);
     return jsonResponse(publicAlert(row));
   }

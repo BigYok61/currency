@@ -31,3 +31,7 @@ crons = [
 [vars]
 # Klickziel der ntfy-Meldungen. Leer lassen, wenn die Meldungen ohne Link raus sollen.
 APP_URL = "https://waehrungen.bigyok61.workers.dev/"
+# APNs (iPhone-App). Der .p8-Schlüssel liegt nur als Secret APNS_KEY_P8 vor, nie im Repo.
+APNS_KEY_ID = "KB6QVS8VPD"
+APNS_TEAM_ID = "ZHAQ42GZ6S"
+APNS_TOPIC = "ch.computerworks.waehrungen"

@@ -1,5 +1,6 @@
 // FX-Push-Alarme via ntfy. Gleiche Regeln wie scripts/fx_alerts.py.
 import { BICOTE_PAIRS, quoteLot } from './currencies.js';
+import { alertPayload, apnsFromEnv } from './apns.js';
 import { canonicalJson, formatFixed, roundHalfEven } from './json.js';
 import { basisHour } from './schedule.js';
 import {
@@ -357,6 +358,36 @@ async function fetchPairs(codes, fetchImpl) {
   return wrapFetch(quotes, bars, errors, codes);
 }
 
+/**
+ * Delivers one alert: APNs when the subscription has a device token, else ntfy (web app).
+ * A dead APNs token is cleared via `clearToken(id)`; that alert then counts as not sent.
+ */
+export async function deliver(env, sub, { title, message, tags, priority }, ctx) {
+  const { fetchImpl, appUrl, dry, clearToken } = ctx;
+  if (sub.apns_token) {
+    if (dry) {
+      console.log('DRY APNs:', title, '|', message);
+      return true;
+    }
+    const client = apnsFromEnv(env, fetchImpl);
+    if (!client) {
+      console.log('APNs nicht konfiguriert');
+      return false;
+    }
+    const res = await client.send({
+      deviceToken: sub.apns_token,
+      environment: sub.apns_env,
+      payload: alertPayload(title, message, { threadId: 'fx-alerts' }),
+    });
+    if (!res.ok) {
+      console.log(`APNs Fehler ${res.status} ${res.reason || ''}`.trim());
+      if (res.dropToken && clearToken) await clearToken(sub.id);
+    }
+    return res.ok;
+  }
+  return pushNtfy(sub.topic, title, message, tags, priority, appUrl, fetchImpl, dry);
+}
+
 export async function sendTestPush(env, subscription, opts = {}) {
   const fetchImpl = opts.fetch || fetch;
   const now = opts.now || new Date();
@@ -369,10 +400,15 @@ export async function sendTestPush(env, subscription, opts = {}) {
   if (reporting !== 'CHF' && SYMBOLS[reporting]) codes.add(reporting);
   const data = await fetchPairs([...codes], fetchImpl);
   const message = testLines(now, times, data.quotes, data.bars, { base: reporting, timeZone: config.timeZone });
-  const ok = await pushNtfy(subscription.topic, 'TEST: Währungsübersicht FX-Alarm', message, ['test_tube'], 3, appUrl, fetchImpl, dry);
-  console.log(ok ? 'Test-Push gesendet' : 'Test-Push fehlgeschlagen');
+  const clearToken = opts.clearToken || (async id => {
+    const { setSubscriptionPush } = await import('./storage.js');
+    await setSubscriptionPush(env, id, null, null);
+  });
+  const ok = await deliver(env, subscription, { title: 'TEST: Währungsübersicht FX-Alarm', message, tags: ['test_tube'], priority: 3 }, { fetchImpl, appUrl, dry, clearToken });
+  const via = subscription.apns_token ? 'APNs' : 'ntfy';
+  console.log(ok ? `Test-Push gesendet (${via})` : `Test-Push fehlgeschlagen (${via})`);
   if (!ok) throw new Error('Test-Push fehlgeschlagen');
-  return { test: true, ok };
+  return { test: true, ok, via };
 }
 
 export async function runFxAlerts(env, opts = {}) {
@@ -381,7 +417,8 @@ export async function runFxAlerts(env, opts = {}) {
   const force = !!opts.force;
   const dry = String(env.FX_DRY || '') === '1' || !!opts.dry;
   const appUrl = String(env.APP_URL || '').trim();
-  const { listSubscriptions, pruneSubscriptions, pruneRateLimits, saveSubscriptionState } = await import('./storage.js');
+  const { listSubscriptions, pruneSubscriptions, pruneRateLimits, saveSubscriptionState, setSubscriptionPush } = await import('./storage.js');
+  const clearToken = opts.clearToken || (id => setSubscriptionPush(env, id, null, null));
   const pruned = await pruneSubscriptions(env, inactiveCutoff(now.getTime()));
   await pruneRateLimits(env, now.getTime());
   if (pruned) console.log(`${pruned} inaktive Abos entfernt`);
@@ -427,7 +464,7 @@ export async function runFxAlerts(env, opts = {}) {
     const ok = [];
     for (let i = 0; i < decision.pushes.length; i++) {
       const p = decision.pushes[i];
-      if (await pushNtfy(sub.topic, p.title, p.message, p.tags, p.priority, appUrl, fetchImpl, dry)) ok.push(i);
+      if (await deliver(env, sub, p, { fetchImpl, appUrl, dry, clearToken })) ok.push(i);
     }
     const applied = decision.applyPush(ok);
     if (applied.write) await saveSubscriptionState(env, sub.id, canonicalJson(applied.state));

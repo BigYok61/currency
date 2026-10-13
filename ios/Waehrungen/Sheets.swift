@@ -284,34 +284,24 @@ struct TimesSheet: View {
 
 struct AlertsSheet: View {
     @EnvironmentObject private var store: RatesStore
-    @State private var page = "list"
     @State private var message = ""
     @State private var busy = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if page == "setup" { setup } else { list }
-            }
-            .navigationTitle(page == "setup" ? "" : "FX-Alarme")
+            list
+            .navigationTitle("FX-Alarme")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if page == "setup" {
-                        Button { page = "list" } label: { Label("FX-Alarme", systemImage: "chevron.left") }
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 10) {
-                        if page == "list" {
-                            Toggle("Alle Alarme", isOn: $store.alertsMaster)
-                                .labelsHidden()
-                                .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
-                                .onChange(of: store.alertsMaster) {
-                                    store.saveView()
-                                    store.scheduleAlertSync()
-                                }
-                        }
+                        Toggle("Alle Alarme", isOn: $store.alertsMaster)
+                            .labelsHidden()
+                            .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
+                            .onChange(of: store.alertsMaster) {
+                                store.saveView()
+                                store.scheduleAlertSync()
+                            }
                         SheetClose()
                     }
                 }
@@ -322,6 +312,8 @@ struct AlertsSheet: View {
         }
         .presentationDragIndicator(.visible)
         .task {
+            // first alarm setup: ask for permission while Mitteilungen are on
+            if store.pushEnabled { await store.requestPushPermission() }
             if let error = await store.loadRemoteAlerts() {
                 message = error
             }
@@ -336,17 +328,12 @@ struct AlertsSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(alertIntroText).font(.footnote).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    Button("Währungsalarme einrichten") { page = "setup" }
-                        .buttonStyle(.bordered)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Button("Test-Push senden") { Task { await sendTest() } }
-                        .buttonStyle(.bordered)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .disabled(busy)
-                }
+                notifications
+                Button("Test-Push senden") { Task { await sendTest() } }
+                    .buttonStyle(.bordered)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .disabled(busy || !store.pushEnabled)
                 ForEach(store.visible.filter { $0 != store.base }, id: \.self) { code in
                     AlarmCard(code: code)
                 }
@@ -357,69 +344,34 @@ struct AlertsSheet: View {
         }
     }
 
-    private var setup: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("So installieren Sie die Währungsalarme:")
-                    .font(.title3.weight(.bold))
-                Text("1. Laden Sie die ntfy-App auf Ihr iPhone.")
-                Link("Im App Store laden", destination: appStoreURL)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.black)
-                Text("2. Starten Sie die ntfy-App und geben Sie folgenden Code ein:")
-                HStack {
-                    Text(store.topic)
-                        .font(.system(.footnote, design: .monospaced))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
-                    Button { UIPasteboard.general.string = store.topic; message = "Code kopiert." } label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .accessibilityLabel("Code kopieren")
-                }
-                ntfyHint
-                Text("3. Tippen Sie unten auf „Test-Push“, um die Alarmeinstellung zu testen.")
-                Button("Test-Push senden") { Task { await sendTest() } }
-                    .buttonStyle(.bordered)
-                    .disabled(busy)
-                if !message.isEmpty { Text(message).font(.footnote) }
-                else if let err = store.alertSyncError, !err.isEmpty { Text(err).font(.footnote) }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
+    private var denied: Bool { store.pushAuthorization == .denied }
 
-    /// Where the copied code is pasted in ntfy. Same hint as the web sheet.
-    private var ntfyHint: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("+")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 16, height: 16)
-                    .background(Color(red: 0.204, green: 0.780, blue: 0.349), in: RoundedRectangle(cornerRadius: 4))
-                Text("ntfy")
-                    .font(.system(size: 11, weight: .semibold))
+    /// Apple push on this device. Off removes the server subscription.
+    private var notifications: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: Binding(get: { store.pushEnabled }, set: { store.setPushEnabled($0) })) {
+                Text("Mitteilungen").font(.headline)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Thema")
-                    .font(.system(size: 10))
+            .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
+            if store.pushEnabled && denied {
+                Text("Mitteilungen sind in den iOS-Einstellungen ausgeschaltet. Ohne sie kommen keine Alarme an.")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
-                Text("wae-…")
-                    .font(.system(size: 11, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Einstellungen öffnen") {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .buttonStyle(.bordered)
+            } else if !store.pushEnabled {
+                Text("Aus: Dieses iPhone erhält keine FX-Alarme.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding(8)
-        .frame(width: 168, alignment: .leading)
+        .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
-        .accessibilityHidden(true)
     }
 
     private func sendTest() async {
@@ -429,9 +381,10 @@ struct AlertsSheet: View {
         busy = true
         message = "Sende Test-Push …"
         defer { busy = false }
+        await store.requestPushPermission()
         do {
             try await store.sendRemoteTestPush()
-            message = "Test-Push gesendet. In ntfy sollte «TEST» erscheinen."
+            message = "Test-Push gesendet. Die Mitteilung «TEST» sollte gleich erscheinen."
         } catch {
             message = "Test-Push fehlgeschlagen: \(error.localizedDescription)"
         }

@@ -94,8 +94,6 @@ let appStoreID: String? = nil
 
 let alertIntroText = "Die Alarmeinstellungen gelten nur für dieses Gerät. Wenn sich der Kurs gegenüber der Standardwährung innerhalb des Tages stärker als die unten gesetzten Schwellen verändert, werden Sie mit einer Push-Mitteilung gewarnt. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
 
-let appStoreURL = URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!
-let playStoreURL = URL(string: "https://play.google.com/store/apps/details?id=io.heckel.ntfy")!
 
 enum CurrencyNames {
     static func name(_ code: String) -> String {

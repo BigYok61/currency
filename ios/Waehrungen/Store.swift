@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import UserNotifications
 
 @MainActor
 final class RatesStore: ObservableObject {
@@ -23,6 +25,11 @@ final class RatesStore: ObservableObject {
     @Published var alertsMaster = true
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
+    /// Apple push for FX alarms on this device. Per device, never synced via iCloud.
+    @Published var pushEnabled = true
+    @Published var pushAuthorization: UNAuthorizationStatus = .notDetermined
+    /// APNs device token (hex). Per device, never synced.
+    private(set) var pushToken: String?
     @Published var alertId = ""
     @Published var alertSyncError: String?
     @Published var fired: [String: String] = [:]
@@ -122,7 +129,8 @@ final class RatesStore: ObservableObject {
 
     // MARK: - iCloud key-value sync
 
-    /// Settings shared across the user's devices. Per-device identities (wu.alertTopic, wu.alertId)
+    /// Settings shared across the user's devices. Per-device identities (wu.alertTopic, wu.alertId,
+    /// wu.apnsToken, wu.pushEnabled)
     /// and transient state (dayOffset) are deliberately not synced.
     static let cloudKeys: [String] = [
         "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
@@ -727,6 +735,12 @@ final class RatesStore: ObservableObject {
     /// Stores the current switches locally and registers every biquote currency with the Worker.
     func registerAlerts() async throws {
         ensureAlertIdentity()
+        guard pushEnabled else {
+            // Mitteilungen aus: Abo auf dem Server entfernen, damit keine Pushes mehr kommen.
+            saveLocal()
+            _ = try await alertCall(method: "DELETE", body: nil)
+            return
+        }
         let payload = try alertPayload()
         saveLocal()
         let body = try JSONEncoder().encode(payload)
@@ -772,6 +786,7 @@ final class RatesStore: ObservableObject {
     }
 
     func sendRemoteTestPush() async throws {
+        guard pushEnabled else { throw AlertSyncError.server("Mitteilungen sind ausgeschaltet.") }
         alertSyncGeneration += 1
         alertSyncTask?.cancel()
         alertSyncTask = nil
@@ -804,7 +819,10 @@ final class RatesStore: ObservableObject {
         for code in Self.alertCodes {
             currencies[code] = try level(code)
         }
-        return AlertUpload(topic: topic, start: timeStart, base: base, timeZone: TimeZone.current.identifier, currencies: currencies)
+        return AlertUpload(
+            topic: topic, start: timeStart, base: base, timeZone: TimeZone.current.identifier, currencies: currencies,
+            apnsToken: pushToken, apnsEnv: pushToken == nil ? nil : Self.apnsEnvironment
+        )
     }
 
     private func alertCall(method: String, test: Bool = false, body: Data?) async throws -> Data {
@@ -839,6 +857,51 @@ final class RatesStore: ObservableObject {
 
     static func validAlertId(_ id: String) -> Bool {
         id.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+
+    // MARK: - Apple push (APNs)
+
+    /// Xcode debug builds talk to the APNs sandbox, everything else (TestFlight, App Store) to production.
+    static var apnsEnvironment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    func refreshPushAuthorization() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        pushAuthorization = settings.authorizationStatus
+        if pushEnabled && (pushAuthorization == .authorized || pushAuthorization == .provisional || pushAuthorization == .ephemeral) {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
+    /// Asks for permission once (system dialog only while undetermined), then registers with APNs.
+    func requestPushPermission() async {
+        let center = UNUserNotificationCenter.current()
+        if (await center.notificationSettings()).authorizationStatus == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        }
+        await refreshPushAuthorization()
+    }
+
+    func setPushEnabled(_ on: Bool) {
+        guard on != pushEnabled else { return }
+        pushEnabled = on
+        saveLocal()
+        scheduleAlertSync()
+        if on { Task { await requestPushPermission() } }
+    }
+
+    /// Called from the app delegate with the APNs token.
+    func didRegisterPushToken(_ data: Data) {
+        let token = data.map { String(format: "%02x", $0) }.joined()
+        guard token != pushToken else { return }
+        pushToken = token
+        defaults.set(token, forKey: "wu.apnsToken")
+        if pushEnabled { scheduleAlertSync() }
     }
 
     static func validTopic(_ topic: String) -> Bool {
@@ -1082,6 +1145,8 @@ final class RatesStore: ObservableObject {
             thresholds = map
         }
         topic = defaults.string(forKey: "wu.alertTopic") ?? ""
+        if defaults.object(forKey: "wu.pushEnabled") != nil { pushEnabled = defaults.bool(forKey: "wu.pushEnabled") }
+        pushToken = defaults.string(forKey: "wu.apnsToken")
         alertId = defaults.string(forKey: "wu.alertId") ?? ""
     }
 
@@ -1104,6 +1169,7 @@ final class RatesStore: ObservableObject {
         defaults.set(alertsMaster, forKey: "wu.alertsMaster")
         if let data = try? JSONEncoder().encode(thresholds) { defaults.set(data, forKey: "wu.thresholds") }
         defaults.set(topic, forKey: "wu.alertTopic")
+        defaults.set(pushEnabled, forKey: "wu.pushEnabled")
         defaults.set(alertId, forKey: "wu.alertId")
         pushToCloud()
     }
@@ -1223,6 +1289,9 @@ private struct AlertUpload: Encodable {
     var base: String
     var timeZone: String
     var currencies: [String: Level]
+    /// Omitted while no token is known, so the server keeps the last one.
+    var apnsToken: String?
+    var apnsEnv: String?
 
     struct Level: Encodable {
         var enabled: Bool
