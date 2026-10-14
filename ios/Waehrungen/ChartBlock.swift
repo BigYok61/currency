@@ -100,13 +100,14 @@ struct ChartDetailSheet: View {
         let span = store.span(for: code)
         let points = store.series(code)
         let tone = chartTone(points)
-        let move = periodMove(points, tone: tone)
+        let move = periodMove(points, tone: changeTone(percent: periodPercent(points)))
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .center, spacing: 10) {
                             rateText
+                            Spacer(minLength: 8)
                             dayPill
                         }
                         VStack(alignment: .leading, spacing: 6) {
@@ -120,13 +121,14 @@ struct ChartDetailSheet: View {
                         .monospacedDigit()
                         .padding(.top, 6)
                     if let move {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(span.caption).foregroundStyle(.secondary)
                             Text(move.text).foregroundStyle(move.tone)
+                            Spacer(minLength: 0)
                         }
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
-                        .padding(.top, 8)
+                        .padding(.top, 16)
                     }
                     spanPicker
                         .padding(.top, 16)
@@ -152,6 +154,10 @@ struct ChartDetailSheet: View {
                             statRow("Tief", move.low, date: stamp(loPoint, span))
                             Divider().padding(.leading, 14)
                             statRow("Schluss", move.close, date: stamp(points.last, span))
+                            if let jump = maxMove(points, span: span) {
+                                Divider().padding(.leading, 14)
+                                maxRow(jump, span: span)
+                            }
                         }
                         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .padding(.top, 16)
@@ -193,12 +199,13 @@ struct ChartDetailSheet: View {
         if let day = store.dayChange(code), let close = store.quote(code).value {
             let open = close - day.delta
             let pct = abs(open) > 0.00005 ? day.delta / open * 100 : 0
-            let up = day.delta > 0.00005
-            let down = day.delta < -0.00005
-            let tone = dayChangeTone(day.delta)
+            let dir = WidgetShared.direction(percent: pct)
+            let up = dir == 1
+            let down = dir == -1
+            let tone = changeTone(percent: pct)
             let fill: Color = up ? Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.16)
                 : down ? Color(red: 1, green: 0.231, blue: 0.188).opacity(0.13) : Color.gray.opacity(0.16)
-            Text("\(up ? "▲ " : down ? "▼ " : "")\(formatDelta(day.delta)) (\(formatComparePercent(pct)))")
+            Text("\(day.delta > 0.00005 ? "▲ " : day.delta < -0.00005 ? "▼ " : "")\(formatDelta(day.delta)) (\(formatComparePercent(pct)))")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tone)
                 .monospacedDigit()
@@ -230,6 +237,50 @@ struct ChartDetailSheet: View {
         let high = points.map(\.value).max() ?? last
         let low = points.map(\.value).min() ?? last
         return (ChartFormat.change(delta, percent: percent), tone, first, last, high, low)
+    }
+
+    /// Largest absolute step between consecutive days (hours for «Tag») of the shown series.
+    private func maxMove(_ points: [RatePoint], span: ChartSpan) -> (delta: Double, percent: Double, point: RatePoint)? {
+        var steps: [RatePoint] = []
+        if span == .day {
+            steps = points
+        } else {
+            // last value of each day, so hourly week series compare day closes
+            for p in points {
+                if let last = steps.last, last.day == p.day { steps[steps.count - 1] = p } else { steps.append(p) }
+            }
+        }
+        guard steps.count >= 2 else { return nil }
+        var best: (delta: Double, percent: Double, point: RatePoint)?
+        for i in 1..<steps.count {
+            let prev = steps[i - 1].value
+            guard abs(prev) > 0.00005 else { continue }
+            let d = steps[i].value - prev
+            if best == nil || abs(d) > abs(best!.delta) { best = (d, d / prev * 100, steps[i]) }
+        }
+        return best
+    }
+
+    private func maxRow(_ jump: (delta: Double, percent: Double, point: RatePoint), span: ChartSpan) -> some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Max. Differenz")
+                Text("\(span == .day ? "grösste Stundenbewegung" : "grösste Tagesbewegung") · \(stamp(jump.point, span))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Spacer()
+            Text("\(formatDelta(jump.delta)) \(store.base) (\(formatComparePercent(jump.percent)))")
+                .foregroundStyle(changeTone(percent: jump.percent))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .font(.system(size: 16))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(minHeight: 40)
     }
 
     private func stamp(_ point: RatePoint?, _ span: ChartSpan) -> String {
@@ -510,10 +561,11 @@ private struct InlinePlot: View {
 }
 
 func chartTone(_ points: [RatePoint]) -> Color {
-    guard let first = points.first, let last = points.last else { return .gray }
-    if last.value - first.value > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-    if first.value - last.value > 0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-    return .gray
+    switch WidgetShared.direction(percent: periodPercent(points)) {
+    case 1: return Color(red: 0.204, green: 0.780, blue: 0.349)
+    case -1: return Color(red: 1, green: 0.231, blue: 0.188)
+    default: return .gray
+    }
 }
 
 /// Drawing subset. First, last, high, and low stay so the line and the labels still meet the extrema.
@@ -548,10 +600,13 @@ func downsampleIndices(_ points: [RatePoint], max count: Int) -> [Int] {
     return keep.sorted()
 }
 
-func dayChangeTone(_ delta: Double) -> Color {
-    if delta > 0.00005 { return Color(red: 0.204, green: 0.780, blue: 0.349) }
-    if delta < -0.00005 { return Color(red: 1, green: 0.231, blue: 0.188) }
-    return .secondary
+/// Colour of a change by its percent move, grey below the user's threshold.
+func changeTone(percent: Double?) -> Color {
+    switch WidgetShared.direction(percent: percent) {
+    case 1: return Color(red: 0.204, green: 0.780, blue: 0.349)
+    case -1: return Color(red: 1, green: 0.231, blue: 0.188)
+    default: return .secondary
+    }
 }
 
 private enum ChartFormat {

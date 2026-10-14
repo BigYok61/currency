@@ -21,6 +21,10 @@ final class RatesStore: ObservableObject {
     /// ON (default): one period for every currency chart. OFF: each currency keeps its own (`codeSpans`).
     @Published var sameSpan = true
     @Published var codeSpans: [String: ChartSpan] = [:]
+    /// Percent move from which changes are coloured (0.00…2.00, default 0.10).
+    @Published var colorThreshold = 0.10
+    private var reloading = false
+    private var lastReload = Date.distantPast
     /// Currency whose detail sheet is open (transient), so its history loads even without list charts.
     @Published var detailCode: String?
     @Published var hours: [Int] = [7, 12, 17]
@@ -142,7 +146,7 @@ final class RatesStore: ObservableObject {
     static let cloudKeys: [String] = [
         "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference",
-        "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans",
+        "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold",
         "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep",
         "wu.alertsMaster", "wu.thresholds",
     ]
@@ -379,9 +383,20 @@ final class RatesStore: ObservableObject {
         return fmt.string(from: NSNumber(value: value)) ?? draftString(value)
     }
 
-    func reload() async {
-        resetConvert()
-        dayOffset = 0
+    /// App became active: fetch fresh rates without touching an open conversion. No overlapping reloads.
+    func reloadOnActivate() async {
+        guard !reloading, Date().timeIntervalSince(lastReload) > 20 else { return }
+        await reload(resetUI: false)
+    }
+
+    func reload(resetUI: Bool = true) async {
+        guard !reloading else { return }
+        reloading = true
+        defer { reloading = false; lastReload = Date() }
+        if resetUI {
+            resetConvert()
+            dayOffset = 0
+        }
         do {
             let url = Self.origin.appendingPathComponent("data/rates.json")
             let (data, response) = try await URLSession.shared.data(from: url)
@@ -470,12 +485,21 @@ final class RatesStore: ObservableObject {
     }
 
     /// Move from the first rate after local midnight to the shown price.
-    func dayChange(_ code: String) -> (text: String, delta: Double)? {
+    func dayChange(_ code: String) -> (text: String, delta: Double, percent: Double)? {
         guard code != base, let close = quote(code).value, abs(close) > 0.00005 else { return nil }
         guard let open = dayOpen(code), abs(open) > 0.00005 else { return nil }
         let delta = close - open
-        let text = dayChangeText(delta, percent: delta / open * 100, currency: base)
-        return (text, delta)
+        let percent = delta / open * 100
+        let text = dayChangeText(delta, percent: percent, currency: base)
+        return (text, delta, percent)
+    }
+
+    func setColorThreshold(_ value: Double) {
+        let v = min(max((value * 100).rounded() / 100, 0), 2)
+        guard v != colorThreshold else { return }
+        colorThreshold = v
+        saveView()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func priceAt(_ code: String, day: String, hour: Int) -> Double? {
@@ -1165,6 +1189,8 @@ final class RatesStore: ObservableObject {
         } else {
             compareSpan = span
         }
+        if let v = defaults.object(forKey: "wu.colorThreshold") as? Double { colorThreshold = min(max(v, 0), 2) }
+        WidgetShared.defaults?.set(colorThreshold, forKey: WidgetShared.colorThresholdKey)
         if defaults.object(forKey: "wu.sameSpan") != nil { sameSpan = defaults.bool(forKey: "wu.sameSpan") }
         if let data = defaults.data(forKey: "wu.codeSpans"),
            let map = try? JSONDecoder().decode([String: String].self, from: data) {
@@ -1200,6 +1226,8 @@ final class RatesStore: ObservableObject {
         defaults.set(span.rawValue, forKey: "wu.chartSpan")
         defaults.set(compareSpan.rawValue, forKey: "wu.compareSpan")
         defaults.set(sameSpan, forKey: "wu.sameSpan")
+        defaults.set(colorThreshold, forKey: "wu.colorThreshold")
+        WidgetShared.defaults?.set(colorThreshold, forKey: WidgetShared.colorThresholdKey)
         if let data = try? JSONEncoder().encode(codeSpans.mapValues(\.rawValue)) { defaults.set(data, forKey: "wu.codeSpans") }
         if let data = try? JSONEncoder().encode(hours) { defaults.set(data, forKey: "wu.hours") }
         defaults.set(timesUserSet, forKey: "wu.timesUserSet")
@@ -1257,7 +1285,7 @@ final class RatesStore: ObservableObject {
     /// Device view options. A future iCloud sync of settings should copy every one of these keys.
     static let viewSettingKeys = [
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference", "wu.chartSpan",
-        "wu.compareSpan", "wu.sameSpan", "wu.codeSpans",
+        "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold",
     ]
 
     static func localTodayKey() -> String {

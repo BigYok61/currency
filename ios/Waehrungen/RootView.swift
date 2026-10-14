@@ -123,6 +123,7 @@ struct RootView: View {
         #if DEBUG
         .task {
             if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
+            if ScreenshotMode.shot == "ansicht" { await ScreenshotMode.wait(); showView = true }
         }
         #endif
     }
@@ -163,7 +164,7 @@ struct RootView: View {
 
     private var headerButtons: some View {
         HStack(spacing: 22) {
-            Button { showView = true } label: { Image(systemName: "square.grid.2x2") }
+            Button { showView = true } label: { Image(systemName: "slider.horizontal.3") }
                 .accessibilityLabel("Ansicht")
             Button { showTimes = true } label: { Image(systemName: "clock") }
                 .accessibilityLabel("Erfassungszeiten und Intervalle")
@@ -536,7 +537,7 @@ struct CurrencyCard: View {
                         // and the arrows of all rows still start at the same x
                         Text(change.text)
                             .font(.system(size: 12))
-                            .foregroundStyle(dayChangeTone(change.delta))
+                            .foregroundStyle(changeTone(percent: change.percent))
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
@@ -551,7 +552,7 @@ struct CurrencyCard: View {
                 if let change {
                     Text(change.text)
                         .font(.system(size: 12))
-                        .foregroundStyle(dayChangeTone(change.delta))
+                        .foregroundStyle(changeTone(percent: change.percent))
                         .monospacedDigit()
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)

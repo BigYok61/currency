@@ -6,6 +6,7 @@ import UserNotifications
 struct WaehrungenApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = RatesStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let blue = UIColor(red: 0, green: 122.0 / 255.0, blue: 1, alpha: 1)
@@ -33,6 +34,10 @@ struct WaehrungenApp: App {
                 }
                 // widget taps open the app (waehrungen://currency/<code>); the list itself is the destination
                 .onOpenURL { _ in }
+                // fresh rates whenever the app comes to the foreground (overlaps are skipped in the store)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await store.reloadOnActivate() } }
+                }
                 #if DEBUG
                 .task {
                     if UserDefaults.standard.bool(forKey: "wuWidgetShots") { await WidgetSnapshots.render() }
@@ -69,7 +74,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 }
 
 #if DEBUG
-/// DEBUG-only: `-wuShot overview|detail|intervals|alerts|compare` opens a screen for App Store screenshots.
+/// DEBUG-only: `-wuShot overview|detail|ansicht|intervals|alerts|compare` opens a screen for App Store screenshots.
 enum ScreenshotMode {
     static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
     static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }

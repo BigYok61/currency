@@ -24,6 +24,22 @@ enum WidgetShared {
         return (base, foreign.isEmpty ? ["EUR", "USD", "GBP"].filter { $0 != base } : foreign)
     }
 
+    static let colorThresholdKey = "widget.colorThreshold"
+
+    /// Percent move from which a change is coloured green/red (app setting, default 0.10 %).
+    static var colorThreshold: Double {
+        (defaults?.object(forKey: colorThresholdKey) as? Double) ?? 0.10
+    }
+
+    /// +1 up, −1 down, 0 grey. At 0.00 % every non-zero move is coloured.
+    static func direction(percent: Double?) -> Int {
+        guard let p = percent, p.isFinite else { return 0 }
+        let t = colorThreshold
+        if t <= 0 { return p > 0 ? 1 : p < 0 ? -1 : 0 }
+        let r = (p * 10000).rounded() / 10000
+        return r >= t - 1e-9 ? 1 : r <= -t + 1e-9 ? -1 : 0
+    }
+
     static func url(for code: String?) -> URL {
         URL(string: "\(urlScheme)://currency/\(code ?? "")") ?? URL(string: "\(urlScheme)://")!
     }

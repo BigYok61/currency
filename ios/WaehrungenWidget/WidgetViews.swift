@@ -81,17 +81,25 @@ enum WColor {
         Color(red: 0.345, green: 0.337, blue: 0.839),
     ]
     static func code(_ index: Int) -> Color { palette[max(0, index) % palette.count] }
-    static func tone(_ value: Double?) -> Color {
-        guard let value else { return .secondary }
-        if value > 0.00005 { return up }
-        if value < -0.00005 { return down }
-        return .secondary
+    /// `percent` = change in percent; coloured only from the app's threshold on.
+    static func tone(_ percent: Double?) -> Color {
+        switch WidgetShared.direction(percent: percent) {
+        case 1: return up
+        case -1: return down
+        default: return .secondary
+        }
     }
-    static func triangle(_ value: Double?) -> String {
-        guard let value else { return "" }
-        if value > 0.00005 { return "▲" }
-        if value < -0.00005 { return "▼" }
-        return "■"
+    static func triangle(_ percent: Double?) -> String {
+        guard percent != nil else { return "" }
+        switch WidgetShared.direction(percent: percent) {
+        case 1: return "▲"
+        case -1: return "▼"
+        default: return "■"
+        }
+    }
+    static func weekPercent(_ week: [Double]) -> Double? {
+        guard week.count > 1, let first = week.first, let last = week.last, abs(first) > 0 else { return nil }
+        return (last / first - 1) * 100
     }
 }
 
@@ -183,16 +191,16 @@ struct SingleCurrencyView: View {
                 .padding(.top, 6)
             Text(snap.base).font(.system(size: 12)).foregroundStyle(.secondary)
             HStack(spacing: 3) {
-                Text(WColor.triangle(row.delta)).font(.system(size: 9))
+                Text(WColor.triangle(row.percent)).font(.system(size: 9))
                 Text("\(WFmt.delta(row.delta)) (\(WFmt.percent(row.percent)))")
                     .font(.system(size: 11.5, weight: .medium))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            .foregroundStyle(WColor.tone(row.delta))
+            .foregroundStyle(WColor.tone(row.percent))
             .padding(.top, 4)
-            WSpark(values: row.week, color: WColor.tone(row.week.count > 1 ? row.week.last! - row.week.first! : nil) == .secondary ? WColor.up : WColor.tone(row.week.count > 1 ? row.week.last! - row.week.first! : nil), fill: true)
+            WSpark(values: row.week, color: WColor.tone(WColor.weekPercent(row.week)) == .secondary ? WColor.up : WColor.tone(WColor.weekPercent(row.week)), fill: true)
                 .frame(maxHeight: .infinity)
                 .padding(.top, 4)
         }
@@ -303,7 +311,7 @@ struct LargeOverviewView: View {
                             VStack(alignment: .trailing, spacing: 0) {
                                 Text(WFmt.percent(row.percent)).font(.system(size: 14, weight: .semibold))
                                 HStack(spacing: 3) {
-                                    Text(WColor.triangle(row.delta)).font(.system(size: 8))
+                                    Text(WColor.triangle(row.percent)).font(.system(size: 8))
                                     Text(WFmt.delta(row.delta)).font(.system(size: 11))
                                 }
                             }
