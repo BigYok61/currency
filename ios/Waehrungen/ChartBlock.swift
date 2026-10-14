@@ -24,8 +24,6 @@ struct ChartBlock: View {
             }
         }
         .chartBox()
-        .contentShape(Rectangle())
-        .onTapGesture { openDetail() }
         .sheet(isPresented: $showDetail) {
             ChartDetailSheet(code: code).environmentObject(store)
         }
@@ -145,13 +143,15 @@ struct ChartDetailSheet: View {
                         .monospacedDigit()
                         .padding(.top, 6)
                         VStack(spacing: 0) {
-                            statRow("Eröffnung", move.open)
+                            let hiPoint = points.max(by: { $0.value < $1.value })
+                            let loPoint = points.min(by: { $0.value < $1.value })
+                            statRow("Eröffnung", move.open, date: stamp(points.first, span))
                             Divider().padding(.leading, 14)
-                            statRow("Hoch", move.high)
+                            statRow("Hoch", move.high, date: stamp(hiPoint, span))
                             Divider().padding(.leading, 14)
-                            statRow("Tief", move.low)
+                            statRow("Tief", move.low, date: stamp(loPoint, span))
                             Divider().padding(.leading, 14)
-                            statRow("Schluss", move.close)
+                            statRow("Schluss", move.close, date: stamp(points.last, span))
                         }
                         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .padding(.top, 16)
@@ -173,6 +173,8 @@ struct ChartDetailSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
+        .onAppear { store.openDetail(code) }
+        .onDisappear { if store.detailCode == code { store.openDetail(nil) } }
     }
 
     @ViewBuilder private var rateText: some View {
@@ -230,9 +232,22 @@ struct ChartDetailSheet: View {
         return (ChartFormat.change(delta, percent: percent), tone, first, last, high, low)
     }
 
-    private func statRow(_ label: String, _ value: Double) -> some View {
+    private func stamp(_ point: RatePoint?, _ span: ChartSpan) -> String {
+        guard let point else { return "" }
+        return (span == .day ? ChartFormat.time : ChartFormat.shortDate).string(from: point.date)
+    }
+
+    private func statRow(_ label: String, _ value: Double, date: String) -> some View {
         HStack {
-            Text(label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                if !date.isEmpty {
+                    Text(date)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
             Spacer()
             Text("\(formatRate(value)) \(store.base)")
                 .foregroundStyle(.secondary)
@@ -240,107 +255,8 @@ struct ChartDetailSheet: View {
         }
         .font(.system(size: 16))
         .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .frame(minHeight: 40)
-    }
-}
-
-/// Compact chart window that slides down from the top when a currency name is tapped (list without charts).
-struct CompactChartPanel: View {
-    @EnvironmentObject private var store: RatesStore
-    let code: String
-    var onClose: () -> Void
-    @State private var showDetail = false
-    @State private var drag: CGFloat = 0
-
-    var body: some View {
-        let span = store.span(for: code)
-        let points = store.series(code)
-        let tone = chartTone(points)
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 6) {
-                Text(CurrencyNames.name(code)).font(.system(size: 20, weight: .bold))
-                Text(code).font(.system(size: 15)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Schliessen")
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(formatRate(store.quote(code).value)) \(store.base)")
-                    .font(.system(size: 28, weight: .bold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 8)
-                Text(span.caption).foregroundStyle(.secondary)
-                if let pct = periodPercent(points) {
-                    Text(formatComparePercent(pct)).foregroundStyle(tone).monospacedDigit()
-                }
-            }
-            .font(.system(size: 15, weight: .semibold))
-            Group {
-                if points.count >= 2 {
-                    InlinePlot(points: points, tone: tone, height: 170, scrubbing: false, code: code, base: store.base, showDates: true, span: span)
-                        .allowsHitTesting(false)
-                } else {
-                    Text("Keine Kurse in diesem Zeitraum.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 170)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { showDetail = true }
-            .padding(.top, 10)
-            Picker("Zeitraum", selection: Binding(get: { store.span(for: code) }, set: { store.setSpan($0, for: code) })) {
-                ForEach(ChartSpan.allCases) { item in
-                    Text(item.short).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.top, 10)
-            Button { showDetail = true } label: {
-                Text("Tippen für weitere Details")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color.blue)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 12)
-            Capsule()
-                .fill(Color(uiColor: .tertiaryLabel))
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .background(
-            UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous)
-                .fill(Color(uiColor: .systemBackground))
-                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-                .ignoresSafeArea(edges: .top)
-        )
-        .offset(y: min(drag, 0))
-        .gesture(
-            DragGesture(minimumDistance: 12)
-                .onChanged { drag = $0.translation.height }
-                .onEnded { value in
-                    if value.translation.height < -50 || value.predictedEndTranslation.height < -120 { onClose() }
-                    withAnimation(.spring(response: 0.3)) { drag = 0 }
-                }
-        )
-        .sheet(isPresented: $showDetail) {
-            ChartDetailSheet(code: code).environmentObject(store)
-        }
     }
 }
 

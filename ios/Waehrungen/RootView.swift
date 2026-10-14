@@ -101,15 +101,6 @@ struct RootView: View {
                 store.finishConvert()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             })
-            .simultaneousGesture(TapGesture().onEnded {
-                // tapping the dimmed list closes the compact window; a name tap switches instead
-                guard store.compactCode != nil else { return }
-                let opened = store.compactOpenedAt
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    guard store.compactOpenedAt == opened else { return }
-                    closeCompact()
-                }
-            })
             .navigationTitle("Währungen")
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) { titleRow }
@@ -124,20 +115,6 @@ struct RootView: View {
                 }
             }
         }
-        .overlay(alignment: .top) {
-            ZStack(alignment: .top) {
-                if let code = store.compactCode {
-                    Color.black.opacity(0.22)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                    CompactChartPanel(code: code) { closeCompact() }
-                        .environmentObject(store)
-                        .transition(.move(edge: .top))
-                }
-            }
-        }
-        .onChange(of: store.showChart) { _, on in if on { store.compactCode = nil } }
         .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
@@ -146,18 +123,8 @@ struct RootView: View {
         #if DEBUG
         .task {
             if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
-            if ScreenshotMode.shot == "compact" {
-                await ScreenshotMode.wait()
-                if let code = store.visible.first(where: { $0 != store.base }) {
-                    withAnimation { store.openCompact(code) }
-                }
-            }
         }
         #endif
-    }
-
-    private func closeCompact() {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { store.compactCode = nil }
     }
 
     /// Pinned header: large title and the three tools in one row, outside the list; never collapses or scrolls.
@@ -255,6 +222,8 @@ struct CurrencyCard: View {
     let code: String
     var preview: Bool
     @FocusState private var amountFocused: Bool
+    @State private var showDetail = false
+    @State private var rowWidth: CGFloat = 0
     /// One-time swipe hint for the interval area (set after the first nudge, never shown again).
     @AppStorage("wu.swipeHintShown") private var swipeHintShown = false
     @State private var hintOffset: CGFloat = 0
@@ -267,11 +236,6 @@ struct CurrencyCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
-                            .onTapGesture {
-                                // list without charts: the name opens the compact chart window
-                                guard !preview, code != store.base, !store.showChart else { return }
-                                withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) { store.openCompact(code) }
-                            }
                         if let time = store.fired[code] {
                             Image(systemName: "bell.fill")
                                 .font(.system(size: 11))
@@ -291,6 +255,22 @@ struct CurrencyCard: View {
                 if store.showForecast { forecast.padding(.trailing, priceInset) }
                 if store.showReference { reference.padding(.trailing, priceInset) }
             }
+        }
+        // tap zones: left 40 % opens the detail sheet, right 40 % the conversion, middle 20 % nothing.
+        // Child controls (reorder handle, amount field, interval paging) keep priority.
+        .background(GeometryReader { geo in Color.clear.onAppear { rowWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in rowWidth = w } })
+        .contentShape(Rectangle())
+        .onTapGesture(coordinateSpace: .local) { location in
+            guard !preview, !editing, rowWidth > 0 else { return }
+            let share = location.x / rowWidth
+            if share <= 0.4 {
+                if code != store.base { showDetail = true }
+            } else if share >= 0.6 {
+                store.beginConvert(code)
+            }
+        }
+        .sheet(isPresented: $showDetail) {
+            ChartDetailSheet(code: code).environmentObject(store)
         }
     }
 

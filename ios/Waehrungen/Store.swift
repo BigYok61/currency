@@ -21,9 +21,8 @@ final class RatesStore: ObservableObject {
     /// ON (default): one period for every currency chart. OFF: each currency keeps its own (`codeSpans`).
     @Published var sameSpan = true
     @Published var codeSpans: [String: ChartSpan] = [:]
-    /// Currency shown in the compact chart panel (transient, not saved).
-    @Published var compactCode: String?
-    var compactOpenedAt = Date.distantPast
+    /// Currency whose detail sheet is open (transient), so its history loads even without list charts.
+    @Published var detailCode: String?
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false
     @Published var timeStart = 7
@@ -406,7 +405,7 @@ final class RatesStore: ObservableObject {
         let foreign = visible.filter { $0 != base }
         var pairs: [(String, ChartSpan)] = []
         if showChart { pairs += foreign.map { ($0, span(for: $0)) } }
-        if let compactCode { pairs.append((compactCode, span(for: compactCode))) }
+        if let detailCode { pairs.append((detailCode, span(for: detailCode))) }
         if showCompare { pairs += foreign.map { ($0, compareSpan) } }
         pairs.removeAll { $0.1 == .day || $0.1 == .week }
         guard !pairs.isEmpty else { return }
@@ -440,10 +439,9 @@ final class RatesStore: ObservableObject {
         Task { await loadHistoryIfNeeded() }
     }
 
-    func openCompact(_ code: String) {
-        compactOpenedAt = Date()
-        compactCode = code
-        Task { await loadHistoryIfNeeded() }
+    func openDetail(_ code: String?) {
+        detailCode = code
+        if code != nil { Task { await loadHistoryIfNeeded() } }
     }
 
     private func fetchHistory(code: String, span: ChartSpan) async {

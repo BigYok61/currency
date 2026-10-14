@@ -26,7 +26,7 @@ enum ChartSpan: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Narrow selector label in the compact chart panel.
+    /// Narrow period label.
     var short: String {
         switch self {
         case .day: return "T"
