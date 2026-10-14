@@ -127,24 +127,13 @@ struct SingleCurrencyWidget: Widget {
     }
 }
 
-struct TripleCurrencyWidget: Widget {
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "WaehrungenTriple", provider: ListProvider()) { entry in
-            TripleCurrencyView(snap: entry.snap)
-                .widgetCard()
-                .widgetURL(WidgetShared.url(for: nil))
-        }
-        .configurationDisplayName("Drei Währungen")
-        .description("Die ersten drei Währungen Ihrer Liste.")
-        .supportedFamilies([.systemSmall])
-    }
-}
-
 struct OverviewWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var entry: WEntry
     var body: some View {
-        if family == .systemLarge {
+        if family == .systemSmall {
+            TripleCurrencyView(snap: entry.snap)
+        } else if family == .systemLarge {
             LargeOverviewView(snap: entry.snap)
         } else {
             MediumOverviewView(snap: entry.snap)
@@ -160,8 +149,8 @@ struct OverviewWidget: Widget {
                 .widgetURL(WidgetShared.url(for: nil))
         }
         .configurationDisplayName("Währungen")
-        .description("Ihre Währungen mit Verlauf einer Woche.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .description("Klein: drei Kurse. Mittel und gross: Ihre Währungen mit Verlauf einer Woche.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
@@ -181,9 +170,8 @@ struct LockScreenWidget: Widget {
 @main
 struct WaehrungenWidgetBundle: WidgetBundle {
     var body: some Widget {
-        SingleCurrencyWidget()
-        TripleCurrencyWidget()
         OverviewWidget()
+        SingleCurrencyWidget()
         LockScreenWidget()
     }
 }

@@ -394,19 +394,17 @@ private struct InlinePlot: View {
                     .foregroundStyle(tone)
                     .symbolSize(14)
             }
+            // vertical grid as rules, so the line at the very start is drawn too
+            ForEach(xTicks, id: \.self) { tick in
+                RuleMark(x: .value("Raster", tick))
+                    .foregroundStyle(Self.gridColor)
+                    .lineStyle(StrokeStyle(lineWidth: 0.8, dash: [3, 3]))
+            }
         }
         .chartXAxis {
-            AxisMarks(values: xTicks) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [3, 3]))
-                    .foregroundStyle(Self.gridColor)
-                AxisValueLabel {
-                    if let i = value.as(Int.self), i >= 0, i < points.count {
-                        Text(Self.xLabel(points[i], span: span))
-                            .font(.system(size: 9))
-                            .foregroundStyle(Color.secondary)
-                            .monospacedDigit()
-                    }
-                }
+            // reserves the label row; the labels themselves are drawn in the overlay, clamped inside
+            AxisMarks(values: [0]) { _ in
+                AxisValueLabel { Text(" ").font(.system(size: 9)) }
             }
         }
         .chartYAxis {
@@ -430,6 +428,19 @@ private struct InlinePlot: View {
             GeometryReader { geo in
                 if let plotFrame = proxy.plotFrame, points.count >= 2 {
                     let frame = geo[plotFrame]
+                    ForEach(xTicks, id: \.self) { tick in
+                        if let px = proxy.position(forX: tick) {
+                            let text = Self.xLabel(points[tick], span: span)
+                            let half = CGFloat(text.count) * 2.6 + 1
+                            Text(text)
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color.secondary)
+                                .monospacedDigit()
+                                .fixedSize()
+                                .position(x: min(max(frame.minX + px, frame.minX + half), geo.size.width - half),
+                                          y: frame.maxY + 9)
+                        }
+                    }
                     extremeLabel("Hoch \(formatRate(hi))", index: highIndex, value: hi, above: true, labelColor: hi > (points.first?.value ?? hi) ? Color(red: 0.13, green: 0.6, blue: 0.25) : Color.secondary, sub: subText(points[highIndex]), proxy: proxy, frame: frame)
                     extremeLabel("Tief \(formatRate(lo))", index: lowIndex, value: lo, above: false, labelColor: lo < (points.first?.value ?? lo) ? Color.red : Color.secondary, sub: subText(points[lowIndex]), proxy: proxy, frame: frame)
                 }
@@ -539,7 +550,7 @@ private struct InlinePlot: View {
         if let px = proxy.position(forX: index), let py = proxy.position(forY: value) {
             let x = frame.minX + px
             let y = frame.minY + py
-            let half = CGFloat(max(text.count, sub?.count ?? 0)) * 2.7 + 2
+            let half = CGFloat(max(text.count, sub?.count ?? 0)) * 3.0 + 6
             let lift: CGFloat = sub == nil ? 9 : 15
             let edge: CGFloat = sub == nil ? 6 : 12
             Circle().fill(tone).frame(width: 5, height: 5).overlay(Circle().stroke(Color.white, lineWidth: 1.5)).position(x: x, y: y)

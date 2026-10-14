@@ -549,6 +549,11 @@ struct AboutSheet: View {
                 aboutMailButton(.feedback)
                 aboutMailButton(.support)
             }
+            Text("Widgets: Home-Bildschirm gedrückt halten › Bearbeiten › Widget hinzufügen › Währungen. Wische dort nach links für weitere Varianten, z. B. «Eine Währung» mit Grafik.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             if let appStoreID, !appStoreID.isEmpty {
                 Button("App bewerten") { requestReview() }
                     .buttonStyle(.bordered)
