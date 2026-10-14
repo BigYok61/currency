@@ -32,13 +32,13 @@ Standard in `data/capture-times.json`: 06:00–20:00 alle 2 Stunden (Europe/Zuri
 ```json
 { "version": 2, "start": "06", "end": "20", "intervalHours": 2 }
 ```
-`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3, 4, 8, 12 oder 24.
+`start` und `end` sind ganze Stunden `"00"`…`"23"` (oder Zahlen), `start` liegt vor `end`. `intervalHours` ist 1, 2, 3, 4, 5, 8, 12 oder 24.
 Die Messungen sind `start + n × Intervall`, solange sie ≤ `end` sind (06–20 alle 3 Stunden endet bei 18:00; 24 Stunden ergibt eine Messung am Startzeitpunkt).
 Halbe Stunden gibt es nicht: biquote liefert Stundenkerzen, der Job läuft stündlich.
 Die Tabelle zeigt nur die Stunden des Rasters. **16:00 wird immer erfasst** (Zeile «Tagesendkurs»), auch wenn 16 nicht auf dem Raster liegt; als Uhrzeit-Zeile erscheint 16:00 nur dann. Die Prognose Tagesende, die Prognose 7 Tage, die Veränderungspfeile und die FX-Alarme beziehen sich auf die **Startstunde**. Fehlt sie an einem Tag, gilt die erste erfasste Stunde dieses Tages, bei älteren Tagen 08:00. Der Tooltip nennt die tatsächlich verwendete Stunde.
 Eine ältere Datei der Form `{ "version": 1, "hours": [6, 8, 10] }` bleibt gültig. Stehen Von/Bis/Intervall und `hours` zusammen in der Datei, gilt das Raster.
 
-Der Cron bleibt stündlich (`5 * * * 1-5` plus Samstag 06:05 UTC): jede Zürcher Stunde, inklusive 06:00 und 20:00,
+Der Cron bleibt stündlich (GitHub `5 * * * 1-5`, Cloudflare `5 * * * MON-FRI`, plus Samstag 06:05 UTC): jede Zürcher Stunde, inklusive 06:00 und 20:00,
 fällt in CET (UTC+1) und CEST (UTC+2) auf einen dieser Läufe. Welche Stunden gespeichert werden, filtert das Skript.
 Fehlende Werte der letzten ca. 7 Tage trägt der biquote-Verlauf nach. Die Tabelle zeigt neue Stunden sofort, der Kurs erst nach dem Lauf («–» bis dahin).
 
@@ -89,6 +89,47 @@ github.com → Profilbild → **Settings** → **Developer settings** → **Pers
 **Generate new token**: Name «Währungen», Ablaufdatum wählen, Repository access **Only select repositories** →
 **BigYok61/currency** (ein bestehender Aktienübersicht-Token kann alternativ um dieses Repository erweitert werden),
 Permissions → Repository permissions → **Contents: Read and write**, alles andere «No access» → **Generate token**, kopieren.
-Web-App: 🔔 → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
+Web-App: Einstellungen → Alarme → Token einfügen → «Token speichern» (bleibt nur in diesem Browser, wird nur an api.github.com gesendet;
 «Token entfernen» löscht ihn). Mac-App: Einstellungen → FX-Alarme → Token (Schlüsselbund).
 Ohne Token sind die Schwellen in den Apps nur lesbar.
+
+## Cloudflare (parallel zu GitHub Pages)
+
+Dieselbe App kann zusätzlich als Cloudflare Worker `waehrungen` laufen (Free-Plan). GitHub bleibt das Code-Repository. Actions und Pages bleiben unverändert: dort gelten weiter die gemeinsamen Dateien und der GitHub-Token. Der Worker liest zur Laufzeit nichts von GitHub und hat kein App-Passwort und kein gemeinsames `NTFY_TOPIC`.
+
+- `GET /data/rates.json` bleibt im bisherigen Format (die macOS-App liest diese URL). Der Cron erfasst werktags jede volle Stunde 00–23 (Zürich): `5 * * * MON-FRI`, samstags `5 6 * * SAT`, Alarme `*/15 5-21 * * MON-FRI`. Bei Cloudflare ist 1 der Sonntag, deshalb die Wochentagsnamen. Nachtrag, Quelle und EZB-Logik bleiben dieselben. Die im JSON gespeicherte Prognose bleibt die zur Stunde 06:00. Weicht die Anzeige davon ab, rechnet die Seite die Prognose aus den gespeicherten Kursen.
+- Die Uhr (Erfassungszeiten) ist nur die Anzeige auf diesem Gerät (`localStorage`, Standard 06:00–20:00 alle 2 Stunden). Speichern braucht kein Netz. Die Tabelle und die Tagesgrafik zeigen dieses Raster, dazu immer die Zeile Tagesendkurs 16:00.
+- Berichtswährung: auf einem neuen Gerät aus der Locale, ohne Nachfrage. Zuerst die Währung der Locale, wenn es ein ISO-Code aus drei Buchstaben ist und nicht mit X beginnt, sonst die Währung der Region, sonst Franken. Die Liste beginnt immer mit dieser Währung und enthält Franken, Euro, Dollar und Pfund. Schweiz und Liechtenstein: Franken, Euro, Dollar, Pfund. Europa: lokal, Euro, Dollar, Pfund, Franken. Amerika und alle übrigen Regionen: lokal, Dollar, Euro, Pfund, Franken (Japan also Yen, Dollar, Euro, Pfund, Franken). Gespeicherte Einstellungen werden nicht überschrieben. Im Blatt «Berichtswährung» ist die aktuelle Währung fett und mit «Berichtswährung» bezeichnet; eine andere wird mit «Als Berichtswährung festlegen» gewählt. Namen auf Deutsch (`de-CH`), ß als ss. Eine zusätzliche Währung, die die Quelle führt, wird per `POST /api/currencies` erfasst (höchstens zwölf). Bis die Stunde vorliegt, gilt der EZB-Tageskurs.
+- Ziehen am oberen Rand der Liste lädt die Kurse und den Live-Kurs neu, in allen drei Darstellungen. Der Knopf Aktualisieren bleibt. Waagrechtes Schieben der Tabelle und das Entlangfahren an der Grafik lösen das nicht aus.
+- Version 2.0.0 steht in `version.js` und gilt für den Service-Worker-Cache, die Asset-URLs und das Manifest. Unten im Blatt Einstellungen steht «Version 2.0».
+- Ansicht liegt auf dem Gerät (`localStorage`, ohne Passwort). Standard: Prognosen an und Darstellung «Intervalle» (die Tabelle mit den Uhrzeiten). «Grafik» ersetzt die Uhrzeiten durch eine Linie je Währung, mit Zeitraum Tag, Woche, Monat, 360 Tage, 5 Jahre und 10 Jahre. Die Tagesgrafik nutzt die Stunden aus Erfassungszeiten, die Woche die erfassten Stunden. Die längeren Zeiträume kommen von `GET /data/history/<CCY>.json?range=1M|1J|5J|10J` (CHF je 1 Einheit, ausgedünnt). «Nur aktuell» zeigt den letzten Kurs, die Veränderung seit Beginn und die Uhrzeit; Tagesendkurs und EZB bleiben dort als kurze Zeile. Unter Prognosen gibt es vier Schalter, alle an: Prognose heute, Abweichung heute, Prognose 7 Tage, Abweichung 7 Tage. Ist die Prognose an, steht die Abweichung als kleine zweite Zeile darin. Ist nur die Abweichung an, hat sie eine eigene Zeile. Das gilt in der Tabelle, in der Grafik und bei Nur aktuell. Erfassungszeiten bleibt in jeder Ansicht erreichbar. GitHub Pages hat keine eigene Verlaufsdatenbank: die Grafik für Monat bis 10 Jahre lädt denselben Endpunkt vom Worker `https://waehrungen.bigyok61.workers.dev`. Fehlt der Verlauf, bleibt die Grafik mit einem kurzen Hinweis stehen. Tag und Woche funktionieren auch dort aus `rates.json`.
+- FX-Alarme: jedes Gerät erzeugt eine eigene Kennung und ein eigenes ntfy-Thema `wae-…`. Schwellen gehen an `POST /api/alerts/<kennung>` ohne Passwort; die Kennung ist der Zugriff. Der 15-Minuten-Cron prüft jedes Abo und schickt höchstens eine Meldung je Währung und Richtung und Tag. Abos ohne Änderung seit 90 Tagen werden gelöscht. Unter Einstellungen → Alarme stehen die Schritte zum Abonnieren, ein Link auf `https://ntfy.sh/<thema>`, «Test-Push senden» und «Abo löschen».
+- `GET /data/capture-times.json`, `/data/fx-alerts.json` und `/data/fx-alert-state.json` bleiben die importierten Dateien. Daraus wird kein persönliches Abo.
+
+Die macOS-App liest weiter dasselbe JSON. Worker-URL:
+
+`https://waehrungen.bigyok61.workers.dev/data/rates.json`
+
+Deploy von einem Linux-Rechner mit Node 22 oder neuer (`npx wrangler` 4.x braucht das), im Verzeichnis `cloudflare/`. Der API-Token braucht Account-Rechte Workers Scripts, D1, Workers KV Storage und Cloudflare Pages (Edit). Nicht committen.
+
+`database_id` (`89ef4623-822f-425e-b016-fe0bb43b946f`) und `APP_URL` (`https://waehrungen.bigyok61.workers.dev/`) stehen in `wrangler.toml`. `npx wrangler d1 create waehrungen` nur, wenn die Datenbank neu angelegt werden muss; dann die neue `database_id` eintragen. Waren `APP_PASSWORD` oder `NTFY_TOPIC` früher als Worker-Secret gesetzt, können sie weg: `npx wrangler secret delete APP_PASSWORD` und `npx wrangler secret delete NTFY_TOPIC`. Der GitHub-Workflow «FX-Push-Alarme (ntfy)» bleibt davon unberührt.
+
+```bash
+cd cloudflare
+export CLOUDFLARE_API_TOKEN='…'
+export CLOUDFLARE_ACCOUNT_ID='7990e79f1ae37e88673013377e1e75f0'
+
+npx wrangler d1 migrations apply waehrungen --remote
+node import.mjs
+node history-backfill.mjs --remote
+node prepare-assets.mjs
+npx wrangler deploy
+```
+
+`node import.mjs` kopiert `data/rates.json`, `data/capture-times.json`, `data/fx-alerts.json` und `data/fx-alert-state.json` nach D1, inklusive des ganzen bisherigen Verlaufs, als ein einziges `INSERT`. Ohne `BEGIN`/`COMMIT`: die Remote-Import-API von D1 führt die Datei selbst als eine Einheit aus. Ein zweites Ausführen ersetzt diese vier Dokumente wieder durch die Dateien im Repo. Persönliche Abos in `subscriptions` bleiben dabei stehen. Der Import legt keine Abos an; die bestehenden GitHub-Schwellen werden nicht übernommen.
+
+`node history-backfill.mjs --remote` holt einmal die EZB-Referenzkurse ab 2015-01-01 (SDMX, `detail=dataonly`) und speichert je Währung `history-USD`, `history-EUR` und so weiter: CHF je 1 Einheit, für Euro die CHF-Reihe, sonst CHF je Euro geteilt durch die Fremdwährung je Euro. Das deckt mehr als zehn Jahre ab. Danach hält der Cron den Verlauf aktuell: werktags um 17 Uhr Zürich (`5 * * * MON-FRI`) und mit dem Samstagslauf (`5 6 * * SAT`), jeweils die letzten Wochen. Ein Fehler dabei bricht die Kurserfassung nicht ab. `node import.mjs` nicht erneut ausführen, nur weil der Verlauf nachgezogen wurde.
+
+Lokal, ohne Token: `node --test cloudflare/test/logic.test.mjs`. `node prepare-assets.mjs`, `npx wrangler d1 migrations apply waehrungen --local`, `node import.mjs --local`, dann `npx wrangler dev` (`FX_DRY=1` in `cloudflare/.dev.vars`, Vorlage `.dev.vars.example`).
+
+Der Worker ist unter https://waehrungen.bigyok61.workers.dev/ erreichbar. Pages kann unter https://bigyok61.github.io/currency/ bleiben, bis die macOS-App umgezogen wird.

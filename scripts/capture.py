@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 ZURICH = ZoneInfo("Europe/Zurich")
 LEGACY_BASIS_HOUR = 8  # aeltere Tage ohne Startstunde
 CLOSE_HOUR = 16         # "Tagesende" = 16:00 (Ziel beider Prognosen, immer erfasst)
-INTERVALS = (1, 2, 3, 4, 8, 12, 24)
+INTERVALS = (1, 2, 3, 4, 5, 8, 12, 24)
 DEFAULT_SCHEDULE = (6, 20, 2)  # 06:00–20:00 alle 2 Stunden
 DEFAULT_HOURS = list(range(6, 21, 2))
 TIMES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "capture-times.json")
