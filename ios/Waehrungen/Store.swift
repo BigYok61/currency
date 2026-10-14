@@ -55,6 +55,8 @@ final class RatesStore: ObservableObject {
     var convertReplace = false
 
     private var days: [String: DayFile] = [:]
+    /// Latest 15-minute live mid from the worker (CHF per unit), if any.
+    private var live: LiveBlock?
     private var historyCache: [String: [RatePoint]] = [:]
     private var alertSyncTask: Task<Void, Never>?
     private var alertSyncGeneration = 0
@@ -77,9 +79,15 @@ final class RatesStore: ObservableObject {
         var forecast7Basis: [String: Int]?
     }
 
+    struct LiveBlock: Decodable {
+        var at: String
+        var rates: [String: Double]
+    }
+
     struct RatesFile: Decodable {
         var days: [String: DayFile]
         var updated: String?
+        var live: LiveBlock?
     }
 
     struct HistoryFile: Decodable {
@@ -315,15 +323,41 @@ final class RatesStore: ObservableObject {
             guard let day = Self.addDays(today, -offset), let slots = days[day]?.slots else { continue }
             let hours = slots.keys.compactMap(Int.init).sorted(by: >)
             for hour in hours {
-                if let raw = slots[String(format: "%02d", hour)]?[code], raw > 0 { return raw }
+                if let raw = slots[String(format: "%02d", hour)]?[code], raw > 0 {
+                    // the 15-minute live mid wins when it is newer than this whole-hour slot
+                    if let liveRaw = liveRate(code, newerThan: Self.zurichSlotDate(day, hour: hour)) { return liveRaw }
+                    return raw
+                }
             }
         }
+        if let liveRaw = liveRate(code, newerThan: nil) { return liveRaw }
         for offset in 0..<45 {
             guard let day = Self.addDays(today, -offset),
                   let raw = days[day]?.ecb?[code], raw > 0 else { continue }
             return raw
         }
         return nil
+    }
+
+    private static let liveISO: ISO8601DateFormatter = {
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime]
+        return fmt
+    }()
+
+    private func liveRate(_ code: String, newerThan slot: Date?) -> Double? {
+        guard let live, let raw = live.rates[code], raw > 0, let at = Self.liveISO.date(from: live.at),
+              at <= Date().addingTimeInterval(600) else { return nil }
+        if let slot, at <= slot { return nil }
+        return raw
+    }
+
+    static func zurichSlotDate(_ day: String, hour: Int) -> Date? {
+        let bits = day.split(separator: "-").compactMap { Int($0) }
+        guard bits.count == 3 else { return nil }
+        var cal = gregorian
+        cal.timeZone = zurichZone
+        return cal.date(from: DateComponents(year: bits[0], month: bits[1], day: bits[2], hour: hour))
     }
 
     static func parseAmount(_ text: String) -> Double? {
@@ -405,6 +439,7 @@ final class RatesStore: ObservableObject {
             }
             let file = try JSONDecoder().decode(RatesFile.self, from: data)
             days = file.days
+            live = file.live
             dataGeneration += 1
             seriesCache.removeAll()
             updated = file.updated ?? ""

@@ -615,3 +615,17 @@ test('ECB history becomes CHF per unit and serves a downsampled range', async ()
   const bad = await handleHistory(env, 'USD', '1T', new Date('2026-10-09T15:05:00Z'));
   assert.equal(bad.status, 400);
 });
+
+test('live: mid per CHF and merge into rates.json', async () => {
+  const { liveMid, mergeLive } = await import('../src/live.js');
+  assert.equal(liveMid({ mid: 0.932695 }, false, 1), 0.932695);
+  assert.equal(liveMid({ bid: 2, ask: 2 }, true, 1), 0.5);
+  assert.equal(liveMid({ mid: 1, stale: true }, false, 1), null);
+  const rates = JSON.stringify({ version: 1, updated: '2026-10-14T14:00:00Z', days: {} });
+  const merged = JSON.parse(mergeLive(rates, JSON.stringify({ at: '2026-10-14T14:45:00Z', rates: { EUR: 0.93 } })));
+  assert.equal(merged.updated, '2026-10-14T14:45:00Z');
+  assert.equal(merged.live.rates.EUR, 0.93);
+  const older = JSON.parse(mergeLive(rates, JSON.stringify({ at: '2026-10-14T13:45:00Z', rates: { EUR: 0.93 } })));
+  assert.equal(older.updated, '2026-10-14T14:00:00Z');
+  assert.equal(mergeLive(rates, null), rates);
+});

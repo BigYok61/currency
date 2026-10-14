@@ -30,9 +30,15 @@ enum WFetch {
         var ecb: [String: Double]?
     }
 
+    private struct LiveBlock: Decodable {
+        var at: String
+        var rates: [String: Double]
+    }
+
     private struct RatesFile: Decodable {
         var days: [String: DayFile]
         var updated: String?
+        var live: LiveBlock?
     }
 
     private struct Slot {
@@ -73,6 +79,14 @@ enum WFetch {
             }
         }
         slots.sort { $0.date < $1.date }
+        // 15-minute live mid: newest point when it is newer than the last whole-hour slot
+        let isoLive = ISO8601DateFormatter()
+        isoLive.formatOptions = [.withInternetDateTime]
+        if let live = file.live, let at = isoLive.date(from: live.at), at > (slots.last?.date ?? .distantPast), at <= now.addingTimeInterval(600) {
+            var chf = slots.last?.chf ?? [:]
+            for (code, value) in live.rates where value > 0 { chf[code] = value }
+            slots.append(Slot(date: at, chf: chf))
+        }
 
         func chf(_ code: String, _ slot: Slot) -> Double? {
             if code == "CHF" { return 1 }

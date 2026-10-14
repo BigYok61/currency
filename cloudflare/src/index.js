@@ -1,5 +1,6 @@
 // Währungen auf Cloudflare: statische PWA, gemeinsame Kurse, Abos je Gerät.
 import { runCapture } from './capture.js';
+import { mergeLive, runLive } from './live.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
 import { apnsEnvironment, validApnsToken } from './apns.js';
@@ -271,8 +272,9 @@ async function handle(request, env) {
 
   const docKey = DOCS[path];
   if (method === 'GET' && docKey) {
-    const body = await readRaw(env, docKey);
+    let body = await readRaw(env, docKey);
     if (body == null) return jsonResponse({ error: 'nicht vorhanden' }, 404);
+    if (docKey === 'rates') body = mergeLive(body, await readRaw(env, 'live'));
     return jsonResponse(body);
   }
 
@@ -286,6 +288,12 @@ export default {
     const cron = String(event.cron || '');
     // `*/15 * * * *` sind die Alarme. `5 * * * *` erfasst, auch wenn der Markt geschlossen ist.
     if (cron.startsWith('*/15')) {
+      // Live-Kurs zuerst und unabhängig: ein Alarmfehler darf die Aktualität nicht verhindern.
+      try {
+        await runLive(env);
+      } catch (err) {
+        console.error('Live', err && err.message ? err.message : err);
+      }
       await runFxAlerts(env);
       return;
     }
