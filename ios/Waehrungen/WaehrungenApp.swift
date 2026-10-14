@@ -23,7 +23,7 @@ struct WaehrungenApp: App {
                     #if DEBUG
                     if let shot = ScreenshotMode.shot {
                         store.showChart = true; store.showCompare = true; store.showIntervals = true
-                        _ = shot
+                        if shot == "compact" { store.showChart = false }
                     }
                     #endif
                     await store.reload()
@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 }
 
 #if DEBUG
-/// DEBUG-only: `-wuShot overview|detail|intervals|alerts|compare` opens a screen for App Store screenshots.
+/// DEBUG-only: `-wuShot overview|detail|compact|intervals|alerts|compare` opens a screen for App Store screenshots.
 enum ScreenshotMode {
     static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
     static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }

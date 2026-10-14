@@ -101,6 +101,15 @@ struct RootView: View {
                 store.finishConvert()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             })
+            .simultaneousGesture(TapGesture().onEnded {
+                // tapping the dimmed list closes the compact window; a name tap switches instead
+                guard store.compactCode != nil else { return }
+                let opened = store.compactOpenedAt
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    guard store.compactOpenedAt == opened else { return }
+                    closeCompact()
+                }
+            })
             .navigationTitle("Währungen")
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) { titleRow }
@@ -115,6 +124,20 @@ struct RootView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            ZStack(alignment: .top) {
+                if let code = store.compactCode {
+                    Color.black.opacity(0.22)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                    CompactChartPanel(code: code) { closeCompact() }
+                        .environmentObject(store)
+                        .transition(.move(edge: .top))
+                }
+            }
+        }
+        .onChange(of: store.showChart) { _, on in if on { store.compactCode = nil } }
         .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
         .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
@@ -123,8 +146,18 @@ struct RootView: View {
         #if DEBUG
         .task {
             if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
+            if ScreenshotMode.shot == "compact" {
+                await ScreenshotMode.wait()
+                if let code = store.visible.first(where: { $0 != store.base }) {
+                    withAnimation { store.openCompact(code) }
+                }
+            }
         }
         #endif
+    }
+
+    private func closeCompact() {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { store.compactCode = nil }
     }
 
     /// Pinned header: large title and the three tools in one row, outside the list; never collapses or scrolls.
@@ -234,6 +267,11 @@ struct CurrencyCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
+                            .onTapGesture {
+                                // list without charts: the name opens the compact chart window
+                                guard !preview, code != store.base, !store.showChart else { return }
+                                withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) { store.openCompact(code) }
+                            }
                         if let time = store.fired[code] {
                             Image(systemName: "bell.fill")
                                 .font(.system(size: 11))

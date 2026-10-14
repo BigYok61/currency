@@ -8,13 +8,15 @@ struct ChartBlock: View {
     @State private var showDetail = false
 
     var body: some View {
+        let span = store.span(for: code)
         let points = store.series(code)
         return VStack(alignment: .leading, spacing: 2) {
             if points.count >= 2 {
-                ChartBoxHeader(caption: store.span.caption, percent: periodPercent(points), tone: chartTone(points),
+                ChartBoxHeader(caption: span.caption, percent: periodPercent(points), tone: chartTone(points),
                                range: ChartFormat.range(points.first?.date, points.last?.date))
-                plot(points, height: 70, scrubbing: false)
-                    .padding(.top, 2)
+                InlinePlot(points: points, tone: chartTone(points), height: 120, scrubbing: false, code: code, base: store.base, showDates: true, span: span)
+                    .allowsHitTesting(false)
+                    .padding(.top, 4)
             } else {
                 Text("Keine Kurse in diesem Zeitraum.")
                     .font(.footnote)
@@ -38,16 +40,11 @@ struct ChartBlock: View {
         guard !preview else { return }
         showDetail = true
     }
+}
 
-    private func plot(_ points: [RatePoint], height: CGFloat, scrubbing: Bool) -> some View {
-        InlinePlot(points: points, tone: chartTone(points), height: height, scrubbing: scrubbing, code: code, base: store.base)
-            .allowsHitTesting(false)
-    }
-
-    private func periodPercent(_ points: [RatePoint]) -> Double? {
-        guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
-        return (last / first - 1) * 100
-    }
+func periodPercent(_ points: [RatePoint]) -> Double? {
+    guard let first = points.first?.value, let last = points.last?.value, abs(first) > 0.00005 else { return nil }
+    return (last / first - 1) * 100
 }
 
 /// Grey rounded box shared by every list chart (currency charts and the comparison chart).
@@ -102,40 +99,42 @@ struct ChartDetailSheet: View {
     let code: String
 
     var body: some View {
+        let span = store.span(for: code)
         let points = store.series(code)
         let tone = chartTone(points)
         let move = periodMove(points, tone: tone)
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let value = store.quote(code).value {
-                        Text("\(formatRate(value)) \(store.base)")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .monospacedDigit()
-                    }
-                    if let day = store.dayChange(code) {
-                        Text(day.text)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(dayChangeTone(day.delta))
-                            .monospacedDigit()
-                            .padding(.top, 2)
-                    }
-                    if let move {
-                        Text(move.text)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(move.tone)
-                            .monospacedDigit()
-                            .padding(.top, 2)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 10) {
+                            rateText
+                            dayPill
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            rateText
+                            dayPill
+                        }
                     }
                     Text(store.secondaryText(code))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color.blue)
                         .monospacedDigit()
-                        .padding(.top, 4)
+                        .padding(.top, 6)
+                    if let move {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(span.caption).foregroundStyle(.secondary)
+                            Text(move.text).foregroundStyle(move.tone)
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .monospacedDigit()
+                        .padding(.top, 8)
+                    }
+                    spanPicker
+                        .padding(.top, 16)
                     if points.count >= 2, let move {
-                        InlinePlot(points: points, tone: tone, height: 80, scrubbing: true, code: code, base: store.base, showDates: true, daySpan: store.span == .day)
-                            .padding(.top, 14)
+                        InlinePlot(points: points, tone: tone, height: 220, scrubbing: true, code: code, base: store.base, showDates: true, longDates: true, span: span)
+                            .padding(.top, 40)
                         HStack {
                             Text(ChartFormat.pretty(points.first?.day))
                             Spacer()
@@ -144,9 +143,7 @@ struct ChartDetailSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
-                        .padding(.top, 4)
-                        spanPicker
-                            .padding(.top, 8)
+                        .padding(.top, 6)
                         VStack(spacing: 0) {
                             statRow("Eröffnung", move.open)
                             Divider().padding(.leading, 14)
@@ -162,9 +159,7 @@ struct ChartDetailSheet: View {
                         Text("Keine Kurse in diesem Zeitraum.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .padding(.top, 12)
-                        spanPicker
-                            .padding(.top, 8)
+                            .padding(.top, 40)
                     }
                 }
                 .padding(16)
@@ -180,16 +175,44 @@ struct ChartDetailSheet: View {
         .presentationDragIndicator(.visible)
     }
 
+    @ViewBuilder private var rateText: some View {
+        if let value = store.quote(code).value {
+            Text("\(formatRate(value)) \(store.base)")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(.primary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    /// Today's change vs. the previous close as a tinted pill.
+    @ViewBuilder private var dayPill: some View {
+        if let day = store.dayChange(code), let close = store.quote(code).value {
+            let open = close - day.delta
+            let pct = abs(open) > 0.00005 ? day.delta / open * 100 : 0
+            let up = day.delta > 0.00005
+            let down = day.delta < -0.00005
+            let tone = dayChangeTone(day.delta)
+            let fill: Color = up ? Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.16)
+                : down ? Color(red: 1, green: 0.231, blue: 0.188).opacity(0.13) : Color.gray.opacity(0.16)
+            Text("\(up ? "▲ " : down ? "▼ " : "")\(formatDelta(day.delta)) (\(formatComparePercent(pct)))")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tone)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(fill, in: Capsule())
+        }
+    }
+
     /// Writes the span only when it actually changes, so a second tap cannot re-enter the picker update.
     private var spanPicker: some View {
         Picker("Zeitraum", selection: Binding(
-            get: { store.span },
-            set: { newValue in
-                guard newValue != store.span else { return }
-                store.span = newValue
-                store.saveView()
-                Task { await store.loadHistoryIfNeeded() }
-            }
+            get: { store.span(for: code) },
+            set: { store.setSpan($0, for: code) }
         )) {
             ForEach(ChartSpan.allCases) { item in
                 Text(item.rawValue).tag(item)
@@ -204,7 +227,7 @@ struct ChartDetailSheet: View {
         let percent = delta / first * 100
         let high = points.map(\.value).max() ?? last
         let low = points.map(\.value).min() ?? last
-        return (ChartFormat.change(delta, percent: percent, caption: store.span.caption), tone, first, last, high, low)
+        return (ChartFormat.change(delta, percent: percent), tone, first, last, high, low)
     }
 
     private func statRow(_ label: String, _ value: Double) -> some View {
@@ -221,7 +244,107 @@ struct ChartDetailSheet: View {
     }
 }
 
-/// Shared thin chart. Scrubbing is only used on the detail sheet.
+/// Compact chart window that slides down from the top when a currency name is tapped (list without charts).
+struct CompactChartPanel: View {
+    @EnvironmentObject private var store: RatesStore
+    let code: String
+    var onClose: () -> Void
+    @State private var showDetail = false
+    @State private var drag: CGFloat = 0
+
+    var body: some View {
+        let span = store.span(for: code)
+        let points = store.series(code)
+        let tone = chartTone(points)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 6) {
+                Text(CurrencyNames.name(code)).font(.system(size: 20, weight: .bold))
+                Text(code).font(.system(size: 15)).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .background(Color(uiColor: .tertiarySystemFill), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Schliessen")
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(formatRate(store.quote(code).value)) \(store.base)")
+                    .font(.system(size: 28, weight: .bold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 8)
+                Text(span.caption).foregroundStyle(.secondary)
+                if let pct = periodPercent(points) {
+                    Text(formatComparePercent(pct)).foregroundStyle(tone).monospacedDigit()
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            Group {
+                if points.count >= 2 {
+                    InlinePlot(points: points, tone: tone, height: 170, scrubbing: false, code: code, base: store.base, showDates: true, span: span)
+                        .allowsHitTesting(false)
+                } else {
+                    Text("Keine Kurse in diesem Zeitraum.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 170)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { showDetail = true }
+            .padding(.top, 10)
+            Picker("Zeitraum", selection: Binding(get: { store.span(for: code) }, set: { store.setSpan($0, for: code) })) {
+                ForEach(ChartSpan.allCases) { item in
+                    Text(item.short).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 10)
+            Button { showDetail = true } label: {
+                Text("Tippen für weitere Details")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.blue)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            Capsule()
+                .fill(Color(uiColor: .tertiaryLabel))
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .background(
+            UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous)
+                .fill(Color(uiColor: .systemBackground))
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                .ignoresSafeArea(edges: .top)
+        )
+        .offset(y: min(drag, 0))
+        .gesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { drag = $0.translation.height }
+                .onEnded { value in
+                    if value.translation.height < -50 || value.predictedEndTranslation.height < -120 { onClose() }
+                    withAnimation(.spring(response: 0.3)) { drag = 0 }
+                }
+        )
+        .sheet(isPresented: $showDetail) {
+            ChartDetailSheet(code: code).environmentObject(store)
+        }
+    }
+}
+
+/// Shared line chart with grid. Scrubbing is only used on the detail sheet.
 private struct InlinePlot: View {
     let points: [RatePoint]
     let tone: Color
@@ -229,10 +352,14 @@ private struct InlinePlot: View {
     let scrubbing: Bool
     let code: String
     let base: String
-    /// Detail chart only: a small date (or time for the 1-day span) under Hoch/Tief.
+    /// A small date (or time for the 1-day span) under Hoch/Tief.
     var showDates: Bool = false
-    var daySpan: Bool = false
+    /// Detail sheet: "30.9.2026" instead of "30.9.".
+    var longDates: Bool = false
+    var span: ChartSpan = .month
     @State private var scrubIndex: Int?
+
+    static let gridColor = Color(red: 198 / 255, green: 198 / 255, blue: 204 / 255)
 
     var body: some View {
         // Trading-time axis: x is the point's position in the series, so weekends and
@@ -241,16 +368,17 @@ private struct InlinePlot: View {
         let lastX = max(points.count - 1, 1)
         let hi = points.map(\.value).max() ?? 0
         let lo = points.map(\.value).min() ?? 0
-        let span = max(hi - lo, 0.004)
-        let pad = span * 0.5
+        let range = max(hi - lo, 0.004)
+        let pad = range * 0.3
+        let yLo = lo - pad
+        let yHi = hi + pad
+        let yTicks = Self.yTicks(yLo, yHi)
+        let xTicks = Self.xTicks(points, span: span)
         let highIndex = points.indices.max(by: { points[$0].value < points[$1].value }) ?? 0
         let lowIndex = points.indices.min(by: { points[$0].value < points[$1].value }) ?? 0
         return Chart {
             ForEach(drawn, id: \.self) { index in
                 let point = points[index]
-                AreaMark(x: .value("Zeit", index), yStart: .value("Basis", lo - pad), yEnd: .value("Kurs", point.value))
-                    .interpolationMethod(.monotone)
-                    .foregroundStyle(LinearGradient(stops: [.init(color: tone.opacity(0.08), location: 0), .init(color: tone.opacity(0), location: 0.65)], startPoint: .top, endPoint: .bottom))
                 LineMark(x: .value("Zeit", index), y: .value("Kurs", point.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(tone)
@@ -267,10 +395,36 @@ private struct InlinePlot: View {
                     .symbolSize(14)
             }
         }
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(values: xTicks) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8, dash: [3, 3]))
+                    .foregroundStyle(Self.gridColor)
+                AxisValueLabel {
+                    if let i = value.as(Int.self), i >= 0, i < points.count {
+                        Text(Self.xLabel(points[i], span: span))
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: yTicks) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8))
+                    .foregroundStyle(Self.gridColor)
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(formatRate(v))
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            }
+        }
         .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: 3))
-        .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
+        .chartYScale(domain: yLo...yHi, range: .plotDimension(padding: 0))
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
             GeometryReader { geo in
@@ -303,8 +457,80 @@ private struct InlinePlot: View {
             }
         }
         .frame(height: height)
-        .clipped()
         .frame(maxWidth: .infinity)
+    }
+
+    /// 3–4 round rate levels inside the visible range.
+    static func yTicks(_ lo: Double, _ hi: Double) -> [Double] {
+        let raw = (hi - lo) / 4
+        guard raw > 0 else { return [] }
+        let mag = pow(10, floor(log10(raw)))
+        let step = max([1, 2, 2.5, 5, 10].map { $0 * mag }.first { $0 >= raw } ?? 10 * mag, 0.0001)
+        var out: [Double] = []
+        var v = (lo / step).rounded(.up) * step
+        while v <= hi {
+            if v > lo + step * 0.2 && v < hi - step * 0.2 { out.append(v) }
+            v += step
+        }
+        return out
+    }
+
+    private static let zurichCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/Zurich") ?? .current
+        cal.firstWeekday = 2
+        return cal
+    }()
+
+    /// Indices where a new step starts: 3 h (Tag), day (Woche), week (Monat), 2 months (Jahr), year (5J), 2 years (10J).
+    static func xTicks(_ points: [RatePoint], span: ChartSpan) -> [Int] {
+        let cal = zurichCalendar
+        var out: [Int] = []
+        var lastKey: Int?
+        for (i, p) in points.enumerated() {
+            let c = cal.dateComponents([.year, .month, .day, .hour, .weekOfYear, .yearForWeekOfYear], from: p.date)
+            let key: Int
+            switch span {
+            case .day: key = (c.day ?? 0) * 100 + (c.hour ?? 0) / 3
+            case .week: key = (c.month ?? 0) * 100 + (c.day ?? 0)
+            case .month: key = (c.yearForWeekOfYear ?? 0) * 100 + (c.weekOfYear ?? 0)
+            case .year: key = (c.year ?? 0) * 100 + ((c.month ?? 1) - 1) / 2
+            case .five: key = c.year ?? 0
+            case .ten: key = (c.year ?? 0) / 2
+            }
+            if key != lastKey {
+                if lastKey != nil { out.append(i) }
+                lastKey = key
+            }
+        }
+        // a series that starts exactly on a step (e.g. a Monday for Monat) gets its first line too
+        if let first = points.first, span == .month, cal.component(.weekday, from: first.date) == 2 { out.insert(0, at: 0) }
+        if out.count > 6 {
+            let stride = Int((Double(out.count) / 5).rounded(.up))
+            out = out.enumerated().filter { $0.offset % stride == 0 }.map(\.element)
+        }
+        return out
+    }
+
+    private static let labelFormatters: [ChartSpan: DateFormatter] = {
+        var map: [ChartSpan: DateFormatter] = [:]
+        for span in ChartSpan.allCases {
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "de_CH")
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            switch span {
+            case .day: fmt.dateFormat = "HH:mm"
+            case .week, .month: fmt.dateFormat = "d.M."
+            case .year: fmt.dateFormat = "MMM"
+            case .five, .ten: fmt.dateFormat = "yyyy"
+            }
+            map[span] = fmt
+        }
+        return map
+    }()
+
+    static func xLabel(_ point: RatePoint, span: ChartSpan) -> String {
+        labelFormatters[span]?.string(from: point.date) ?? ""
     }
 
     /// Small label with a dot at the high (above the line) or the low (below it), kept inside the plot.
@@ -336,7 +562,7 @@ private struct InlinePlot: View {
 
     private func subText(_ point: RatePoint) -> String? {
         guard showDates else { return nil }
-        return daySpan ? ChartFormat.time.string(from: point.date) : ChartFormat.shortDate.string(from: point.date)
+        return span == .day ? ChartFormat.time.string(from: point.date) : (longDates ? ChartFormat.shortDate : ChartFormat.dayMonth).string(from: point.date)
     }
 
     private func bubble(_ point: RatePoint) -> some View {
@@ -410,6 +636,13 @@ private enum ChartFormat {
         fmt.dateFormat = "d.M.yyyy"
         return fmt
     }()
+    @MainActor static let dayMonth: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "de_CH")
+        fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+        fmt.dateFormat = "d.M."
+        return fmt
+    }()
     @MainActor static let time: DateFormatter = {
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "de_CH")
@@ -437,7 +670,7 @@ private enum ChartFormat {
         return "\(fmt.string(from: from)) – \(fmt.string(from: to))"
     }
 
-    static func change(_ delta: Double, percent: Double, caption: String) -> String {
+    static func change(_ delta: Double, percent: Double) -> String {
         let pct = NumberFormatter()
         pct.locale = Locale(identifier: "de_CH")
         pct.minimumFractionDigits = 2
@@ -445,7 +678,7 @@ private enum ChartFormat {
         pct.numberStyle = .decimal
         let body = pct.string(from: NSNumber(value: abs(percent))) ?? String(format: "%.2f", abs(percent))
         let sign = percent > 0.0005 ? "+" : percent < -0.0005 ? "−" : ""
-        return "\(formatDelta(delta)) (\(sign)\(body) %) · \(caption)"
+        return "\(formatDelta(delta)) (\(sign)\(body) %)"
     }
 
     static func bubbleDate(_ point: RatePoint) -> String {

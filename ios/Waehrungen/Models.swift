@@ -26,6 +26,18 @@ enum ChartSpan: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Narrow selector label in the compact chart panel.
+    var short: String {
+        switch self {
+        case .day: return "T"
+        case .week: return "W"
+        case .month: return "M"
+        case .year: return "J"
+        case .five: return "5J"
+        case .ten: return "10J"
+        }
+    }
+
     /// Short label on the main-list chart, for example `1 Monat`.
     var caption: String {
         switch self {

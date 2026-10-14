@@ -18,6 +18,12 @@ final class RatesStore: ObservableObject {
     @Published var span: ChartSpan = .month
     /// Own period of the comparison chart ('Entwicklung der Währungen'), independent of `span`.
     @Published var compareSpan: ChartSpan = .month
+    /// ON (default): one period for every currency chart. OFF: each currency keeps its own (`codeSpans`).
+    @Published var sameSpan = true
+    @Published var codeSpans: [String: ChartSpan] = [:]
+    /// Currency shown in the compact chart panel (transient, not saved).
+    @Published var compactCode: String?
+    var compactOpenedAt = Date.distantPast
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false
     @Published var timeStart = 7
@@ -137,7 +143,7 @@ final class RatesStore: ObservableObject {
     static let cloudKeys: [String] = [
         "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference",
-        "wu.chartSpan", "wu.compareSpan",
+        "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans",
         "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep",
         "wu.alertsMaster", "wu.thresholds",
     ]
@@ -397,21 +403,47 @@ final class RatesStore: ObservableObject {
     }
 
     func loadHistoryIfNeeded() async {
-        var spans: [ChartSpan] = []
-        if showChart { spans.append(span) }
-        if showCompare && !spans.contains(compareSpan) { spans.append(compareSpan) }
-        spans.removeAll { $0 == .day || $0 == .week }
-        guard !spans.isEmpty else { return }
-        var codes = visible.filter { $0 != base }
-        if base != "CHF" { codes.append(base) }
-        for span in spans {
-            for code in codes {
-                let key = "\(code)|\(span.query)"
-                if historyCache[key] != nil { continue }
-                await fetchHistory(code: code, span: span)
-            }
+        let foreign = visible.filter { $0 != base }
+        var pairs: [(String, ChartSpan)] = []
+        if showChart { pairs += foreign.map { ($0, span(for: $0)) } }
+        if let compactCode { pairs.append((compactCode, span(for: compactCode))) }
+        if showCompare { pairs += foreign.map { ($0, compareSpan) } }
+        pairs.removeAll { $0.1 == .day || $0.1 == .week }
+        guard !pairs.isEmpty else { return }
+        if base != "CHF" {
+            var used: [ChartSpan] = []
+            for pair in pairs where !used.contains(pair.1) { used.append(pair.1) }
+            pairs += used.map { (base, $0) }
+        }
+        for (code, span) in pairs {
+            if historyCache["\(code)|\(span.query)"] != nil { continue }
+            await fetchHistory(code: code, span: span)
         }
         objectWillChange.send()
+    }
+
+    /// Chart period of one currency: the shared one, or its own when "Gleicher Zeitraum" is off.
+    func span(for code: String) -> ChartSpan {
+        sameSpan ? span : (codeSpans[code] ?? span)
+    }
+
+    func setSpan(_ value: ChartSpan, for code: String) {
+        guard value != span(for: code) else { return }
+        if sameSpan { span = value } else { codeSpans[code] = value }
+        saveView()
+        Task { await loadHistoryIfNeeded() }
+    }
+
+    func setSameSpan(_ on: Bool) {
+        sameSpan = on
+        saveView()
+        Task { await loadHistoryIfNeeded() }
+    }
+
+    func openCompact(_ code: String) {
+        compactOpenedAt = Date()
+        compactCode = code
+        Task { await loadHistoryIfNeeded() }
     }
 
     private func fetchHistory(code: String, span: ChartSpan) async {
@@ -639,7 +671,7 @@ final class RatesStore: ObservableObject {
 
     /// `span` nil = the per-currency chart period.
     func series(_ code: String, span requested: ChartSpan? = nil) -> [RatePoint] {
-        let span = requested ?? self.span
+        let span = requested ?? self.span(for: code)
         let key = "\(code)|\(span.query)|\(base)|\(dataGeneration)|\(Self.todayKey())"
         if let hit = seriesCache[key] { return hit }
         let result = computeSeries(code, span: span)
@@ -1135,6 +1167,11 @@ final class RatesStore: ObservableObject {
         } else {
             compareSpan = span
         }
+        if defaults.object(forKey: "wu.sameSpan") != nil { sameSpan = defaults.bool(forKey: "wu.sameSpan") }
+        if let data = defaults.data(forKey: "wu.codeSpans"),
+           let map = try? JSONDecoder().decode([String: String].self, from: data) {
+            codeSpans = map.compactMapValues { ChartSpan(rawValue: $0) }
+        }
         if let data = defaults.data(forKey: "wu.hours"), let list = try? JSONDecoder().decode([Int].self, from: data), !list.isEmpty {
             hours = list
             timesUserSet = defaults.bool(forKey: "wu.timesUserSet")
@@ -1164,6 +1201,8 @@ final class RatesStore: ObservableObject {
         defaults.set(showReference, forKey: "wu.showReference")
         defaults.set(span.rawValue, forKey: "wu.chartSpan")
         defaults.set(compareSpan.rawValue, forKey: "wu.compareSpan")
+        defaults.set(sameSpan, forKey: "wu.sameSpan")
+        if let data = try? JSONEncoder().encode(codeSpans.mapValues(\.rawValue)) { defaults.set(data, forKey: "wu.codeSpans") }
         if let data = try? JSONEncoder().encode(hours) { defaults.set(data, forKey: "wu.hours") }
         defaults.set(timesUserSet, forKey: "wu.timesUserSet")
         defaults.set(timeStart, forKey: "wu.timeStart")
@@ -1220,7 +1259,7 @@ final class RatesStore: ObservableObject {
     /// Device view options. A future iCloud sync of settings should copy every one of these keys.
     static let viewSettingKeys = [
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference", "wu.chartSpan",
-        "wu.compareSpan",
+        "wu.compareSpan", "wu.sameSpan", "wu.codeSpans",
     ]
 
     static func localTodayKey() -> String {
