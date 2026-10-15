@@ -723,26 +723,47 @@ private struct CompareLine {
     .sorted { $0.change > $1.change }
 }
 
-/// Overview below the period picker: one two-line block per currency, same order as the legend.
+/// Overview below the period picker: one block per currency, same order as the legend.
 private struct CompareOverviewCard: View {
     let lines: [CompareLine]
     let span: ChartSpan
     let base: String
 
+    private struct Stat { var label: String; var value: String; var date: String }
+    private struct Block { var line: CompareLine; var delta: Double; var stats: [Stat] }
+
+    private static let labelFont = UIFont.systemFont(ofSize: 11)
+    private static let valueFont = UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+    private static let dateFont = UIFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("ÜBERSICHT · \(span.caption.uppercased())")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 6)
-            ForEach(Array(lines.enumerated()), id: \.element.code) { index, line in
-                if index > 0 { Divider().padding(.vertical, 6) }
-                row(line)
-            }
+        let blocks = lines.compactMap(block)
+        // widest content per column across ALL currencies, so the columns stay straight
+        let widths: [CGFloat] = (0..<4).map { col in
+            blocks.map { b in
+                let s = b.stats[col]
+                return max(Self.width(s.label, Self.labelFont), Self.width(s.value, Self.valueFont), Self.width(s.date, Self.dateFont))
+            }.max() ?? 0
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Übersicht \(span.caption)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(blocks.enumerated()), id: \.element.line.code) { index, b in
+                    if index > 0 { Divider().padding(.vertical, 8) }
+                    row(b, widths: widths)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(.top, 8)
+    }
+
+    private static func width(_ text: String, _ font: UIFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
 
     private static func tone(_ v: Double) -> Color {
@@ -750,48 +771,60 @@ private struct CompareOverviewCard: View {
     }
 
     private func mark(_ p: RatePoint) -> String {
-        if span == .day {
-            let f = DateFormatter(); f.locale = Locale(identifier: "de_CH"); f.timeZone = .current; f.dateFormat = "HH:mm"
-            return f.string(from: p.date)
-        }
         let f = DateFormatter(); f.locale = Locale(identifier: "de_CH"); f.timeZone = .current
-        f.dateFormat = (span == .five || span == .ten) ? "d.M.yy" : "d.M."
+        f.dateFormat = span == .day ? "HH:mm" : "dd.MM.yy"
         return f.string(from: p.date)
     }
 
-    @ViewBuilder private func row(_ line: CompareLine) -> some View {
+    private func block(_ line: CompareLine) -> Block? {
         let prices = line.prices
-        if let first = prices.first, let last = prices.last,
-           let hi = prices.max(by: { $0.value < $1.value }), let lo = prices.min(by: { $0.value < $1.value }) {
-            let delta = last.value - first.value
-            let lot = quoteLot(line.code)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Circle().fill(line.color).frame(width: 8, height: 8)
-                    Text(CurrencyNames.name(line.code) + (lot != 1 ? " (\(Int(lot)))" : ""))
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text("\(formatDelta(delta)) \(base)  \(formatComparePercent(line.change))")
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Self.tone(delta))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                (Text("Start \(formatRate(first.value)) · Hoch \(formatRate(hi.value)) ")
-                 + Text("(\(mark(hi)))").foregroundColor(.gray).font(.system(size: 10))
-                 + Text(" · Tief \(formatRate(lo.value)) ")
-                 + Text("(\(mark(lo)))").foregroundColor(.gray).font(.system(size: 10))
-                 + Text(" · Schluss ")
-                 + Text(formatRate(last.value)).foregroundColor(Self.tone(delta)))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        guard let first = prices.first, let last = prices.last,
+              let hi = prices.max(by: { $0.value < $1.value }), let lo = prices.min(by: { $0.value < $1.value }) else { return nil }
+        return Block(line: line, delta: last.value - first.value, stats: [
+            Stat(label: "Start", value: formatRate(first.value), date: mark(first)),
+            Stat(label: "Hoch", value: formatRate(hi.value), date: mark(hi)),
+            Stat(label: "Tief", value: formatRate(lo.value), date: mark(lo)),
+            Stat(label: "Schluss", value: formatRate(last.value), date: mark(last)),
+        ])
+    }
+
+    private func row(_ b: Block, widths: [CGFloat]) -> some View {
+        let lot = quoteLot(b.line.code)
+        let tone = Self.tone(b.delta)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Circle().fill(b.line.color).frame(width: 8, height: 8)
+                Text(CurrencyNames.name(b.line.code) + (lot != 1 ? " (\(Int(lot)))" : ""))
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Text("\(formatDelta(b.delta)) \(base)  \(formatComparePercent(b.line.change))")
+                    .font(.subheadline.weight(.bold))
                     .monospacedDigit()
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                    .padding(.leading, 14)
+                    .foregroundStyle(tone)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            GeometryReader { geo in
+                let gap = max((geo.size.width - widths.reduce(0, +)) / 3, 4)
+                HStack(spacing: gap) {
+                    ForEach(0..<4, id: \.self) { col in
+                        let s = b.stats[col]
+                        let align: HorizontalAlignment = col == 3 ? .trailing : .leading
+                        VStack(alignment: align, spacing: 1) {
+                            Text(s.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text(s.value).font(.system(size: 15)).monospacedDigit()
+                                .foregroundStyle(col == 3 ? tone : .primary)
+                            Text(s.date).font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: widths[col], alignment: col == 3 ? .trailing : .leading)
+                    }
+                }
+                .frame(width: geo.size.width, alignment: .leading)
+            }
+            .frame(height: 48)
         }
     }
 }
@@ -1049,8 +1082,11 @@ private struct ComparePlot: View {
         let rowHeight: CGFloat = 15
         let height = rowHeight * CGFloat(lines.count)
         // Vertical, top-left inside the plot; same order as `lines` (biggest gainer on top).
-        _ = height
-        let top = frame.minY + 4
+        // Top edge at the highest peak, but its bottom at least ~38 pt above the common start (0 %).
+        let peak = lines.flatMap(\.drawn).map(\.value).max() ?? 0
+        let peakY = frame.minY + (proxy.position(forY: peak) ?? 0)
+        let startY = frame.minY + (proxy.position(forY: 0.0) ?? frame.midY)
+        let top = max(frame.minY + 2, min(peakY, startY - 38 - height))
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(lines, id: \.code) { line in
                 HStack(spacing: 5) {
