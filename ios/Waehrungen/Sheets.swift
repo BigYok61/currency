@@ -70,7 +70,9 @@ struct AnsichtSheet: View {
                             preview
                                 .padding(.top, 6)
                         }
-                        .padding(16)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .padding(.top, 4)   // content ~12 pt higher, more room for the preview
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 }

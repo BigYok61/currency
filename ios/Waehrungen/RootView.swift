@@ -259,13 +259,23 @@ struct CurrencyCard: View {
                 quoteMeta
             }
             if code != store.base {
-                if store.showChart { ChartBlock(code: code, preview: preview).environmentObject(store) }
-                if store.showIntervals { intervals }
+                if store.showChart {
+                    // the whole small chart (left, middle, right) opens the large chart view
+                    ChartBlock(code: code, preview: preview).environmentObject(store)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if !preview && !editing { showDetail = true } }
+                }
+                if store.showIntervals {
+                    // interval rows open nothing; swiping and «Heute» keep working
+                    intervals
+                        .contentShape(Rectangle())
+                        .onTapGesture {}
+                }
                 if store.showForecast { forecast.padding(.trailing, priceInset) }
                 if store.showReference { reference.padding(.trailing, priceInset) }
             }
         }
-        // tap zones: left 40 % opens the detail sheet, right 40 % the conversion, middle 20 % nothing.
+        // tap zones (name/rate header and rows without their own tap): left 40 % opens the detail sheet, right 40 % the conversion, middle 20 % nothing.
         // Child controls (reorder handle, amount field, interval paging) keep priority.
         .background(GeometryReader { geo in Color.clear.onAppear { rowWidth = geo.size.width }.onChange(of: geo.size.width) { _, w in rowWidth = w } })
         .contentShape(Rectangle())

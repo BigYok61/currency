@@ -771,7 +771,9 @@ struct CompareDetailSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     if lines.contains(where: { $0.drawn.count >= 2 }) {
-                        ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.compareSpan.caption, preview: false, onOpen: {})
+                        let dates = lines.flatMap { $0.full.map(\.date) }
+                        ChartBoxHeader(caption: store.compareSpan.caption, range: ChartFormat.range(dates.min(), dates.max()))
+                        ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.compareSpan.caption, preview: false, detail: true, onOpen: {})
                         spanPicker
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
@@ -817,6 +819,8 @@ private struct ComparePlot: View {
     let scrubbing: Bool
     let caption: String
     var preview: Bool = false
+    /// Large sheet: % scale with grid on the left, legend top-left, end labels.
+    var detail: Bool = false
     var onOpen: () -> Void
     @State private var scrubDate: Date?
 
@@ -838,6 +842,7 @@ private struct ComparePlot: View {
         let timeline = Array(Set(lines.flatMap { $0.full.map(\.date) })).sorted()
         let slot = Dictionary(uniqueKeysWithValues: timeline.enumerated().map { ($0.element, $0.offset) })
         let lastX = max(timeline.count - 1, 1)
+        let yTicks = Self.percentTicks(lo - pad, hi + pad)
         return Chart {
             ForEach(lines, id: \.code) { line in
                 ForEach(line.drawn) { point in
@@ -856,14 +861,35 @@ private struct ComparePlot: View {
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
         }
         .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: scrubbing ? 3 : Self.endBand))
+        .chartYAxis {
+            if detail {
+                // fine grid like the other charts; the 0 % line stays the dashed rule
+                AxisMarks(position: .leading, values: yTicks.filter { abs($0) > 1e-9 }) { _ in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8))
+                        .foregroundStyle(InlinePlot.gridColor)
+                }
+                AxisMarks(position: .leading, values: yTicks) { value in
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(formatAxisPercent(v))
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+            }
+        }
+        .chartXScale(domain: 0...lastX, range: .plotDimension(startPadding: 0, endPadding: scrubbing && !detail ? 3 : Self.endBand))
         .chartYScale(domain: (lo - pad)...(hi + pad), range: .plotDimension(padding: 0))
         .chartPlotStyle { $0.clipped() }
         .chartOverlay { proxy in
             GeometryReader { geo in
-                if !scrubbing, let plotFrame = proxy.plotFrame {
+                if !scrubbing || detail, let plotFrame = proxy.plotFrame {
                     endLabels(proxy: proxy, frame: geo[plotFrame])
+                }
+                if detail, let plotFrame = proxy.plotFrame {
+                    legend(proxy: proxy, frame: geo[plotFrame])
                 }
                 if scrubbing {
                     Rectangle().fill(.clear).contentShape(Rectangle())
@@ -883,6 +909,22 @@ private struct ComparePlot: View {
                     .padding(.top, 16)
             }
         }
+    }
+
+    /// 5–7 round % levels (finer than the rate charts' 3–4), always including 0.
+    static func percentTicks(_ lo: Double, _ hi: Double) -> [Double] {
+        let raw = (hi - lo) / 8
+        guard raw > 0 else { return [0] }
+        let mag = pow(10, floor(log10(raw)))
+        let step = [1, 2, 2.5, 5, 10].map { $0 * mag }.first { $0 >= raw } ?? 10 * mag
+        var out: [Double] = []
+        var i = (lo / step).rounded(.up)
+        while i * step <= hi {
+            let v = abs(i) < 0.5 ? 0 : i * step
+            if v > lo + step * 0.15 && v < hi - step * 0.15 || v == 0 { out.append(v) }
+            i += 1
+        }
+        return out
     }
 
     /// Room at the right end of the list plot for the end labels.
@@ -921,6 +963,30 @@ private struct ComparePlot: View {
         }
     }
 
+    /// Legend top-left: one line per currency (colour dot + name); its bottom sits ~38 pt (≈1 cm)
+    /// above the lines' common start point (0 %). Lines may pass through it.
+    private func legend(proxy: ChartProxy, frame: CGRect) -> some View {
+        let rowHeight: CGFloat = 15
+        let height = rowHeight * CGFloat(lines.count)
+        let startY = frame.minY + (proxy.position(forY: 0.0) ?? frame.midY)
+        let top = max(frame.minY + 2, startY - 38 - height)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(lines, id: \.code) { line in
+                HStack(spacing: 5) {
+                    Circle().fill(line.color).frame(width: 7, height: 7)
+                    Text(CurrencyNames.name(line.code))
+                }
+                .frame(height: rowHeight)
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.primary)
+        .fixedSize()
+        .offset(x: frame.minX + 6, y: top)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private var scrubReadout: [CompareReadout]? {
         guard let scrubDate else { return nil }
         return lines.compactMap { line in
@@ -946,6 +1012,16 @@ private struct ComparePlot: View {
         .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 8))
         .foregroundStyle(.white)
     }
+}
+
+private func formatAxisPercent(_ value: Double) -> String {
+    let fmt = NumberFormatter()
+    fmt.locale = Locale(identifier: "de_CH")
+    fmt.numberStyle = .decimal
+    fmt.maximumFractionDigits = 2
+    let body = fmt.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+    let sign = value > 1e-9 ? "+" : value < -1e-9 ? "−" : ""
+    return "\(sign)\(body) %"
 }
 
 private func formatComparePercent(_ value: Double) -> String {
