@@ -40,6 +40,13 @@ struct WaehrungenApp: App {
                         store.showIntervals = true
                         if UserDefaults.standard.object(forKey: "wuChart") != nil { store.showChart = UserDefaults.standard.bool(forKey: "wuChart") }
                     }
+                    if ScreenshotMode.shot == "convert" {
+                        // 100 EUR converted into all shown currencies (finished entry, no keypad)
+                        store.convertSource = "EUR"
+                        store.convertAmount = 100
+                        store.convertDraft = "100"
+                        store.convertEditing = false
+                    }
                     if ScreenshotMode.shot == "intervals" {
                         store.dayOffset = 0
                         // -wuSwipes N simulates N right swipes in the interval area (default 1)
@@ -95,7 +102,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 }
 
 #if DEBUG
-/// DEBUG-only: `-wuShot overview|detail|ansicht|intervals|alerts|compare` opens a screen for App Store screenshots.
+/// DEBUG-only: `-wuShot overview|detail|ansicht|intervals|alerts|compare|convert` opens a screen for App Store screenshots.
 enum ScreenshotMode {
     static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
     static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }
