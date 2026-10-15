@@ -23,6 +23,7 @@ final class RatesStore: ObservableObject {
     @Published var codeSpans: [String: ChartSpan] = [:]
     /// Percent move from which changes are coloured (0.00…2.00, default 0.10).
     @Published var colorThreshold = 0.10
+    @Published var colorChanges = true
     private var reloading = false
     private var lastReload = Date.distantPast
     /// Currency whose detail sheet is open (transient), so its history loads even without list charts.
@@ -154,7 +155,7 @@ final class RatesStore: ObservableObject {
     static let cloudKeys: [String] = [
         "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference",
-        "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold",
+        "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold", "wu.colorChanges",
         "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep",
         "wu.alertsMaster", "wu.thresholds",
     ]
@@ -423,6 +424,25 @@ final class RatesStore: ObservableObject {
         await reload(resetUI: false)
     }
 
+    private var liveTimer: Task<Void, Never>?
+
+    /// Foreground only: fresh live rate every 60 s (the Worker caches biquote for 60 s). Stopped in the background.
+    func startLiveTimer() {
+        guard liveTimer == nil else { return }
+        liveTimer = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled, let self else { return }
+                await self.reload(resetUI: false)
+            }
+        }
+    }
+
+    func stopLiveTimer() {
+        liveTimer?.cancel()
+        liveTimer = nil
+    }
+
     func reload(resetUI: Bool = true) async {
         guard !reloading else { return }
         reloading = true
@@ -529,6 +549,13 @@ final class RatesStore: ObservableObject {
         return (text, delta, percent)
     }
 
+    func setColorChanges(_ on: Bool) {
+        guard on != colorChanges else { return }
+        colorChanges = on
+        saveView()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     func setColorThreshold(_ value: Double) {
         let v = min(max((value * 100).rounded() / 100, 0), 2)
         guard v != colorThreshold else { return }
@@ -632,7 +659,15 @@ final class RatesStore: ObservableObject {
         return firstPrice(code, from: from, until: until)
     }
 
+    /// True when today's slot `hour` has already begun. Later slots must stay empty («–»).
+    func hourReached(_ hour: Int, now: Date = Date()) -> Bool {
+        guard let start = Self.localWall(Self.localTodayKey(), hour: hour) else { return true }
+        return start <= now
+    }
+
+    /// Today's column. Only slots already reached: the fallback to earlier days must not fill future hours.
     func intervalValue(_ code: String, hour: Int) -> Double? {
+        guard hourReached(hour) else { return nil }
         if code == base { return 1 }
         let today = Self.localTodayKey()
         for offset in 0..<12 {
@@ -1226,6 +1261,8 @@ final class RatesStore: ObservableObject {
         }
         if let v = defaults.object(forKey: "wu.colorThreshold") as? Double { colorThreshold = min(max(v, 0), 2) }
         WidgetShared.defaults?.set(colorThreshold, forKey: WidgetShared.colorThresholdKey)
+        if defaults.object(forKey: "wu.colorChanges") != nil { colorChanges = defaults.bool(forKey: "wu.colorChanges") }
+        WidgetShared.defaults?.set(colorChanges, forKey: WidgetShared.colorEnabledKey)
         if defaults.object(forKey: "wu.sameSpan") != nil { sameSpan = defaults.bool(forKey: "wu.sameSpan") }
         if let data = defaults.data(forKey: "wu.codeSpans"),
            let map = try? JSONDecoder().decode([String: String].self, from: data) {
@@ -1263,6 +1300,8 @@ final class RatesStore: ObservableObject {
         defaults.set(sameSpan, forKey: "wu.sameSpan")
         defaults.set(colorThreshold, forKey: "wu.colorThreshold")
         WidgetShared.defaults?.set(colorThreshold, forKey: WidgetShared.colorThresholdKey)
+        defaults.set(colorChanges, forKey: "wu.colorChanges")
+        WidgetShared.defaults?.set(colorChanges, forKey: WidgetShared.colorEnabledKey)
         if let data = try? JSONEncoder().encode(codeSpans.mapValues(\.rawValue)) { defaults.set(data, forKey: "wu.codeSpans") }
         if let data = try? JSONEncoder().encode(hours) { defaults.set(data, forKey: "wu.hours") }
         defaults.set(timesUserSet, forKey: "wu.timesUserSet")
@@ -1320,7 +1359,7 @@ final class RatesStore: ObservableObject {
     /// Device view options. A future iCloud sync of settings should copy every one of these keys.
     static let viewSettingKeys = [
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference", "wu.chartSpan",
-        "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold",
+        "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold", "wu.colorChanges",
     ]
 
     static func localTodayKey() -> String {

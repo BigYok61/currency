@@ -128,13 +128,13 @@ struct ChartDetailSheet: View {
                         }
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
-                        .padding(.top, 16)
+                        .padding(.top, 2)   // Build 23: ~2-3 mm higher
                     }
                     spanPicker
                         .padding(.top, 16)
                     if points.count >= 2, let move {
                         InlinePlot(points: points, tone: tone, height: 220, scrubbing: true, code: code, base: store.base, showDates: true, longDates: true, span: span)
-                            .padding(.top, 40)
+                            .padding(.top, 14)   // Build 23: ~3-4 mm gap to the picker
                         HStack {
                             Text(ChartFormat.pretty(points.first?.day))
                             Spacer()
@@ -160,7 +160,7 @@ struct ChartDetailSheet: View {
                             }
                         }
                         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .padding(.top, 16)
+                        .padding(.top, 30)   // space gained above the chart goes below it
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
                             .font(.footnote)

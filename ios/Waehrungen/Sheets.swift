@@ -46,25 +46,27 @@ struct AnsichtSheet: View {
                 ScrollView {
                     SheetColumn(minHeight: geo.size.height) {
                         VStack(alignment: .leading, spacing: 0) {
-                            toggle("Entwicklung der Währungen anzeigen", on: store.showCompare, hint: "Bezogen auf die Berichtswährung.\nZeitraum kann durch Tippen auf die Grafik verändert werden.", stacked: true) {
+                            toggle("Entwicklung der Währungen anzeigen", on: store.showCompare, hint: "Gegenüber der Berichtswährung. Zeitraum: Grafik antippen.", stacked: true) {
                                 store.showCompare = $0
                                 store.saveView()
                                 Task { await store.loadHistoryIfNeeded() }
                             }
                             toggle("Grafik für Fremdwährungen anzeigen", on: store.showChart, hint: "Zeitraum kann durch Tippen auf die Grafik verändert werden.", stacked: true) { store.showChart = $0; store.saveView() }
                             toggle("Gleicher Zeitraum für alle Fremdwährungen", on: store.sameSpan, hint: "Aus: Jede Währung merkt sich ihren eigenen Zeitraum.", stacked: true) { store.setSameSpan($0) }
-                            thresholdRow
+                            colorSection
+                                .padding(.top, 10)
+                                .padding(.bottom, 10)
                             toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
                             toggle("Prognose", on: store.showForecast, hint: "Heute und in 7 Tagen") { store.showForecast = $0; store.saveView() }
                             toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
-                            Text(disclaimerText)
+                            Text(shortDisclaimerText)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                                .padding(.top, 12)
+                                .padding(.top, 6)
                             Text("Vorschau")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                                .padding(.top, 12)
+                                .padding(.top, 8)
                             preview
                                 .padding(.top, 6)
                         }
@@ -83,27 +85,29 @@ struct AnsichtSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// Same row rhythm as the toggles: label + value + stepper, footer underneath.
-    private var thresholdRow: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 12) {
-                Text("Kursschwankungen farbig anzeigen ab")
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
-                Text(String(format: "%.2f %%", store.colorThreshold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                Stepper("Schwelle", value: Binding(get: { store.colorThreshold }, set: { store.setColorThreshold($0) }), in: 0...2, step: 0.01)
-                    .labelsHidden()
+    /// Own section after «Gleicher Zeitraum …»: colour on/off, then the indented threshold stepper.
+    private var colorSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            toggle("Kursschwankungen farbig anzeigen", on: store.colorChanges, hint: nil) { store.setColorChanges($0) }
+            if store.colorChanges {
+                HStack(spacing: 12) {
+                    Text("ab ±\(String(format: "%.2f", store.colorThreshold)) %")
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 4)
+                    Stepper("Schwelle", value: Binding(get: { store.colorThreshold }, set: { store.setColorThreshold($0) }), in: 0...2, step: 0.01)
+                        .labelsHidden()
+                }
+                .padding(.leading, 34)
+                .padding(.vertical, 2)
             }
-            Text("Kleinere Veränderungen werden grau angezeigt.\nBei 0.00 % werden auch kleinste Veränderungen farbig angezeigt.")
+            Text("Kleinere Veränderungen grau, bei 0.00 % alle farbig.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 34)
+                .padding(.top, 2)
         }
-        .padding(.leading, 34)
-        .padding(.vertical, 10)
     }
 
     private func toggle(_ title: String, on: Bool, hint: String?, stacked: Bool = false, set: @escaping (Bool) -> Void) -> some View {
@@ -131,7 +135,7 @@ struct AnsichtSheet: View {
                 }
                 Spacer()
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
     }

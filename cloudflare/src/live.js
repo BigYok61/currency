@@ -34,7 +34,7 @@ export async function runLive(env, opts = {}) {
   }
   if (!Object.keys(rates).length) return null;
   const stamp = Math.min(newest || now.getTime(), now.getTime());
-  const live = { at: new Date(stamp).toISOString().slice(0, 19) + 'Z', rates };
+  const live = { at: new Date(stamp).toISOString().slice(0, 19) + 'Z', fetched: now.toISOString().slice(0, 19) + 'Z', rates };
   await writeRaw(env, 'live', JSON.stringify(live));
   return live;
 }
@@ -51,5 +51,27 @@ export function mergeLive(ratesBody, liveBody) {
     return JSON.stringify(doc);
   } catch {
     return ratesBody;
+  }
+}
+
+export const LIVE_MAX_AGE_MS = 60000;
+
+/** Live-Block lesen; älter als 60 s (Abrufzeit): einmal frisch bei biquote holen. Fehler: alter Stand. */
+export async function freshLive(env, opts = {}) {
+  const { readRaw } = await import('./storage.js');
+  const now = opts.now || new Date();
+  const body = await readRaw(env, 'live');
+  let fetched = 0;
+  try {
+    const doc = body ? JSON.parse(body) : null;
+    fetched = Date.parse((doc && (doc.fetched || doc.at)) || '') || 0;
+  } catch { fetched = 0; }
+  if (now.getTime() - fetched < LIVE_MAX_AGE_MS) return body;
+  try {
+    const live = await runLive(env, opts);
+    return live ? JSON.stringify(live) : body;
+  } catch (e) {
+    console.log(`Live frisch: ${e && e.message ? e.message : e}`);
+    return body;
   }
 }

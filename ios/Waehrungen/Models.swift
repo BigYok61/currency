@@ -93,6 +93,8 @@ enum ViewBlock: String, CaseIterable, Identifiable {
     var hint: String? { self == .forecast ? "Heute und in 7 Tagen" : nil }
 }
 
+/// Short form for the Ansicht sheet.
+let shortDisclaimerText = "Prognosen sind unverbindliche Schätzungen ohne Gewähr – keine Anlageberatung."
 let disclaimerText = "Prognosen sind unverbindliche, automatisch berechnete Schätzungen und keine Anlage- oder Finanzberatung. Für Entscheidungen auf Basis dieser Angaben wird keine Haftung übernommen."
 
 /// ComputerWorks page linked from the About sheet. Change this one address to retarget the link.

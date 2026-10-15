@@ -25,6 +25,12 @@ enum WidgetShared {
     }
 
     static let colorThresholdKey = "widget.colorThreshold"
+    static let colorEnabledKey = "widget.colorEnabled"
+
+    /// App setting «Kursschwankungen farbig anzeigen» (default on). Off: every change grey.
+    static var colorEnabled: Bool {
+        (defaults?.object(forKey: colorEnabledKey) as? Bool) ?? true
+    }
 
     /// Percent move from which a change is coloured green/red (app setting, default 0.10 %).
     static var colorThreshold: Double {
@@ -33,7 +39,7 @@ enum WidgetShared {
 
     /// +1 up, −1 down, 0 grey. At 0.00 % every non-zero move is coloured.
     static func direction(percent: Double?) -> Int {
-        guard let p = percent, p.isFinite else { return 0 }
+        guard colorEnabled, let p = percent, p.isFinite else { return 0 }
         let t = colorThreshold
         if t <= 0 { return p > 0 ? 1 : p < 0 ? -1 : 0 }
         let r = (p * 10000).rounded() / 10000

@@ -28,6 +28,7 @@ struct WaehrungenApp: App {
                     }
                     #endif
                     await store.reload()
+                    store.startLiveTimer()
                     #if DEBUG
                     if ScreenshotMode.shot == "intervals" { store.dayOffset = 1 }
                     #endif
@@ -36,7 +37,12 @@ struct WaehrungenApp: App {
                 .onOpenURL { _ in }
                 // fresh rates whenever the app comes to the foreground (overlaps are skipped in the store)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await store.reloadOnActivate() } }
+                    if phase == .active {
+                        Task { await store.reloadOnActivate() }
+                        store.startLiveTimer()
+                    } else {
+                        store.stopLiveTimer()
+                    }
                 }
                 #if DEBUG
                 .task {

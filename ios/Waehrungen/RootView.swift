@@ -246,6 +246,15 @@ struct CurrencyCard: View {
                     }
                     Spacer(minLength: 8)
                     priceLabel(unitRates: unitRates, editing: editing)
+                    if store.showIntervals && code != store.base && !editing {
+                        // marks the big rate as the live one, above the hourly slots (style of «‹ Heute»)
+                        Text("Aktuell")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .padding(.leading, -4)
+                    }
                     if code != store.base && !preview { handle }
                 }
                 quoteMeta
@@ -331,6 +340,7 @@ struct CurrencyCard: View {
                                 .frame(minWidth: Self.pastColumnWidth, alignment: .trailing)
                         }
                         Text(shownInterval(hour))
+                            .foregroundStyle(!preview && !store.hourReached(hour) ? Color.secondary : Color.primary)
                             .lineLimit(1)
                             .fixedSize()
                     }

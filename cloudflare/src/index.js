@@ -1,6 +1,6 @@
 // Währungen auf Cloudflare: statische PWA, gemeinsame Kurse, Abos je Gerät.
 import { runCapture } from './capture.js';
-import { mergeLive, runLive } from './live.js';
+import { freshLive, mergeLive, runLive } from './live.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
 import { apnsEnvironment, validApnsToken } from './apns.js';
@@ -274,7 +274,7 @@ async function handle(request, env) {
   if (method === 'GET' && docKey) {
     let body = await readRaw(env, docKey);
     if (body == null) return jsonResponse({ error: 'nicht vorhanden' }, 404);
-    if (docKey === 'rates') body = mergeLive(body, await readRaw(env, 'live'));
+    if (docKey === 'rates') body = mergeLive(body, await freshLive(env));
     return jsonResponse(body);
   }
 
