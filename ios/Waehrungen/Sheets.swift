@@ -537,8 +537,9 @@ struct AboutSheet: View {
 
     private var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
         let year = Calendar.current.component(.year, from: .now)
-        return "Version \(version) · © \(year) ComputerWorks AG"
+        return "Version \(version) (\(build)) · © \(year) ComputerWorks AG"
     }
 
     var body: some View {
