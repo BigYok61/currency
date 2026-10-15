@@ -8,9 +8,51 @@ struct RootView: View {
     @State private var showAlerts = false
     @State private var showAdd = false
     @State private var showAbout = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Duo (regular width): entry shown on the right. nil = reporting currency.
+    @State private var duoSelection: String?
+    @State private var duoColumns: NavigationSplitViewVisibility = .all
+
+    private var isWide: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "wuWide") { return true }
+        #endif
+        return sizeClass == .regular
+    }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if isWide {
+                NavigationSplitView(columnVisibility: $duoColumns) {
+                    mainList
+                        .environment(\.duoSelect, { code in duoSelection = code })
+                        .environment(\.duoSelected, duoSelection ?? store.base)
+                        .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 520)
+                } detail: {
+                    DuoDetail(code: duoSelection ?? store.base)
+                        .id(duoSelection ?? store.base)
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack { mainList }
+            }
+        }
+        .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
+        .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
+        .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
+        .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
+        .sheet(isPresented: $showAbout) { AboutSheet() }
+        #if DEBUG
+        .task {
+            if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
+            if ScreenshotMode.shot == "ansicht" { await ScreenshotMode.wait(); showView = true }
+            // -wuSelect USD: Duo layout with that currency on the right
+            if let sel = UserDefaults.standard.string(forKey: "wuSelect") { await ScreenshotMode.wait(); duoSelection = sel }
+        }
+        #endif
+    }
+
+    private var mainList: some View {
             List {
                 Section {
                     let boardIDs: [String] = store.visible.flatMap { code in
@@ -35,6 +77,7 @@ struct RootView: View {
                                 .listRowBackground(
                                     Color(uiColor: .secondarySystemGroupedBackground)
                                         .overlay(store.convertEditing && store.convertSource == id ? Color.blue.opacity(0.12) : Color.clear)
+                                        .overlay(isWide && (duoSelection ?? store.base) == id && !store.convertEditing ? Color.blue.opacity(0.08) : Color.clear)
                                 )
                         }
                     }
@@ -114,18 +157,6 @@ struct RootView: View {
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
-        .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
-        .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
-        .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
-        .sheet(isPresented: $showAbout) { AboutSheet() }
-        #if DEBUG
-        .task {
-            if ScreenshotMode.shot == "alerts" { await ScreenshotMode.wait(); showAlerts = true }
-            if ScreenshotMode.shot == "ansicht" { await ScreenshotMode.wait(); showView = true }
-        }
-        #endif
     }
 
     /// Pinned header: large title and the three tools in one row, outside the list; never collapses or scrolls.
@@ -228,6 +259,7 @@ struct CurrencyCard: View {
     /// One-time swipe hint for the interval area (set after the first nudge, never shown again).
     @AppStorage("wu.swipeHintShown") private var swipeHintShown = false
     @State private var hintOffset: CGFloat = 0
+    @Environment(\.duoSelect) private var duoSelect
 
     var body: some View {
         let unitRates = preview || store.showsUnitRates
@@ -250,6 +282,12 @@ struct CurrencyCard: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(red: 1, green: 0.231, blue: 0.188))
                             Text(time).font(.system(size: 11)).foregroundStyle(.secondary)
+                        } else if !preview && store.hasActiveAlarm(code) {
+                            // alarm set: same symbol and tint as Aktien Pro's alarm marker
+                            Image(systemName: DuoConfig.alarmSymbol)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.orange)
+                                .accessibilityLabel("Alarm gesetzt")
                         }
                     }
                     Spacer(minLength: 8)
@@ -263,7 +301,7 @@ struct CurrencyCard: View {
                     // the whole small chart (left, middle, right) opens the large chart view
                     ChartBlock(code: code, preview: preview).environmentObject(store)
                         .contentShape(Rectangle())
-                        .onTapGesture { if !preview && !editing { showDetail = true } }
+                        .onTapGesture { if !preview && !editing { openDetail() } }
                 }
                 if store.showIntervals {
                     // interval rows open nothing; swiping and «Heute» keep working
@@ -283,7 +321,7 @@ struct CurrencyCard: View {
             guard !preview, !editing, rowWidth > 0 else { return }
             let share = location.x / rowWidth
             if share <= 0.4 {
-                if code != store.base { showDetail = true }
+                if let duoSelect { duoSelect(code) } else if code != store.base { showDetail = true }
             } else if share >= 0.6 {
                 store.beginConvert(code)
             }
@@ -291,6 +329,10 @@ struct CurrencyCard: View {
         .sheet(isPresented: $showDetail) {
             ChartDetailSheet(code: code).environmentObject(store)
         }
+    }
+
+    private func openDetail() {
+        if let duoSelect { duoSelect(code) } else { showDetail = true }
     }
 
     /// Today's column stays at the right. Swiping right adds earlier trading days to its left (up to `pastCapacity` columns).
@@ -568,7 +610,7 @@ struct CurrencyCard: View {
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                            .frame(width: 150, alignment: .trailing)
+                            .frame(width: 120, alignment: .trailing)
                         if grip { Color.clear.frame(width: 22, height: 1) }
                     }
                 }
@@ -912,5 +954,211 @@ private struct DayPagingPan: UIViewRepresentable {
                 if canForward { onPage(-1) }
             }
         }
+    }
+}
+
+// MARK: - Duo (regular width: unfolded foldable iPhone, iPad)
+
+enum DuoConfig {
+    /// Interval hours of the Duo detail (independent of the phone's interval settings).
+    static let hours: [Int] = [7, 12, 17]
+    /// Trading days shown in the Duo detail: today plus 5 earlier ones.
+    static let dayCount = 6
+    /// Alarm marker in the list, same SF Symbol as Aktien Pro's alarm marker.
+    static let alarmSymbol = "bell.fill"
+}
+
+private struct DuoSelectKey: EnvironmentKey {
+    static let defaultValue: ((String) -> Void)? = nil
+}
+
+private struct DuoSelectedKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// Set only in the Duo layout: a tap on a row selects it for the right column instead of opening a sheet.
+    var duoSelect: ((String) -> Void)? {
+        get { self[DuoSelectKey.self] }
+        set { self[DuoSelectKey.self] = newValue }
+    }
+    var duoSelected: String? {
+        get { self[DuoSelectedKey.self] }
+        set { self[DuoSelectedKey.self] = newValue }
+    }
+}
+
+/// Right column of the Duo layout.
+struct DuoDetail: View {
+    @EnvironmentObject private var store: RatesStore
+    let code: String
+
+    var body: some View {
+        NavigationStack {
+            if code == store.base {
+                DuoBaseDetail()
+            } else {
+                ChartDetailSheet(code: code, embedded: true, footer: AnyView(DuoIntervals(code: code)))
+            }
+        }
+    }
+}
+
+/// Reporting currency: name, rates of all listed foreign currencies, source and time.
+struct DuoBaseDetail: View {
+    @EnvironmentObject private var store: RatesStore
+
+    var body: some View {
+        let foreign = store.visible.filter { $0 != store.base }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(CurrencyNames.name(store.base))
+                    .font(.system(size: 34, weight: .bold))
+                Text("\(store.base) · Berichtswährung")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color.blue)
+                    .padding(.top, 4)
+                Text("Alle Kurse in \(store.base), Mittelkurs. Tagesveränderung seit Mitternacht.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 10)
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Währung")
+                        Spacer()
+                        Text("Preis in \(store.base)").frame(width: 120, alignment: .trailing)
+                        Text("1 \(store.base) =").frame(width: 150, alignment: .trailing)
+                        Text("Heute").frame(width: 150, alignment: .trailing)
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    ForEach(foreign, id: \.self) { code in
+                        Divider().padding(.leading, 14)
+                        row(code)
+                    }
+                }
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.top, 24)
+
+                if foreign.contains(where: { store.reference($0) != nil }) {
+                    VStack(spacing: 0) {
+                        ForEach(foreign.filter { store.reference($0) != nil }, id: \.self) { code in
+                            if code != foreign.first(where: { store.reference($0) != nil }) { Divider().padding(.leading, 14) }
+                            HStack {
+                                Text("EZB-Referenzkurs \(code)")
+                                Spacer()
+                                Text("\(formatRate(store.reference(code))) \(store.base)").monospacedDigit()
+                            }
+                            .font(.system(size: 14))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .padding(.top, 20)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    if !store.capturedLine.isEmpty { Text(store.capturedLine) }
+                    Text(store.sourceLine)
+                    Text("Erfassungszeiten: \(store.hours.map { String(format: "%02d:00", $0) }.joined(separator: ", "))")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .padding(.top, 20)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle(CurrencyNames.name(store.base))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private func row(_ code: String) -> some View {
+        let change = store.dayChange(code)
+        return HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                    if store.hasActiveAlarm(code) {
+                        Image(systemName: DuoConfig.alarmSymbol).font(.system(size: 11)).foregroundStyle(Color.orange)
+                    }
+                }
+                Text(CurrencyNames.lotLine(code)).font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(store.primaryText(code, unitRates: store.showsUnitRates))
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 120, alignment: .trailing)
+            Text(store.secondaryText(code))
+                .font(.system(size: 13))
+                .foregroundStyle(Color.blue)
+                .lineLimit(1)
+                .frame(width: 150, alignment: .trailing)
+            Text(change?.text ?? "–")
+                .font(.system(size: 12))
+                .foregroundStyle(changeTone(percent: change?.percent))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 150, alignment: .trailing)
+        }
+        .monospacedDigit()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+/// Duo detail: fixed interval hours (07/12/17) for today and several earlier trading days, oldest left.
+struct DuoIntervals: View {
+    @EnvironmentObject private var store: RatesStore
+    let code: String
+
+    var body: some View {
+        let days = Array(store.intervalDays.prefix(DuoConfig.dayCount))
+        let today = days.first
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Intervalle")
+                .font(.system(size: 15, weight: .semibold))
+            Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 8) {
+                GridRow {
+                    Text("Zeit").gridColumnAlignment(.leading)
+                    ForEach(days.reversed(), id: \.self) { day in
+                        Text(day == today ? "Heute" : store.pastDayHeader(day))
+                            .foregroundStyle(day == today ? Color.blue : Color.secondary)
+                    }
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                Divider()
+                ForEach(DuoConfig.hours, id: \.self) { hour in
+                    GridRow {
+                        Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
+                        ForEach(days.reversed(), id: \.self) { day in
+                            Text(value(hour, day: day, isToday: day == today))
+                                .frame(minWidth: 70, alignment: .trailing)
+                        }
+                    }
+                    .font(.system(size: 14))
+                }
+            }
+            .monospacedDigit()
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text("Kurse in \(store.base), erster Kurs ab der jeweiligen Stunde.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func value(_ hour: Int, day: String, isToday: Bool) -> String {
+        let v = isToday ? store.intervalValue(code, hour: hour) : store.intervalValue(code, hour: hour, on: day)
+        guard let v else { return "–" }
+        return formatRate(v)
     }
 }

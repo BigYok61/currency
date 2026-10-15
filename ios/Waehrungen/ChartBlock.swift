@@ -95,14 +95,32 @@ private struct ChartBoxHeader: View {
 struct ChartDetailSheet: View {
     @EnvironmentObject private var store: RatesStore
     let code: String
+    /// Duo layout: shown in the right column, without its own navigation stack and close button.
+    var embedded = false
+    /// Extra content below the statistics (Duo: intervals over several days).
+    var footer: AnyView? = nil
 
     var body: some View {
+        Group {
+            if embedded {
+                inner
+            } else {
+                NavigationStack {
+                    inner.toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+                }
+                .presentationDragIndicator(.visible)
+            }
+        }
+        .onAppear { store.openDetail(code) }
+        .onDisappear { if store.detailCode == code { store.openDetail(nil) } }
+    }
+
+    private var inner: some View {
         let span = store.span(for: code)
         let points = store.series(code)
         let tone = chartTone(points)
         let move = periodMove(points, tone: changeTone(percent: periodPercent(points)))
-        return NavigationStack {
-            ScrollView {
+        return ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .center, spacing: 10) {
@@ -167,20 +185,16 @@ struct ChartDetailSheet: View {
                             .foregroundStyle(.secondary)
                             .padding(.top, 40)
                     }
+                    if let footer { footer.padding(.top, 28) }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(CurrencyNames.name(code))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
             .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .background(Color(uiColor: .systemGroupedBackground))
-        }
-        .presentationDragIndicator(.visible)
-        .onAppear { store.openDetail(code) }
-        .onDisappear { if store.detailCode == code { store.openDetail(nil) } }
     }
 
     @ViewBuilder private var rateText: some View {

@@ -40,6 +40,12 @@ struct WaehrungenApp: App {
                         store.showIntervals = true
                         if UserDefaults.standard.object(forKey: "wuChart") != nil { store.showChart = UserDefaults.standard.bool(forKey: "wuChart") }
                     }
+                    // -wuAlarm USD: marks an enabled alarm locally (not saved, not synced) to check the list bell
+                    if let code = UserDefaults.standard.string(forKey: "wuAlarm") {
+                        store.alertsMaster = true; store.thresholds[code] = RatesStore.AlarmThreshold(enabled: true, down: 0.5, up: 0.25)
+                        // a late worker/iCloud alarm sync on a fresh simulator must not undo it
+                        Task { for _ in 0..<6 { try? await Task.sleep(for: .seconds(2)); store.alertsMaster = true; store.thresholds[code] = RatesStore.AlarmThreshold(enabled: true, down: 0.5, up: 0.25) } }
+                    }
                     if ScreenshotMode.shot == "convert" {
                         // 100 EUR converted into all shown currencies (finished entry, no keypad)
                         store.convertSource = "EUR"
@@ -103,6 +109,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
 /// DEBUG-only: `-wuShot overview|detail|ansicht|intervals|alerts|compare|convert` opens a screen for App Store screenshots.
+/// Duo: `-wuWide YES` forces the split layout, `-wuSelect USD` selects a currency, `-wuAlarm USD` marks an alarm.
 enum ScreenshotMode {
     static let shot: String? = UserDefaults.standard.string(forKey: "wuShot")
     static func wait() async { try? await Task.sleep(nanoseconds: 5_000_000_000) }

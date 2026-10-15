@@ -1048,6 +1048,12 @@ final class RatesStore: ObservableObject {
         saveLocal()
     }
 
+    /// An enabled FX alarm exists for this shown foreign currency (list bell).
+    func hasActiveAlarm(_ code: String) -> Bool {
+        guard alertsMaster, code != base, let t = thresholds[code] else { return false }
+        return t.enabled
+    }
+
     func threshold(for code: String) -> AlarmThreshold {
         thresholds[code] ?? AlarmThreshold(enabled: false, down: 0.5, up: 0.25)
     }
