@@ -237,8 +237,8 @@ struct CurrencyCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
-                        if store.showIntervals && code != store.base {
-                            // the big rate is the live one, above the hourly slots (style of «‹ Heute»)
+                        if store.showIntervals && !store.showChart && code != store.base {
+                            // only with intervals on and the per-currency chart off: the big rate is the live one, above the hourly slots (style of «‹ Heute»)
                             Text("Aktuell")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
@@ -283,7 +283,7 @@ struct CurrencyCard: View {
         }
     }
 
-    /// Today's column stays at the right. Swiping right shows one earlier trading day in a single column to its left.
+    /// Today's column stays at the right. Swiping right adds earlier trading days to its left (up to `pastCapacity` columns).
     private var intervals: some View {
         let past = preview ? [] : store.visiblePastDays(capacity: pastCapacity)
         let anyPast = !past.isEmpty
@@ -302,7 +302,7 @@ struct CurrencyCard: View {
                     } label: {
                         Text("Heute")
                             .foregroundStyle(anyPast ? Color.blue : Color.secondary)
-                            .frame(minWidth: 44, alignment: .trailing)
+                            .frame(minWidth: Self.pastColumnWidth, alignment: .trailing)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -342,6 +342,8 @@ struct CurrencyCard: View {
                             .foregroundStyle(!preview && !store.hourReached(hour) ? Color.secondary : Color.primary)
                             .lineLimit(1)
                             .fixedSize()
+                            // fixed today column so «–» keeps the earlier columns aligned
+                            .frame(minWidth: anyPast ? Self.pastColumnWidth : 0, alignment: .trailing)
                     }
                     // one small size for the whole interval area (times, both columns, headers)
                     .font(.system(size: 11))
@@ -397,8 +399,14 @@ struct CurrencyCard: View {
     /// The preview card and the reporting-currency row have no handle, so their price sits at the edge.
     private var priceInset: CGFloat { preview || code == store.base ? 0 : 30 }
 
-    /// One past column next to today; each swipe moves it one trading day further back.
-    private var pastCapacity: Int { 1 }
+    /// Earlier-day columns next to today: two when the row is wide enough at the normal font size
+    /// (e.g. Pro Max / Plus), otherwise one. Each further swipe moves the window one trading day back.
+    private var pastCapacity: Int {
+        // hour label + gap, today's value, trailing inset, slack for wide values (e.g. 1'234.56)
+        let fixed: CGFloat = 44 + 72 + priceInset + 40
+        let perColumn = Self.pastColumnWidth + 14
+        return rowWidth >= fixed + 2 * perColumn ? 2 : 1
+    }
 
     private func pastValue(_ hour: Int, _ day: String) -> String {
         guard let value = store.intervalValue(code, hour: hour, on: day) else { return "–" }

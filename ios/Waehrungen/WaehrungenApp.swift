@@ -25,12 +25,25 @@ struct WaehrungenApp: App {
                     if let shot = ScreenshotMode.shot {
                         store.showChart = true; store.showCompare = true; store.showIntervals = true
                         _ = shot
+                        // -wuChart NO: per-currency chart off (to check the «Aktuell» label)
+                        if UserDefaults.standard.object(forKey: "wuChart") != nil { store.showChart = UserDefaults.standard.bool(forKey: "wuChart") }
                     }
                     #endif
                     await store.reload()
                     store.startLiveTimer()
                     #if DEBUG
-                    if ScreenshotMode.shot == "intervals" { store.dayOffset = 1 }
+                    if ScreenshotMode.shot != nil {
+                        // a late iCloud view sync on a fresh simulator must not undo the screenshot setup
+                        try? await Task.sleep(for: .seconds(3))
+                        store.showIntervals = true
+                        if UserDefaults.standard.object(forKey: "wuChart") != nil { store.showChart = UserDefaults.standard.bool(forKey: "wuChart") }
+                    }
+                    if ScreenshotMode.shot == "intervals" {
+                        store.dayOffset = 0
+                        // -wuSwipes N simulates N right swipes in the interval area (default 1)
+                        let n = UserDefaults.standard.integer(forKey: "wuSwipes")
+                        store.pageDays(by: max(n, 1))
+                    }
                     #endif
                 }
                 // widget taps open the app (waehrungen://currency/<code>); the list itself is the destination
