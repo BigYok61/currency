@@ -271,7 +271,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -303,7 +303,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -423,7 +423,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;
@@ -452,7 +452,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;

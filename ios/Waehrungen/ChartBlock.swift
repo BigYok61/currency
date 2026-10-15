@@ -708,12 +708,91 @@ private struct CompareLine {
     var color: Color
     var full: [RatePoint]
     var drawn: [RatePoint]
+    /// Prices of one bank lot in the reporting currency (e.g. JPY per 100).
+    var prices: [RatePoint] = []
+    var change: Double { full.last?.value ?? 0 }
 }
 
 @MainActor private func compareLines(from store: RatesStore) -> [CompareLine] {
+    // Sorted by change over the period: biggest gainer first. Colour stays bound to the currency.
     store.compareLines().map { line in
         let full = line.points.map { RatePoint(day: $0.day, hour: nil, value: $0.percent, raw: $0.percent, date: $0.date) }
-        return CompareLine(code: line.code, color: ComparePalette.color(store.compareIndex(line.code)), full: full, drawn: downsample(full, max: 240))
+        return CompareLine(code: line.code, color: ComparePalette.color(store.compareIndex(line.code)), full: full, drawn: downsample(full, max: 240),
+                           prices: store.series(line.code, span: store.compareSpan))
+    }
+    .sorted { $0.change > $1.change }
+}
+
+/// Overview below the period picker: one two-line block per currency, same order as the legend.
+private struct CompareOverviewCard: View {
+    let lines: [CompareLine]
+    let span: ChartSpan
+    let base: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("ÜBERSICHT · \(span.caption.uppercased())")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 6)
+            ForEach(Array(lines.enumerated()), id: \.element.code) { index, line in
+                if index > 0 { Divider().padding(.vertical, 6) }
+                row(line)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private static func tone(_ v: Double) -> Color {
+        v > 0.00005 ? .green : v < -0.00005 ? .red : .secondary
+    }
+
+    private func mark(_ p: RatePoint) -> String {
+        if span == .day {
+            let f = DateFormatter(); f.locale = Locale(identifier: "de_CH"); f.timeZone = .current; f.dateFormat = "HH:mm"
+            return f.string(from: p.date)
+        }
+        let f = DateFormatter(); f.locale = Locale(identifier: "de_CH"); f.timeZone = .current
+        f.dateFormat = (span == .five || span == .ten) ? "d.M.yy" : "d.M."
+        return f.string(from: p.date)
+    }
+
+    @ViewBuilder private func row(_ line: CompareLine) -> some View {
+        let prices = line.prices
+        if let first = prices.first, let last = prices.last,
+           let hi = prices.max(by: { $0.value < $1.value }), let lo = prices.min(by: { $0.value < $1.value }) {
+            let delta = last.value - first.value
+            let lot = quoteLot(line.code)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Circle().fill(line.color).frame(width: 8, height: 8)
+                    Text(CurrencyNames.name(line.code) + (lot != 1 ? " (\(Int(lot)))" : ""))
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text("\(formatDelta(delta)) \(base)  \(formatComparePercent(line.change))")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Self.tone(delta))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                (Text("Start \(formatRate(first.value)) · Hoch \(formatRate(hi.value)) ")
+                 + Text("(\(mark(hi)))").foregroundColor(.gray).font(.system(size: 10))
+                 + Text(" · Tief \(formatRate(lo.value)) ")
+                 + Text("(\(mark(lo)))").foregroundColor(.gray).font(.system(size: 10))
+                 + Text(" · Schluss ")
+                 + Text(formatRate(last.value)).foregroundColor(Self.tone(delta)))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .padding(.leading, 14)
+            }
+        }
     }
 }
 
@@ -775,6 +854,7 @@ struct CompareDetailSheet: View {
                         ChartBoxHeader(caption: store.compareSpan.caption, range: ChartFormat.range(dates.min(), dates.max()))
                         ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.compareSpan.caption, preview: false, detail: true, onOpen: {})
                         spanPicker
+                        CompareOverviewCard(lines: lines, span: store.compareSpan, base: store.base)
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
                             .font(.footnote)
@@ -968,8 +1048,9 @@ private struct ComparePlot: View {
     private func legend(proxy: ChartProxy, frame: CGRect) -> some View {
         let rowHeight: CGFloat = 15
         let height = rowHeight * CGFloat(lines.count)
-        let startY = frame.minY + (proxy.position(forY: 0.0) ?? frame.midY)
-        let top = max(frame.minY + 2, startY - 38 - height)
+        // Vertical, top-left inside the plot; same order as `lines` (biggest gainer on top).
+        _ = height
+        let top = frame.minY + 4
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(lines, id: \.code) { line in
                 HStack(spacing: 5) {

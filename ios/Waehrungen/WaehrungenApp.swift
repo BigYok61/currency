@@ -25,6 +25,8 @@ struct WaehrungenApp: App {
                     if let shot = ScreenshotMode.shot {
                         store.showChart = true; store.showCompare = true; store.showIntervals = true
                         _ = shot
+                        // -wuSpan Jahr: period of the comparison chart
+                        if let raw = UserDefaults.standard.string(forKey: "wuSpan"), let span = ChartSpan(rawValue: raw) { store.compareSpan = span }
                         // -wuChart NO: per-currency chart off (to check the «Aktuell» label)
                         if UserDefaults.standard.object(forKey: "wuChart") != nil { store.showChart = UserDefaults.standard.bool(forKey: "wuChart") }
                     }
