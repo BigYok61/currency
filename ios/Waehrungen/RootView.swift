@@ -610,7 +610,7 @@ struct CurrencyCard: View {
                             .monospacedDigit()
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                            .frame(width: 120, alignment: .trailing)
+                            .frame(width: 150, alignment: .trailing)
                         if grip { Color.clear.frame(width: 22, height: 1) }
                     }
                 }
@@ -1027,9 +1027,9 @@ struct DuoBaseDetail: View {
                     HStack {
                         Text("Währung")
                         Spacer()
-                        Text("Preis in \(store.base)").frame(width: 120, alignment: .trailing)
-                        Text("1 \(store.base) =").frame(width: 150, alignment: .trailing)
-                        Text("Heute").frame(width: 150, alignment: .trailing)
+                        Text("Preis in \(store.base)").frame(width: 110, alignment: .trailing)
+                        Text("1 \(store.base) =").frame(width: 140, alignment: .trailing)
+                        Text("Heute").frame(width: 140, alignment: .trailing)
                     }
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -1084,29 +1084,33 @@ struct DuoBaseDetail: View {
         let change = store.dayChange(code)
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     if store.hasActiveAlarm(code) {
                         Image(systemName: DuoConfig.alarmSymbol).font(.system(size: 11)).foregroundStyle(Color.orange)
                     }
                 }
                 Text(CurrencyNames.lotLine(code)).font(.system(size: 13)).foregroundStyle(.secondary)
             }
+            .frame(minWidth: 120, alignment: .leading)
+            .layoutPriority(1)
             Spacer(minLength: 8)
             Text(store.primaryText(code, unitRates: store.showsUnitRates))
                 .font(.system(size: 17, weight: .semibold))
-                .frame(width: 120, alignment: .trailing)
+                .lineLimit(1)
+                .frame(width: 110, alignment: .trailing)
             Text(store.secondaryText(code))
                 .font(.system(size: 13))
                 .foregroundStyle(Color.blue)
                 .lineLimit(1)
-                .frame(width: 150, alignment: .trailing)
+                .minimumScaleFactor(0.85)
+                .frame(width: 140, alignment: .trailing)
             Text(change?.text ?? "–")
                 .font(.system(size: 12))
                 .foregroundStyle(changeTone(percent: change?.percent))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .frame(width: 150, alignment: .trailing)
+                .frame(width: 140, alignment: .trailing)
         }
         .monospacedDigit()
         .padding(.horizontal, 14)
