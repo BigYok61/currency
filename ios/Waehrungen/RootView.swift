@@ -237,6 +237,14 @@ struct CurrencyCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
+                        if store.showIntervals && code != store.base {
+                            // the big rate is the live one, above the hourly slots (style of «‹ Heute»)
+                            Text("Aktuell")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
                         if let time = store.fired[code] {
                             Image(systemName: "bell.fill")
                                 .font(.system(size: 11))
@@ -246,15 +254,6 @@ struct CurrencyCard: View {
                     }
                     Spacer(minLength: 8)
                     priceLabel(unitRates: unitRates, editing: editing)
-                    if store.showIntervals && code != store.base && !editing {
-                        // marks the big rate as the live one, above the hourly slots (style of «‹ Heute»)
-                        Text("Aktuell")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .padding(.leading, -4)
-                    }
                     if code != store.base && !preview { handle }
                 }
                 quoteMeta
