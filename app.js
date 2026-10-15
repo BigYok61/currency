@@ -21,6 +21,7 @@ const PAIRS = {
   DKK: { symbol: 'CHFDKK', inv: true }, PLN: { symbol: 'CHFPLN', inv: true }, HUF: { symbol: 'CHFHUF', inv: true },
   TRY: { symbol: 'CHFTRY', inv: true }, SGD: { symbol: 'CHFSGD', inv: true }, MXN: { symbol: 'CHFMXN', inv: true },
   ZAR: { symbol: 'CHFZAR', inv: true },
+  CNY: { symbol: null, inv: false }, HKD: { symbol: null, inv: false }, INR: { symbol: null, inv: false },
 };
 const CHF_CCY = { code: 'CHF', label: '1 CHF', flag: '🇨🇭', symbol: null };
 /** Eindeutige Symbole. Danach das Symbol der Locale, danach der ISO-Code. */
@@ -75,6 +76,7 @@ let showDevWeek = true;
 let viewMode = 'intervals';
 let chartRange = '1M';
 /** Additive Ansicht (Version 2.1). Erster Start: keine Blöcke, nur Name, Kurs und Kehrwert. */
+let showCompare = false;
 let showChart = false;
 let showIntervals = false;
 let showForecast = false;
@@ -195,6 +197,7 @@ function applyTimesConfig(data) {
 applyTimesConfig(null);
 const START = '2026-10-01';
 const TZ = 'Europe/Zurich';
+const DEVICE_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || TZ;
 const EPS = 0.00005;
 
 const nf = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
@@ -204,6 +207,67 @@ const pad = h => String(h).padStart(2, '0');
 function zurichToday() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
+function zoneParts(date, timeZone) {
+  const parts = {};
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  for (const p of fmt.formatToParts(date)) {
+    if (p.type !== 'literal') parts[p.type] = p.value;
+  }
+  let year = Number(parts.year);
+  let month = Number(parts.month);
+  let day = Number(parts.day);
+  let hour = Number(parts.hour);
+  if (hour === 24) {
+    hour = 0;
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    year = next.getUTCFullYear();
+    month = next.getUTCMonth() + 1;
+    day = next.getUTCDate();
+  }
+  return { year, month, day, hour, minute: Number(parts.minute), second: Number(parts.second) };
+}
+function zoneOffsetMs(date, timeZone) {
+  const p = zoneParts(date, timeZone);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - date.getTime();
+}
+function zonedWall(day, hour, timeZone) {
+  const [y, m, d] = day.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hour, 0, 0);
+  const off1 = zoneOffsetMs(new Date(guess), timeZone);
+  let utc = guess - off1;
+  const off2 = zoneOffsetMs(new Date(utc), timeZone);
+  if (off2 !== off1) utc = guess - off2;
+  return new Date(utc);
+}
+function localToday() {
+  const p = zoneParts(new Date(), DEVICE_TZ);
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+}
+/** Earliest Zurich slot whose timestamp is in [fromMs, untilMs). Half-hour zones take the next hour, not the one before. */
+function firstSlotAt(code, fromMs, untilMs) {
+  const startParts = zoneParts(new Date(fromMs - 36 * 3600000), TZ);
+  let day = `${startParts.year}-${pad(startParts.month)}-${pad(startParts.day)}`;
+  const endParts = zoneParts(new Date(Math.max(untilMs - 1, fromMs)), TZ);
+  const endDay = `${endParts.year}-${pad(endParts.month)}-${pad(endParts.day)}`;
+  let best = null;
+  for (let i = 0; i < 5; i++) {
+    const slots = history.days[day]?.slots || {};
+    for (const key of Object.keys(slots)) {
+      const hour = parseHour(key);
+      if (hour == null || val({ code }, day, hour) == null) continue;
+      const t = zonedWall(day, hour, TZ).getTime();
+      if (t < fromMs || t >= untilMs) continue;
+      if (!best || t < best.t) best = { t, day, hour };
+    }
+    if (day >= endDay) break;
+    day = addDays(day, 1);
+  }
+  return best;
+}
 function weekdayKeys(from, to) {
   const out = []; const d = new Date(from + 'T12:00:00Z'); const end = new Date(to + 'T12:00:00Z');
   while (d <= end) { const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
@@ -211,8 +275,8 @@ function weekdayKeys(from, to) {
 }
 const hdrFmt = new Intl.DateTimeFormat('de-CH', { weekday: 'short', timeZone: 'UTC' });
 function header(key) { const d = new Date(key + 'T12:00:00Z'); return `${hdrFmt.format(d).replace('.', '')} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`; }
-const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const timeFmt = new Intl.DateTimeFormat('de-CH', { timeZone: DEVICE_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const hmFmt = new Intl.DateTimeFormat('de-CH', { timeZone: DEVICE_TZ, hour: '2-digit', minute: '2-digit' });
 const pctFmt = new Intl.NumberFormat('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
 
 let history = { days: {} };
@@ -298,8 +362,10 @@ function shownActual7(c, k) {
 }
 /** Stunde für «Veränderung seit …»: Start, sonst erste erfasste Stunde des Tages, sonst 08:00. */
 function changeBasis(c, dayKey) {
-  if (c.code === 'CHF' && baseCurrency !== 'CHF') return baseDenom(dayKey, schedule.start) != null ? schedule.start : null;
-  if (val(c, dayKey, schedule.start) != null) return schedule.start;
+  const hit = firstSlotAt(c.code, zonedWall(dayKey, 0, DEVICE_TZ).getTime(), zonedWall(addDays(dayKey, 1), 0, DEVICE_TZ).getTime());
+  const startHour = hit && hit.day === dayKey ? hit.hour : null;
+  if (c.code === 'CHF' && baseCurrency !== 'CHF') return startHour != null && baseDenom(dayKey, startHour) != null ? startHour : null;
+  if (startHour != null && val(c, dayKey, startHour) != null) return startHour;
   const slots = history.days[dayKey]?.slots || {};
   const hours = Object.keys(slots).map(h => parseHour(h)).filter(h => h != null && val(c, dayKey, h) != null).sort((a, b) => a - b);
   if (hours.length) return hours[0];
@@ -377,9 +443,13 @@ function clientForecast7(code, day, basisHour) {
 function displayForecast(c, dayKey, kind) {
   const stored = kind === '7' ? fc7(c, dayKey) : fc(c, dayKey);
   const basis = forecastBasisHour(c, dayKey, kind);
-  if (runtime !== 'cloudflare' || (stored != null && basis === schedule.start)) return { value: stored, basis };
-  const computed = kind === '7' ? clientForecast7(c.code, dayKey, schedule.start) : clientForecastDay(c.code, dayKey, schedule.start);
-  if (computed != null) return { value: computed, basis: schedule.start };
+  const open = firstSlotAt(c.code, zonedWall(dayKey, 0, DEVICE_TZ).getTime(), zonedWall(addDays(dayKey, 1), 0, DEVICE_TZ).getTime());
+  const sameSlot = open && open.day === dayKey && basis === open.hour;
+  if (runtime !== 'cloudflare' || (stored != null && sameSlot)) return { value: stored, basis };
+  if (open) {
+    const computed = kind === '7' ? clientForecast7(c.code, open.day, open.hour) : clientForecastDay(c.code, open.day, open.hour);
+    if (computed != null) return { value: computed, basis: open.hour };
+  }
   return { value: stored, basis };
 }
 
@@ -481,7 +551,7 @@ function regionGroup(region) {
 function defaultOrder(base, region) {
   const group = regionGroup(region);
   const tail = group === 'ch'
-    ? ['CHF', 'EUR', 'USD', 'GBP']
+    ? ['EUR', 'USD', 'GBP']
     : group === 'eu'
       ? ['EUR', 'USD', 'GBP', 'CHF']
       : ['USD', 'EUR', 'GBP', 'CHF'];
@@ -502,8 +572,8 @@ function readLocaleCurrency(tag) {
 /**
  * Ersteinrichtung nur aus der Locale, ohne Nachfrage.
  * Währung: (a) gültiger ISO-Code der Locale, nicht mit X, (b) Währung der Region, (c) CHF.
- * Liste: die Berichtswährung zuerst, dann je nach Region. CH/LI: CHF, EUR, USD, GBP.
- * Europa: lokal, EUR, USD, GBP, CHF. Amerika und alle übrigen Regionen: lokal, USD, EUR, GBP, CHF.
+ * Liste: die lokale Währung zuerst (auch wenn der Worker sie nicht erfasst), dann je nach Region.
+ * CH/LI: EUR, USD, GBP. Europa: EUR, USD, GBP, CHF. Amerika und übrige Welt: USD, EUR, GBP, CHF.
  */
 function firstInstallChoice(languages) {
   const list = Array.isArray(languages) ? languages : [];
@@ -700,12 +770,12 @@ function cancelDrag() {
   }
 }
 const CHART_RANGES = [
-  { id: '1T', label: 'Tag', aria: 'Tag', days: 1 },
-  { id: '1W', label: 'Woche', aria: 'Woche', days: 7 },
-  { id: '1M', label: 'Monat', aria: 'Monat', days: 30 },
-  { id: '1J', label: 'Jahr', aria: 'Jahr', days: 360 },
-  { id: '5J', label: '5 Jahre', aria: '5 Jahre', days: 1825 },
-  { id: '10J', label: '10 Jahre', aria: '10 Jahre', days: 3650 },
+  { id: '1T', label: 'Tag', aria: 'Tag', caption: '1 Tag', days: 1 },
+  { id: '1W', label: 'Woche', aria: 'Woche', caption: '1 Woche', days: 7 },
+  { id: '1M', label: 'Monat', aria: 'Monat', caption: '1 Monat', days: 30 },
+  { id: '1J', label: 'Jahr', aria: 'Jahr', caption: '1 Jahr', days: 360 },
+  { id: '5J', label: '5 Jahre', aria: '5 Jahre', caption: '5 Jahre', days: 1825 },
+  { id: '10J', label: '10 Jahre', aria: '10 Jahre', caption: '10 Jahre', days: 3650 },
 ];
 const HISTORY_ORIGIN = 'https://waehrungen.bigyok61.workers.dev';
 /** CHF je 1 Einheit, Schlüssel code|range. Eine Basisumstellung rechnet daraus, ohne neu zu laden. */
@@ -719,6 +789,7 @@ function readViewOptions() {
     if (!raw) return;
     const data = JSON.parse(raw);
     if (data && data.v === 21) {
+      showCompare = data.compare === true;
       showChart = data.chart !== false;
       showIntervals = data.intervals !== false;
       showForecast = data.forecast !== false;
@@ -760,6 +831,7 @@ function writeViewOptions() {
   try {
     localStorage.setItem(LS_VIEW_OPTS, JSON.stringify({
       v: 21,
+      compare: showCompare,
       chart: showChart,
       intervals: showIntervals,
       forecast: showForecast,
@@ -1263,7 +1335,7 @@ function renderCompact(rows, today) {
     const ecbV = ecbHit && ecbHit.v;
     const ecbLabel = ecbHit && ecbHit.day === today ? 'EZB-Referenzkurs' : `EZB-Referenzkurs`;
     let extra = '';
-    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span><span class="ecb-src">Quelle EZB</span></p>`;
+    if (ecbV != null) extra += `<p class="quote-sub"><span>${esc(ecbLabel)}</span><span>${r(ecbV)}</span></p>`;
     extra += forecastQuoteHtml(c, today);
     const rateTitle = [delta.title, inv].filter(Boolean).join('\n');
     bits.push(`<article class="quote-card ccy" data-code="${esc(c.code)}"><div class="ccy-head">${hideBtn}${ccyIdentity(c, '')}${dragBtn}</div><p class="quote-rate"${rateTitle ? ` title="${esc(rateTitle)}"` : ''}>${q.v == null ? '–' : delta.arrow + r(q.v)}</p>${inv ? `<p class="quote-inv">${esc(inv)}</p>` : ''}<p class="quote-meta">${meta ? esc(meta) : 'Kein Kurs'}</p>${extra}</article>`);
@@ -1458,6 +1530,7 @@ function render(opts = {}) {
 function showError(msg) { const e = document.getElementById('error'); e.hidden = !msg; e.textContent = msg || ''; }
 
 async function load() {
+  if (typeof resetConvert === 'function') resetConvert();
   const rates = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' })
     .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
     .catch(e => e);
@@ -1554,6 +1627,7 @@ function bindPullToRefresh() {
   }
   function canStart(target) {
     if (refreshing || !target || !target.closest) return false;
+    if (document.body.classList.contains('calc-editing')) return false;
     if (document.querySelector('dialog[open]')) return false;
     if (sc.scrollTop > 1) return false;
     if (target.closest('.ccy-drag, button, a, input, select, textarea, label')) return false;
@@ -1613,7 +1687,7 @@ function bindPullToRefresh() {
 
 async function fetchQuote(code) {
   const spec = PAIRS[code];
-  if (!spec) return;
+  if (!spec || !spec.symbol) return;
   try {
     const res = await fetch(`https://biquote.io/api/${spec.symbol}?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -1682,6 +1756,7 @@ function initBase() {
   const choice = firstInstallChoice(languages);
   baseCurrency = choice.base;
   for (const code of choice.order) ensureCurrency(code);
+  persistHidden(new Set());
   try { localStorage.setItem(LS_BASE, choice.base); } catch { /* Anzeige gilt für diese Sitzung */ }
   persistOrder(choice.order.filter(code => code !== choice.base).map(code => ({ code })));
 }
@@ -1701,7 +1776,7 @@ function syncBaseButton() {
   const btn = document.getElementById('baseBtn');
   if (!btn) return;
   const name = ccyName({ code: baseCurrency });
-  btn.textContent = `in ${baseCurrency}`;
+  btn.textContent = `Preis in ${baseCurrency}`;
   btn.setAttribute('aria-label', `Berichtswährung ${name}`);
 }
 function renderBase() {
@@ -1769,7 +1844,7 @@ const LS_VIEW = 'wu.viewSchedule';
 const LS_ALERT_ID = 'wu.alertId';
 const LS_ALERT_TOPIC = 'wu.alertTopic';
 const TIMES_FRESH_MS = 10 * 60 * 1000;
-const ALERT_CODES = ['USD', 'EUR'];
+const ALERT_CODES = ['USD', 'EUR', 'GBP', 'AUD', 'CAD', 'NZD', 'SEK', 'JPY', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD', 'MXN', 'ZAR'];
 const DEFAULT_ALERTS = { version: 1, currencies: { USD: { enabled: true, down: 0.5, up: 0.25 }, EUR: { enabled: true, down: 0.5, up: 0.25 } } };
 const ghToken = () => localStorage.getItem(LS_TOKEN) || '';
 /** 'github' auf Pages und lokal, 'cloudflare' wenn /api/runtime vom Worker kommt. */
@@ -1911,7 +1986,7 @@ async function loadAlerts() {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       alertCfg = await res.json();
-      alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
+      alertState = { date: localToday(), sent: alertCfg.sent || {} };
     } catch (e) {
       alertCfg = structuredClone(DEFAULT_ALERTS);
       alertState = null;
@@ -1948,15 +2023,18 @@ async function saveAlerts(mutate) {
     const cur = structuredClone(DEFAULT_ALERTS);
     if (alertCfg?.currencies) cur.currencies = structuredClone(alertCfg.currencies);
     mutate(cur);
+    for (const code of Object.keys(cur.currencies)) {
+      if (!ALERT_CODES.includes(code)) delete cur.currencies[code];
+    }
     const res = await fetch(`api/alerts/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, start: schedule.start, currencies: cur.currencies }),
+      body: JSON.stringify({ topic, start: schedule.start, base: baseCurrency, timeZone: DEVICE_TZ, currencies: cur.currencies }),
       cache: 'no-store',
     });
     if (!res.ok) throw new Error(await alertError(res));
     alertCfg = await res.json();
-    alertState = { date: zurichToday(), sent: alertCfg.sent || {} };
+    alertState = { date: localToday(), sent: alertCfg.sent || {} };
     return;
   }
   alertCfg = await saveRepoFile(ALERTS_PATH, 'FX-Alarme geändert', DEFAULT_ALERTS, mutate);
@@ -1968,7 +2046,7 @@ function readAlertForm(dlg) {
     if (inp.dataset.k === 'enabled') o.enabled = inp.checked;
     else {
       const v = parseFloat(String(inp.value).replace(',', '.'));
-      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/CHF (0.01–20 %).` };
+      if (!(v > 0 && v <= 20)) return { error: `Ungültige Schwelle bei ${inp.dataset.code}/${baseCurrency} (0.01–20 %).` };
       o[inp.dataset.k] = Math.round(v * 100) / 100;
     }
   }
@@ -2001,8 +2079,8 @@ function renderCloudAlerts() {
     </ol>
     <div class="row"><a class="btnlink" href="${esc(href)}" target="_blank" rel="noopener">Thema abonnieren</a><button id="alTest" type="button">Test-Push senden</button></div>`;
   for (const code of ALERT_CODES) {
-    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<section class="alcard"><h3>${code}/CHF</h3>
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code] || { enabled: false, down: 0.5, up: 0.25 };
+    h += `<section class="alcard"><h3>${code}/${esc(baseCurrency)}</h3>
       <label class="alfield"><span>Aktiv</span><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''}></label>
       <label class="alfield"><span>Fällt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}"> %</span></label>
       <label class="alfield"><span>Steigt um mehr als</span><span><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}"> %</span></label>
@@ -2067,8 +2145,8 @@ function renderAlerts() {
     Geprüft alle 15 Minuten, werktags ca. 07:00–22:00 Uhr; je Währung und Richtung höchstens eine Meldung pro Tag.</p>
     <table class="altab"><thead><tr><th>Paar</th><th>Aktiv</th><th class="n">Fällt um mehr als</th><th class="n">Steigt um mehr als</th><th>Heute gesendet</th></tr></thead><tbody>`;
   for (const code of ALERT_CODES) {
-    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code];
-    h += `<tr><td>${code}/CHF</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
+    const c = alertCfg?.currencies?.[code] || DEFAULT_ALERTS.currencies[code] || { enabled: false, down: 0.5, up: 0.25 };
+    h += `<tr><td>${code}/${esc(baseCurrency)}</td><td><input type="checkbox" data-code="${code}" data-k="enabled" ${c.enabled ? 'checked' : ''} ${rw ? '' : 'disabled'}></td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="down" value="${c.down}" ${rw ? '' : 'disabled'}> %</td>
       <td class="n"><input type="number" step="0.01" min="0.01" max="20" inputmode="decimal" data-code="${code}" data-k="up" value="${c.up}" ${rw ? '' : 'disabled'}> %</td><td>${sentLabel(sent, code)}</td></tr>`;
   }
@@ -2528,7 +2606,7 @@ document.addEventListener('keydown', e => {
   cancelDrag();
   render({ keepScroll: true, focusDrag: code });
 });
-document.getElementById('reload').addEventListener('click', () => {
+document.getElementById('reload')?.addEventListener('click', () => {
   spinReload();
   load();
 });

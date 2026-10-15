@@ -1,8 +1,12 @@
-// Zusätzliche Währungen, die biquote.io als CHF-Paar führt (geprüft 2026-10-09).
+// Währungen der Auswahl in der iOS-App und in der Web-App, dieselbe Liste.
 // XXXCHF: Kurs ist bereits CHF je 1 Fremdwährung. CHFXXX: Kurs ist Fremdwährung je 1 CHF, also Kehrwert.
-// Die EZB-Liste (Frankfurter) ist die ISO-4217-Teilmenge, die als Referenz existiert.
+// Gespeichert wird immer CHF je 1 Einheit. Die Anzeige rechnet JPY und HUF auf 100 Einheiten um.
+// CNY, HKD und INR hat biquote.io nicht; dafür gibt es den EZB-Referenzkurs.
 
-export const EXTRA_CAP = 12;
+export const PICKER_CODES = [
+  'EUR', 'USD', 'GBP', 'JPY', 'CAD', 'AUD', 'NZD', 'SEK', 'NOK', 'DKK', 'PLN', 'HUF', 'TRY', 'SGD',
+  'MXN', 'ZAR', 'CNY', 'HKD', 'INR',
+];
 
 export const ECB_CODES = [
   'AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR', 'GBP', 'HKD', 'HUF', 'IDR', 'ILS', 'INR',
@@ -31,19 +35,33 @@ export const BICOTE_PAIRS = {
 };
 
 const ECB = new Set(ECB_CODES);
+const PICKER = new Set(PICKER_CODES);
 const BUILTIN = new Set(['USD', 'EUR', 'GBP']);
-const BUILTIN_LIST = [
-  { code: 'USD', symbol: 'USDCHF', inv: false, unit: 1 },
-  { code: 'EUR', symbol: 'EURCHF', inv: false, unit: 1 },
-  { code: 'GBP', symbol: 'GBPCHF', inv: false, unit: 1 },
-];
+
+/** Anzeige-Los. Gespeichert bleibt CHF je 1 Einheit. */
+export function quoteLot(code) {
+  return code === 'JPY' || code === 'KRW' || code === 'HUF' || code === 'IDR' || code === 'ISK' ? 100 : 1;
+}
 
 export function isEcbCode(code) {
   return ECB.has(code);
 }
 
+export function isAlertCode(code) {
+  return !!(BICOTE_PAIRS[code] && BICOTE_PAIRS[code].symbol);
+}
+
 export function isCapturable(code) {
-  return !!BICOTE_PAIRS[code] && code !== 'CHF';
+  return PICKER.has(code);
+}
+
+/** Jede Währung der gemeinsamen Auswahlliste. Ohne biquote-Paar nur der EZB-Referenzkurs. */
+export function captureList() {
+  return PICKER_CODES.map(code => {
+    const pair = BICOTE_PAIRS[code];
+    if (pair) return { code, symbol: pair.symbol, inv: pair.inv, unit: 1 };
+    return { code, symbol: null, inv: false, unit: 1 };
+  });
 }
 
 /** CHF je 1 Einheit der Basis. null, wenn einer der beiden Kurse fehlt. */
@@ -52,24 +70,9 @@ export function inBase(chfAmount, baseChfPerUnit) {
   return chfAmount / baseChfPerUnit;
 }
 
-/**
- * Eingebaute drei plus angeforderte Codes, die ISO/EZB und biquote bestehen.
- * Höchstens EXTRA_CAP zusätzliche.
- */
-export function currenciesFor(requested) {
-  const out = BUILTIN_LIST.map(c => ({ ...c }));
-  const seen = new Set(out.map(c => c.code));
-  let extra = 0;
-  for (const code of requested || []) {
-    if (extra >= EXTRA_CAP) break;
-    if (typeof code !== 'string' || seen.has(code)) continue;
-    const pair = BICOTE_PAIRS[code];
-    if (!pair || !ECB.has(code) || BUILTIN.has(code)) continue;
-    seen.add(code);
-    out.push({ code, symbol: pair.symbol, inv: pair.inv, unit: 1 });
-    extra += 1;
-  }
-  return out;
+/** Immer die ganze Auswahlliste. Die Erfassung hängt nicht mehr von einzelnen Gerätewünschen ab. */
+export function currenciesFor(_requested) {
+  return captureList();
 }
 
 /**
@@ -81,8 +84,7 @@ export function mergeCurrencyRequests(existing, body) {
   const out = [];
   const seen = new Set();
   const push = code => {
-    if (out.length >= EXTRA_CAP || seen.has(code)) return;
-    if (!isCapturable(code) || !ECB.has(code) || BUILTIN.has(code)) return;
+    if (seen.has(code) || !PICKER.has(code) || BUILTIN.has(code)) return;
     seen.add(code);
     out.push(code);
   };

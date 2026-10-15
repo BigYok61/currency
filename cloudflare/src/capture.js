@@ -5,7 +5,7 @@ import { forecast7Days, forecastEndOfDay, forecastTargetDay, resolveBasisHour } 
 import {
   ECB_LOOKBACK_DAYS, START_DAY, addDays, isWeekday, pad, parseInstant, slotUtcMs, weekdays, zurichDateString, zurichParts,
 } from './time.js';
-import { currenciesFor } from './currencies.js';
+import { captureList } from './currencies.js';
 
 export const CURRENCIES = [
   { code: 'USD', symbol: 'USDCHF', inv: false, unit: 1 },
@@ -56,11 +56,11 @@ export function ohlcUrl(symbol, limit) {
   return `https://biquote.io/api/${symbol}/ohlc?interval=1h&limit=${limit}`;
 }
 
-/** Alle vollen Stunden 00–23. Prognose im gemeinsamen rates.json bleibt auf 06:00 (Mac-App). */
+/** Alle vollen Stunden, auch am Wochenende. Prognose im gemeinsamen rates.json bleibt auf 06:00 (Mac-App). */
 export function workerCapturePlan() {
   const capture = [];
   for (let hour = 0; hour < 24; hour++) capture.push(hour);
-  return { start: 6, grid: capture.slice(), capture };
+  return { start: 6, grid: capture.slice(), capture, allDays: true };
 }
 
 /**
@@ -72,7 +72,9 @@ export function workerCapturePlan() {
 export async function applyCapture(history, timesDoc, now, getJson, plan, currencies = CURRENCIES) {
   if (!history.version) history.version = 1;
   if (!history.days) history.days = {};
-  const { start, grid, capture } = plan || loadTimes(timesDoc);
+  const resolved = plan || loadTimes(timesDoc);
+  const { start, grid, capture } = resolved;
+  const allDays = !!(plan && plan.allDays);
   const captureSet = new Set(capture);
   const today = zurichDateString(now);
   const firstKey = START_DAY;
@@ -103,7 +105,8 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
   }
 
   const limit = ohlcLimit(now);
-  for (const { code, symbol, inv, unit } of currencies) {
+  const fetchable = currencies.filter(c => c.symbol);
+  for (const { code, symbol, inv, unit } of fetchable) {
     let bars;
     try {
       const body = await getJson(ohlcUrl(symbol, limit));
@@ -122,7 +125,7 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
       candles.push({ t, o, h: Math.max(hi, lo), l: Math.min(hi, lo) });
       const z = zurichParts(new Date(t));
       const key = dateKey(z);
-      if (!isWeekday(key) || z.minute !== 0 || !captureSet.has(z.hour)) continue;
+      if ((!allDays && !isWeekday(key)) || z.minute !== 0 || !captureSet.has(z.hour)) continue;
       if (key < firstKey) continue;
       const slot = dayRec(history, key).slots[pad(z.hour)] || (dayRec(history, key).slots[pad(z.hour)] = {});
       if (put(slot, code, o)) changed += 1;
@@ -163,8 +166,17 @@ export async function applyCapture(history, timesDoc, now, getJson, plan, curren
   }
 
   if (changed) history.updated = now.toISOString().slice(0, 19) + 'Z';
+  pruneDays(history, today, ECB_LOOKBACK_DAYS);
   history.days = Object.fromEntries(Object.entries(history.days).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
-  return { history, changed, errors, fatal: errors.length === currencies.length + 1 };
+  return { history, changed, errors, fatal: errors.length === fetchable.length + 1 };
+}
+
+/** Tageskarte behält das Fenster, das Prognose und die Clients lesen. Älteres liegt in data/history. */
+export function pruneDays(history, today, keepDays) {
+  const min = addDays(today, -(keepDays - 1));
+  for (const key of Object.keys(history.days || {})) {
+    if (key < min) delete history.days[key];
+  }
 }
 
 function dateKey(z) {
@@ -187,8 +199,7 @@ export async function runCapture(env, opts = {}) {
   const { readJson, readRaw, writeRaw } = await import('./storage.js');
   const stored = await readJson(env, 'rates');
   const history = stored && typeof stored === 'object' ? stored : emptyHistory();
-  const requested = await readJson(env, 'currency-requests');
-  const list = currenciesFor(requested && requested.codes);
+  const list = captureList();
   const result = await applyCapture(history, null, now, url => fetchJson(url, fetchImpl), workerCapturePlan(), list);
   const body = historyJson(result.history);
   const prev = await readRaw(env, 'rates');

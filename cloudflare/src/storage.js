@@ -18,14 +18,14 @@ export async function readJson(env, key) {
 
 export async function listSubscriptions(env) {
   const res = await env.DB.prepare(
-    'SELECT id, topic, config, state, updated_at FROM subscriptions',
+    'SELECT id, topic, config, state, updated_at, apns_token, apns_env FROM subscriptions',
   ).all();
   return res.results || [];
 }
 
 export async function getSubscription(env, id) {
   return env.DB.prepare(
-    'SELECT id, topic, config, state, updated_at FROM subscriptions WHERE id = ?',
+    'SELECT id, topic, config, state, updated_at, apns_token, apns_env FROM subscriptions WHERE id = ?',
   ).bind(id).first();
 }
 
@@ -39,6 +39,12 @@ export async function updateSubscription(env, id, config, updatedAt) {
   await env.DB.prepare(
     'UPDATE subscriptions SET config = ?, updated_at = ? WHERE id = ?',
   ).bind(config, updatedAt, id).run();
+}
+
+/** token null clears it (no APNs; ntfy fallback). */
+export async function setSubscriptionPush(env, id, token, environment) {
+  await env.DB.prepare('UPDATE subscriptions SET apns_token = ?, apns_env = ? WHERE id = ?')
+    .bind(token || null, token ? environment : null, id).run();
 }
 
 export async function saveSubscriptionState(env, id, state) {

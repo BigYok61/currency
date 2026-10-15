@@ -1,17 +1,19 @@
 // Währungen auf Cloudflare: statische PWA, gemeinsame Kurse, Abos je Gerät.
 import { runCapture } from './capture.js';
+import { freshLive, mergeLive, runLive } from './live.js';
 import { LIMITS, runFxAlerts, sendTestPush, validAlertId, validTopic } from './alerts.js';
 import { canonicalJson } from './json.js';
+import { apnsEnvironment, validApnsToken } from './apns.js';
 import { parseHour } from './schedule.js';
-import { currenciesFor, mergeCurrencyRequests } from './currencies.js';
+import { currenciesFor, isAlertCode, mergeCurrencyRequests } from './currencies.js';
 import {
   historyKey, historyResponseBody, isHistoryCode, readHistoryDocument, selectRange, shouldRefreshHistory, updateRecentHistory,
   RANGES,
 } from './history.js';
 import {
-  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, updateSubscription, writeRaw,
+  bumpLimit, deleteSubscription, getSubscription, insertSubscription, readJson, readRaw, setSubscriptionPush, updateSubscription, writeRaw,
 } from './storage.js';
-import { zurichDateString } from './time.js';
+import { ZURICH, validTimeZone, zoneDateString, zurichDateString } from './time.js';
 
 const DOCS = {
   '/data/rates.json': 'rates',
@@ -25,8 +27,17 @@ const JSON_HEADERS = {
   'cache-control': 'no-store',
 };
 
-const ALERT_CODES = ['USD', 'EUR'];
+const REQUIRED_ALERTS = ['USD', 'EUR'];
 const MAX_BODY = 4096;
+
+function readAlertLevel(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  if (typeof c.enabled !== 'boolean') return null;
+  const down = typeof c.down === 'number' ? c.down : Number(c.down);
+  const up = typeof c.up === 'number' ? c.up : Number(c.up);
+  if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) return null;
+  return { enabled: c.enabled, down, up };
+}
 
 function jsonResponse(body, status = 200) {
   const text = typeof body === 'string' ? body : canonicalJson(body);
@@ -38,16 +49,18 @@ export function normalizeAlerts(body) {
   const currencies = body.currencies;
   if (!currencies || typeof currencies !== 'object' || Array.isArray(currencies)) return null;
   const out = {};
-  for (const code of ALERT_CODES) {
-    const c = currencies[code];
-    if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
-    if (typeof c.enabled !== 'boolean') return null;
-    const down = typeof c.down === 'number' ? c.down : Number(c.down);
-    const up = typeof c.up === 'number' ? c.up : Number(c.up);
-    if (!(down > 0 && down <= 20) || !(up > 0 && up <= 20)) return null;
-    out[code] = { enabled: c.enabled, down, up };
+  for (const code of REQUIRED_ALERTS) {
+    const level = readAlertLevel(currencies[code]);
+    if (!level) return null;
+    out[code] = level;
   }
-  if (Object.keys(currencies).some(code => !ALERT_CODES.includes(code))) return null;
+  for (const code of Object.keys(currencies)) {
+    if (REQUIRED_ALERTS.includes(code)) continue;
+    if (!isAlertCode(code)) return null;
+    const level = readAlertLevel(currencies[code]);
+    if (!level) return null;
+    out[code] = level;
+  }
   return { version: 1, currencies: out };
 }
 
@@ -60,19 +73,46 @@ export function normalizeSubscription(body) {
     if (n == null) return null;
     start = n;
   }
-  return { version: 1, topic: body.topic, start, currencies: alerts.currencies };
+  let base = 'CHF';
+  if (body.base != null && body.base !== '') {
+    if (typeof body.base !== 'string' || !/^[A-Z]{3}$/.test(body.base) || body.base.startsWith('X')) return null;
+    base = body.base;
+  }
+  let timeZone = ZURICH;
+  if (body.timeZone != null && body.timeZone !== '') {
+    if (typeof body.timeZone !== 'string' || !validTimeZone(body.timeZone)) return null;
+    timeZone = body.timeZone.trim();
+  }
+  const out = { version: 1, topic: body.topic, start, base, timeZone, currencies: alerts.currencies };
+  // Optional APNs device token (iPhone app). Absent: unchanged. null/'': cleared.
+  if (Object.prototype.hasOwnProperty.call(body, 'apnsToken')) {
+    if (body.apnsToken == null || body.apnsToken === '') {
+      out.apns = { token: null, environment: null };
+    } else {
+      const token = typeof body.apnsToken === 'string' ? body.apnsToken.toLowerCase() : '';
+      if (!validApnsToken(token)) return null;
+      if (body.apnsEnv != null && body.apnsEnv !== 'sandbox' && body.apnsEnv !== 'production') return null;
+      out.apns = { token, environment: apnsEnvironment(body.apnsEnv) };
+    }
+  }
+  return out;
 }
 
 function publicAlert(row, now = new Date()) {
   const config = JSON.parse(row.config);
   const state = JSON.parse(row.state || '{"date":"","sent":{}}');
-  const today = zurichDateString(now);
+  const timeZone = validTimeZone(config.timeZone) ? config.timeZone.trim() : ZURICH;
+  const today = zoneDateString(now, timeZone);
   return {
     version: 1,
     topic: row.topic,
     start: config.start ?? 6,
+    base: typeof config.base === 'string' && config.base ? config.base : 'CHF',
+    timeZone,
     currencies: config.currencies,
     sent: state.date === today ? (state.sent || {}) : {},
+    delivery: row.apns_token ? 'apns' : 'ntfy',
+    apnsEnv: row.apns_token ? row.apns_env || 'production' : null,
   };
 }
 
@@ -138,7 +178,7 @@ async function handleAlerts(request, env, id, test) {
     } catch (e) {
       return jsonResponse({ error: e && e.message ? e.message : 'Test-Push fehlgeschlagen' }, 502);
     }
-    return jsonResponse({ ok: true });
+    return jsonResponse({ ok: true, via: row.apns_token ? 'apns' : 'ntfy' });
   }
 
   if (method === 'POST' && !test) {
@@ -147,7 +187,13 @@ async function handleAlerts(request, env, id, test) {
     const next = normalizeSubscription(body.value);
     if (!next) return jsonResponse({ error: 'FX-Alarme ungültig' }, 400);
     const existing = await getSubscription(env, id);
-    const config = canonicalJson({ version: 1, start: next.start, currencies: next.currencies });
+    const config = canonicalJson({
+      version: 1,
+      start: next.start,
+      base: next.base,
+      timeZone: next.timeZone,
+      currencies: next.currencies,
+    });
     const now = Date.now();
     if (!existing) {
       await insertSubscription(env, id, next.topic, config, now);
@@ -156,6 +202,7 @@ async function handleAlerts(request, env, id, test) {
     } else {
       await updateSubscription(env, id, config, now);
     }
+    if (next.apns) await setSubscriptionPush(env, id, next.apns.token, next.apns.environment);
     const row = await getSubscription(env, id);
     return jsonResponse(publicAlert(row));
   }
@@ -225,8 +272,9 @@ async function handle(request, env) {
 
   const docKey = DOCS[path];
   if (method === 'GET' && docKey) {
-    const body = await readRaw(env, docKey);
+    let body = await readRaw(env, docKey);
     if (body == null) return jsonResponse({ error: 'nicht vorhanden' }, 404);
+    if (docKey === 'rates') body = mergeLive(body, await freshLive(env));
     return jsonResponse(body);
   }
 
@@ -238,8 +286,14 @@ export default {
   fetch: handle,
   async scheduled(event, env) {
     const cron = String(event.cron || '');
-    // `*/15 5-21 * * MON-FRI` sind die Alarme. `5 * * * MON-FRI` und `5 6 * * SAT` erfassen.
+    // `*/15 * * * *` sind die Alarme. `5 * * * *` erfasst, auch wenn der Markt geschlossen ist.
     if (cron.startsWith('*/15')) {
+      // Live-Kurs zuerst und unabhängig: ein Alarmfehler darf die Aktualität nicht verhindern.
+      try {
+        await runLive(env);
+      } catch (err) {
+        console.error('Live', err && err.message ? err.message : err);
+      }
       await runFxAlerts(env);
       return;
     }

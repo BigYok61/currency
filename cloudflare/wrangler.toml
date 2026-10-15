@@ -20,14 +20,18 @@ database_name = "waehrungen"
 database_id = "89ef4623-822f-425e-b016-fe0bb43b946f"
 migrations_dir = "migrations"
 
-# Cloudflare zählt 1 = Sonntag bis 7 = Samstag. MON-FRI und SAT, nicht 1-5 und 6.
+# Zwei Trigger, innerhalb der fünf Cron-Trigger des Workers-Free-Tarifs.
+# Stündlich erfassen, alle 15 Minuten Alarme. Beides rund um die Uhr, jede Zeitzone.
 [triggers]
 crons = [
-  "5 * * * MON-FRI",
-  "5 6 * * SAT",
-  "*/15 5-21 * * MON-FRI",
+  "5 * * * *",
+  "*/15 * * * *",
 ]
 
 [vars]
 # Klickziel der ntfy-Meldungen. Leer lassen, wenn die Meldungen ohne Link raus sollen.
 APP_URL = "https://waehrungen.bigyok61.workers.dev/"
+# APNs (iPhone-App). Der .p8-Schlüssel liegt nur als Secret APNS_KEY_P8 vor, nie im Repo.
+APNS_KEY_ID = "KB6QVS8VPD"
+APNS_TEAM_ID = "ZHAQ42GZ6S"
+APNS_TOPIC = "ch.computerworks.waehrungen"

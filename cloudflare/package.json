@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/logic.test.mjs",
+    "test": "node --test test/logic.test.mjs test/apns.test.mjs",
     "prepare-assets": "node prepare-assets.mjs"
   }
 }

@@ -7,3 +7,13 @@ screenshot*.png
 node_modules/
 cloudflare/.dev.vars
 cloudflare/public/
+cloudflare/.history-backfill.sql
+
+# APNs-Schlüssel nie einchecken
+*.p8
+Key für Push Notifcations/
+
+# Xcode / local Mac working copy
+xcuserdata/
+Backup-*/
+ios/Backup-*/

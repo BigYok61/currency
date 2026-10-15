@@ -26,6 +26,30 @@ enum ChartSpan: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Narrow period label.
+    var short: String {
+        switch self {
+        case .day: return "T"
+        case .week: return "W"
+        case .month: return "M"
+        case .year: return "J"
+        case .five: return "5J"
+        case .ten: return "10J"
+        }
+    }
+
+    /// Short label on the main-list chart, for example `1 Monat`.
+    var caption: String {
+        switch self {
+        case .day: return "1 Tag"
+        case .week: return "1 Woche"
+        case .month: return "1 Monat"
+        case .year: return "1 Jahr"
+        case .five: return "5 Jahre"
+        case .ten: return "10 Jahre"
+        }
+    }
+
     var dayCount: Int {
         switch self {
         case .day: return 1
@@ -60,21 +84,30 @@ struct ForecastLine {
 }
 
 enum ViewBlock: String, CaseIterable, Identifiable {
-    case chart = "Grafik anzeigen"
+    case chart = "Grafik für Fremdwährungen anzeigen"
     case intervals = "Intervalle anzeigen"
     case forecast = "Prognose"
     case reference = "Referenzkurse anzeigen"
 
     var id: String { rawValue }
-    var hint: String? { self == .forecast ? "heute und 7 Tage" : nil }
+    var hint: String? { self == .forecast ? "Heute und in 7 Tagen" : nil }
 }
 
+/// Short form for the Ansicht sheet.
+let shortDisclaimerText = "Prognosen sind unverbindliche Schätzungen ohne Gewähr – keine Anlageberatung."
 let disclaimerText = "Prognosen sind unverbindliche, automatisch berechnete Schätzungen und keine Anlage- oder Finanzberatung. Für Entscheidungen auf Basis dieser Angaben wird keine Haftung übernommen."
 
-let alertIntroText = "Die Alarmeinstellungen gelten nur für dieses Gerät. Wenn sich der Kurs gegenüber der Standardwährung innerhalb des Tages stärker als die unten gesetzten Schwellen verändert, werden Sie mit einer Push-Mitteilung gewarnt. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
+/// ComputerWorks page linked from the About sheet. Change this one address to retarget the link.
+let computerWorksAppURL = URL(string: "https://www.computerworks.ch/waehrungen")!
+/// Privacy policy linked from the About sheet.
+let privacyPolicyURL = URL(string: "https://www.computerworks.ch/datenschutz")!
+let feedbackAddress = "feedback@computerworks.ch"
+let supportAddress = "support@computerworks.ch"
+/// Numeric App Store id. Nil hides „App bewerten“ until the app is live.
+let appStoreID: String? = nil
 
-let appStoreURL = URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!
-let playStoreURL = URL(string: "https://play.google.com/store/apps/details?id=io.heckel.ntfy")!
+let alertIntroText = "Die Alarmeinstellungen werden über iCloud auf alle Ihre Geräte übertragen. Der Server prüft die Kurse alle 15 Minuten und schickt eine Mitteilung, sobald eine Schwelle erreicht wird – auch wenn die App geschlossen ist. Je Währung und Richtung gibt es höchstens eine Warnung am Tag."
+
 
 enum CurrencyNames {
     static func name(_ code: String) -> String {
@@ -100,11 +133,27 @@ enum CurrencyNames {
         ]
         return flags[code] ?? "🏳️"
     }
+
+    /// Subtitle such as `EUR · €`, or `100 JPY · ¥` for a bank lot.
+    static func lotLine(_ code: String) -> String {
+        let lot = quoteLot(code)
+        if lot == 1 { return "\(code) · \(symbol(code))" }
+        return "\(Int(lot)) \(code) · \(symbol(code))"
+    }
 }
 
-func cardRate(_ raw: Double?) -> Double? {
-    guard let raw, abs(raw) > 0.00005 else { return nil }
-    return 1 / raw
+/// Bank lot. Small-unit currencies are quoted per 100, the same way a Swiss board does.
+func quoteLot(_ code: String) -> Double {
+    switch code {
+    case "JPY", "KRW", "HUF", "IDR", "ISK": return 100
+    default: return 1
+    }
+}
+
+/// Price of one bank lot in the reporting currency. `perUnit` is reporting currency per 1 foreign unit.
+func directPrice(_ code: String, _ perUnit: Double?) -> Double? {
+    guard let perUnit, abs(perUnit) > 0.00005 else { return nil }
+    return perUnit * quoteLot(code)
 }
 
 func formatRate(_ value: Double?) -> String {
@@ -130,4 +179,16 @@ func arrow(_ value: Double?) -> String {
     if value > 0.00005 { return "↑" }
     if value < -0.00005 { return "↓" }
     return "→"
+}
+
+/// Intraday move next to the price: arrow, amount in the reporting currency, and percent.
+func dayChangeText(_ delta: Double, percent: Double, currency: String) -> String {
+    let pct = NumberFormatter()
+    pct.locale = Locale(identifier: "de_CH")
+    pct.minimumFractionDigits = 2
+    pct.maximumFractionDigits = 2
+    pct.numberStyle = .decimal
+    let body = pct.string(from: NSNumber(value: abs(percent))) ?? String(format: "%.2f", abs(percent))
+    let sign = percent > 0.005 ? "+" : percent < -0.005 ? "−" : ""
+    return "\(arrow(delta)) \(formatDelta(delta)) \(currency) (\(sign)\(body) %)"
 }
