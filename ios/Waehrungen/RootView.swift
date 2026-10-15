@@ -56,7 +56,7 @@ struct RootView: View {
             List {
                 Section {
                     let boardIDs: [String] = store.visible.flatMap { code in
-                        code == store.base && store.showCompare ? [code, "compare"] : [code]
+                        code == store.base && store.showCompare && !isWide ? [code, "compare"] : [code]
                     }
                     ForEach(boardIDs, id: \.self) { id in
                         if id == "compare" {
@@ -269,7 +269,7 @@ struct CurrencyCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(CurrencyNames.name(code)).font(.system(size: 16, weight: .semibold))
-                        if store.showIntervals && !store.showChart && code != store.base {
+                        if store.showIntervals && !store.showChart && code != store.base && duoSelect == nil {
                             // only with intervals on and the per-currency chart off: the big rate is the live one, above the hourly slots (style of «‹ Heute»)
                             Text("Aktuell")
                                 .font(.system(size: 11, weight: .medium))
@@ -297,13 +297,13 @@ struct CurrencyCard: View {
                 quoteMeta
             }
             if code != store.base {
-                if store.showChart {
+                if store.showChart && duoSelect == nil {
                     // the whole small chart (left, middle, right) opens the large chart view
                     ChartBlock(code: code, preview: preview).environmentObject(store)
                         .contentShape(Rectangle())
                         .onTapGesture { if !preview && !editing { openDetail() } }
                 }
-                if store.showIntervals {
+                if store.showIntervals && duoSelect == nil {
                     // interval rows open nothing; swiping and «Heute» keep working
                     intervals
                         .contentShape(Rectangle())
@@ -1061,6 +1061,20 @@ struct DuoBaseDetail: View {
                     .padding(.top, 20)
                 }
 
+                if !foreign.isEmpty {
+                    Text("Entwicklung der Währungen")
+                        .font(.system(size: 20, weight: .bold))
+                        .padding(.top, 28)
+                    CompareDetailSheet(embedded: true)
+                        .padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 20) {
+                        ForEach(foreign, id: \.self) { code in
+                            DuoIntervals(code: code, title: "Intervalle \(CurrencyNames.name(code))")
+                        }
+                    }
+                    .padding(.top, 28)
+                }
+
                 VStack(alignment: .leading, spacing: 4) {
                     if !store.capturedLine.isEmpty { Text(store.capturedLine) }
                     Text(store.sourceLine)
@@ -1078,6 +1092,8 @@ struct DuoBaseDetail: View {
         .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .background(Color(uiColor: .systemGroupedBackground))
+        .onAppear { store.wantCompare(true) }
+        .onDisappear { store.wantCompare(false) }
     }
 
     private func row(_ code: String) -> some View {
@@ -1122,12 +1138,13 @@ struct DuoBaseDetail: View {
 struct DuoIntervals: View {
     @EnvironmentObject private var store: RatesStore
     let code: String
+    var title = "Intervalle"
 
     var body: some View {
         let days = Array(store.intervalDays.prefix(DuoConfig.dayCount))
         let today = days.first
         VStack(alignment: .leading, spacing: 8) {
-            Text("Intervalle")
+            Text(title)
                 .font(.system(size: 15, weight: .semibold))
             Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 8) {
                 GridRow {

@@ -887,12 +887,33 @@ struct CompareChartCard: View {
 
 struct CompareDetailSheet: View {
     @EnvironmentObject private var store: RatesStore
+    /// Duo: only the content (chart, picker, statistics), placed inside the reporting-currency detail.
+    var embedded = false
 
     var body: some View {
-        let lines = compareLines(from: store)
-        return NavigationStack {
+        if embedded { content } else { sheet }
+    }
+
+    private var sheet: some View {
+        NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                content
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("Entwicklung")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
+            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .background(Color(uiColor: .systemGroupedBackground))
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private var content: some View {
+        let lines = compareLines(from: store)
+        return VStack(alignment: .leading, spacing: 12) {
                     Text("Bezogen auf \(store.base)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -909,17 +930,6 @@ struct CompareDetailSheet: View {
                         spanPicker
                     }
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .navigationTitle("Entwicklung")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
-            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .background(Color(uiColor: .systemGroupedBackground))
-        }
-        .presentationDragIndicator(.visible)
     }
 
     private var spanPicker: some View {

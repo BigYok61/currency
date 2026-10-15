@@ -28,6 +28,8 @@ final class RatesStore: ObservableObject {
     private var lastReload = Date.distantPast
     /// Currency whose detail sheet is open (transient), so its history loads even without list charts.
     @Published var detailCode: String?
+    /// Duo: the comparison chart is shown on the right (transient), so its history loads even when the list chart is off.
+    @Published var compareWanted = false
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false
     @Published var timeStart = 7
@@ -476,7 +478,7 @@ final class RatesStore: ObservableObject {
         var pairs: [(String, ChartSpan)] = []
         if showChart { pairs += foreign.map { ($0, span(for: $0)) } }
         if let detailCode { pairs.append((detailCode, span(for: detailCode))) }
-        if showCompare { pairs += foreign.map { ($0, compareSpan) } }
+        if showCompare || compareWanted { pairs += foreign.map { ($0, compareSpan) } }
         pairs.removeAll { $0.1 == .day || $0.1 == .week }
         guard !pairs.isEmpty else { return }
         if base != "CHF" {
@@ -507,6 +509,11 @@ final class RatesStore: ObservableObject {
         sameSpan = on
         saveView()
         Task { await loadHistoryIfNeeded() }
+    }
+
+    func wantCompare(_ on: Bool) {
+        compareWanted = on
+        if on { Task { await loadHistoryIfNeeded() } }
     }
 
     func openDetail(_ code: String?) {
