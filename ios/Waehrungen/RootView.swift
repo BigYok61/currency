@@ -11,6 +11,8 @@ struct RootView: View {
     /// Duo (regular width): entry shown on the right. nil = reporting currency.
     @State private var duoSelection: String?
     @State private var duoColumns: NavigationSplitViewVisibility = .all
+    @State private var refreshing = false
+    @State private var capturedFlash = false
 
     private var isWide: Bool {
         #if DEBUG
@@ -136,7 +138,17 @@ struct RootView: View {
             .scrollDismissesKeyboard(.interactively)
             .refreshable {
                 guard !store.convertEditing else { return }
+                // Build 34: visible spinner below the custom title, at least ~0.5 s, light haptic and a flash of the «aktualisiert» line
+                refreshing = true
+                let started = Date()
                 await store.reload()
+                let left = 0.5 - Date().timeIntervalSince(started)
+                if left > 0 { try? await Task.sleep(for: .seconds(left)) }
+                refreshing = false
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.easeOut(duration: 0.2)) { capturedFlash = true }
+                try? await Task.sleep(for: .milliseconds(900))
+                withAnimation(.easeIn(duration: 0.5)) { capturedFlash = false }
             }
             .background(KeypadDismiss(editing: store.convertEditing) {
                 store.finishConvert()
@@ -174,6 +186,18 @@ struct RootView: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .bottom) {
+            // the system refresh control sits under this pinned title, so show our own spinner while refreshing
+            if refreshing {
+                ProgressView()
+                    .controlSize(.regular)
+                    .padding(8)
+                    .background(.regularMaterial, in: Circle())
+                    .offset(y: 40)
+                    .transition(.opacity)
+            }
+        }
+        .zIndex(1)
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea(edges: .top))
     }
 
@@ -208,6 +232,11 @@ struct RootView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if !store.capturedLine.isEmpty {
                     Text(store.capturedLine)
+                        .foregroundStyle(capturedFlash ? Color.blue : Color.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.blue.opacity(capturedFlash ? 0.12 : 0), in: RoundedRectangle(cornerRadius: 4))
+                        .padding(.horizontal, -4)
                 }
                 Text(store.sourceLine)
             }
@@ -352,22 +381,28 @@ struct CurrencyCard: View {
                 HStack(spacing: 14) {
                     Spacer(minLength: 0)
                     ForEach(past, id: \.self) { day in
-                        Text(store.pastDayHeader(day))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: Self.pastColumnWidth, alignment: .trailing)
+                        // blue «‹» before the oldest shown day: swipe right for earlier days
+                        HStack(spacing: 2) {
+                            if day == past.first && store.dayOffset < store.intervalDays.count - 1 {
+                                Text("‹").foregroundStyle(Color.blue).accessibilityHidden(true)
+                            }
+                            Text(store.pastDayHeader(day)).foregroundStyle(.secondary)
+                        }
+                        .minimumScaleFactor(0.8)
+                        .monospacedDigit()
+                        .frame(width: Self.pastColumnWidth, alignment: .trailing)
                     }
                     Button {
-                        page(-store.dayOffset)
+                        page(1 - store.dayOffset)
                     } label: {
                         Text("Heute")
-                            .foregroundStyle(anyPast ? Color.blue : Color.secondary)
+                            .foregroundStyle(store.dayOffset > 1 ? Color.blue : Color.secondary)
                             .frame(minWidth: Self.pastColumnWidth, alignment: .trailing)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(!anyPast)
-                    .accessibilityHint(anyPast ? "Frühere Tage ausblenden" : "")
+                    .disabled(store.dayOffset <= 1)
+                    .accessibilityHint(store.dayOffset > 1 ? "Frühere Tage ausblenden" : "")
                 }
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
@@ -414,7 +449,7 @@ struct CurrencyCard: View {
                 if !preview {
                     DayPagingPan(
                         canBack: store.dayOffset < store.intervalDays.count - 1,
-                        canForward: store.dayOffset > 0
+                        canForward: store.dayOffset > 1
                     ) { step in
                         page(step)
                     }
@@ -470,7 +505,7 @@ struct CurrencyCard: View {
 
     private func pastValue(_ hour: Int, _ day: String) -> String {
         guard let value = store.intervalValue(code, hour: hour, on: day) else { return "–" }
-        return rateText(value)
+        return formatRate(value)   // Build 34: no unit in the interval columns
     }
 
     private func page(_ step: Int) {
@@ -687,9 +722,9 @@ struct CurrencyCard: View {
     }
 
     private func shownInterval(_ hour: Int) -> String {
-        if let real = store.intervalValue(code, hour: hour) { return rateText(real) }
+        if let real = store.intervalValue(code, hour: hour) { return formatRate(real) }
         guard preview, let anchor = previewAnchor(excluding: hour) else { return "–" }
-        return rateText(anchor + previewNudge(hour))
+        return formatRate(anchor + previewNudge(hour))
     }
 
     private func illustratedForecast() -> ForecastLine? {
@@ -974,8 +1009,6 @@ private struct DayPagingPan: UIViewRepresentable {
 // MARK: - Duo (regular width: unfolded foldable iPhone, iPad)
 
 enum DuoConfig {
-    /// Interval hours of the Duo detail (independent of the phone's interval settings).
-    static let hours: [Int] = [7, 12, 17]
     /// Trading days shown in the Duo detail: today plus 5 earlier ones.
     static let dayCount = 6
     /// Alarm marker in the list, same SF Symbol as Aktien Pro's alarm marker.
@@ -1148,7 +1181,7 @@ struct DuoBaseDetail: View {
     }
 }
 
-/// Duo detail: fixed interval hours (07/12/17) for today and several earlier trading days, oldest left.
+/// Duo detail: the currency's interval hours (own step, global start/end) for today and several earlier trading days, oldest left.
 struct DuoIntervals: View {
     @EnvironmentObject private var store: RatesStore
     let code: String
@@ -1171,7 +1204,7 @@ struct DuoIntervals: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 Divider()
-                ForEach(DuoConfig.hours, id: \.self) { hour in
+                ForEach(store.hours(for: code), id: \.self) { hour in
                     GridRow {
                         Text(String(format: "%02d:00", hour)).foregroundStyle(.secondary)
                         ForEach(days.reversed(), id: \.self) { day in

@@ -257,21 +257,18 @@ struct IntervalSheet: View {
                 }
                 Section {
                     Picker("Intervall", selection: Binding(
-                        get: { store.codeSteps[code] ?? 0 },
-                        set: { if $0 > 0 { store.setStep($0, for: code) } }
+                        get: { store.step(for: code) },
+                        set: { store.setStep($0, for: code) }
                     )) {
                         ForEach(RatesStore.pickerSteps, id: \.self) { step in
-                            Text("\(step) h").tag(step)
+                            // narrow no-break space keeps all 7 segments within small iPhones
+                            Text("\(step)\u{202F}h").tag(step)
                         }
                     }
                     .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
                 } header: {
                     Text("Intervall \(code)")
-                } footer: {
-                    if store.codeSteps[code] == nil {
-                        Text("Standard: \(store.hours.map { String(format: "%02d", $0) }.joined(separator: "/")) Uhr")
-                    }
                 }
                 Section {
                     table

@@ -33,13 +33,14 @@ final class RatesStore: ObservableObject {
     @Published var hours: [Int] = [7, 12, 17]
     @Published var timesUserSet = false
     @Published var timeStart = 7
-    @Published var timeEnd = 17
+    @Published var timeEnd = 18
     @Published var timeStep: Int? = nil
     /// Since 1.2 (33) there is no master switch any more: alarms are always on; only the per-device switch (pushEnabled) remains.
     @Published var alertsMaster = true
-    /// Interval step in hours per currency (iCloud-synced). Missing = global hours (default 07/12/17).
+    /// Interval step in hours per currency (iCloud-synced). Missing = 5 h (07/12/17 with the default 07:00-18:00).
     @Published var codeSteps: [String: Int] = [:]
-    static let pickerSteps = [1, 2, 3, 4, 6, 12]
+    static let pickerSteps = [1, 2, 3, 4, 5, 6, 12]
+    static let defaultStep = 5
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
     /// Apple push for FX alarms on this device. Per device, never synced via iCloud.
@@ -58,7 +59,7 @@ final class RatesStore: ObservableObject {
     @Published var convertDraft = "1"
     @Published var convertEditing = false
     /// Past-days swipe: number of trading days swiped back (0 = only today). Shared by every currency, never persisted.
-    @Published var dayOffset = 0
+    @Published var dayOffset = 1   // Build 34: the previous trading day is shown next to «Heute» by default
     var convertReplace = false
 
     private var days: [String: DayFile] = [:]
@@ -455,7 +456,7 @@ final class RatesStore: ObservableObject {
         defer { reloading = false; lastReload = Date() }
         if resetUI {
             resetConvert()
-            dayOffset = 0
+            dayOffset = 1
         }
         do {
             let url = Self.origin.appendingPathComponent("data/rates.json")
@@ -621,7 +622,7 @@ final class RatesStore: ObservableObject {
     /// Returns true if the number of swiped-in past days changed.
     @discardableResult
     func pageDays(by step: Int) -> Bool {
-        let next = min(max(dayOffset + step, 0), intervalDays.count - 1)
+        let next = min(max(dayOffset + step, 1), intervalDays.count - 1)
         guard next != dayOffset else { return false }
         dayOffset = next
         return true
@@ -1061,10 +1062,14 @@ final class RatesStore: ObservableObject {
 
     /// Interval hours of one currency: its own step between the global start and end, else the global hours.
     func hours(for code: String) -> [Int] {
-        if let step = codeSteps[code], let list = Self.expand(start: timeStart, end: timeEnd, step: step), !list.isEmpty {
+        if let list = Self.expand(start: timeStart, end: timeEnd, step: step(for: code)), !list.isEmpty {
             return list
         }
         return hours
+    }
+
+    func step(for code: String) -> Int {
+        codeSteps[code] ?? Self.defaultStep
     }
 
     func setStep(_ step: Int, for code: String) {
@@ -1326,7 +1331,7 @@ final class RatesStore: ObservableObject {
             timesUserSet = defaults.bool(forKey: "wu.timesUserSet")
         }
         timeStart = defaults.object(forKey: "wu.timeStart") as? Int ?? 7
-        timeEnd = defaults.object(forKey: "wu.timeEnd") as? Int ?? 17
+        timeEnd = defaults.object(forKey: "wu.timeEnd") as? Int ?? 18
         if defaults.object(forKey: "wu.timeStep") != nil { timeStep = defaults.integer(forKey: "wu.timeStep") }
         alertsMaster = true   // master switch removed in 1.2 (33); an old stored «off» must not silence alarms
         if let data = defaults.data(forKey: "wu.codeSteps"),
