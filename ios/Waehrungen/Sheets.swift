@@ -57,12 +57,10 @@ struct AnsichtSheet: View {
                                 .padding(.top, 10)
                                 .padding(.bottom, 10)
                             toggle("Intervalle anzeigen", on: store.showIntervals, hint: nil) { store.showIntervals = $0; store.saveView() }
+                            subNote("Intervall je Währung: auf die Intervall-Zeilen tippen.")
                             toggle("Prognose", on: store.showForecast, hint: "Heute und in 7 Tagen") { store.showForecast = $0; store.saveView() }
+                            subNote(shortDisclaimerText)
                             toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
-                            Text(shortDisclaimerText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 6)
                             Text("Vorschau")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -77,6 +75,7 @@ struct AnsichtSheet: View {
                     }
                 }
             }
+            .scrollIndicatorsFlash(onAppear: true)
             .navigationTitle("Ansicht")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
@@ -110,6 +109,17 @@ struct AnsichtSheet: View {
                 .padding(.leading, 34)
                 .padding(.top, 2)
         }
+    }
+
+    /// Small grey note directly under a switch, aligned with its title.
+    private func subNote(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 34)
+            .padding(.top, -4)
+            .padding(.bottom, 4)
     }
 
     private func toggle(_ title: String, on: Bool, hint: String?, stacked: Bool = false, set: @escaping (Bool) -> Void) -> some View {
@@ -227,89 +237,121 @@ private struct FadingPreview: View {
     }
 }
 
-struct TimesSheet: View {
+/// Build 33: per-currency interval sheet (tap on a currency's interval rows).
+/// Start/end are global, the hour step is per currency (iCloud-synced), below the rates of several trading days.
+struct IntervalSheet: View {
     @EnvironmentObject private var store: RatesStore
+    let code: String
     @State private var start = 7
     @State private var end = 17
-    @State private var step: Int?
-    private let steps = [1, 2, 3, 4, 5, 8, 12, 24]
-
-    private var previewHours: [Int] {
-        if let step, let hours = RatesStore.expand(start: start, end: end, step: step) { return hours }
-        return store.hours
-    }
+    @State private var width: CGFloat = 0
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Intervalle anzeigen")
-                    Stepper("von \(String(format: "%02d:00", start))", value: $start, in: 0...22)
-                    Stepper("bis \(String(format: "%02d:00", end))", value: $end, in: 1...23)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Intervall")
-                        HStack(spacing: 2) {
-                            ForEach(steps, id: \.self) { value in
-                                Button("\(value) h") { step = value }
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                                    .frame(maxWidth: .infinity)
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(step == value ? .blue : Color.primary.opacity(0.08))
-                                    .foregroundStyle(step == value ? Color.white : Color.primary)
-                            }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(previewHours, id: \.self) { hour in
-                            HStack {
-                                Text(String(format: "%02d:00", hour))
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text(previewRate(hour))
-                            }
-                            .font(.footnote.monospacedDigit())
-                        }
-                    }
-                    Text(previewHours.count == 1 ? "1 Messung pro Tag" : "\(previewHours.count) Messungen pro Tag")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Text("Gilt nur für die Zeilen in der Intervall-Ansicht. Kurse und Alarme werden rund um die Uhr verfolgt.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            List {
+                Section {
+                    Stepper("Start \(String(format: "%02d:00", start))", value: $start, in: 0...22)
+                    Stepper("Ende \(String(format: "%02d:00", end))", value: $end, in: 1...23)
+                } footer: {
+                    Text("gilt für alle Währungen")
                 }
-                .padding(16)
+                Section {
+                    Picker("Intervall", selection: Binding(
+                        get: { store.codeSteps[code] ?? 0 },
+                        set: { if $0 > 0 { store.setStep($0, for: code) } }
+                    )) {
+                        ForEach(RatesStore.pickerSteps, id: \.self) { step in
+                            Text("\(step) h").tag(step)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                } header: {
+                    Text("Intervall \(code)")
+                } footer: {
+                    if store.codeSteps[code] == nil {
+                        Text("Standard: \(store.hours.map { String(format: "%02d", $0) }.joined(separator: "/")) Uhr")
+                    }
+                }
+                Section {
+                    table
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                } header: {
+                    Text("Kurse in \(store.base)")
+                }
             }
-            .navigationTitle("Erfassungszeiten und Intervalle")
+            .listStyle(.insetGrouped)
+            .background(GeometryReader { geo in Color.clear.onAppear { width = geo.size.width }.onChange(of: geo.size.width) { _, w in width = w } })
+            .navigationTitle("Intervalle \(CurrencyNames.name(code))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
-            .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
         .onAppear {
-            start = store.timesUserSet ? store.timeStart : 7
-            end = store.timesUserSet ? store.timeEnd : 17
-            step = store.timesUserSet ? (store.timeStep ?? 5) : 5
+            start = store.timeStart
+            end = store.timeEnd
         }
-        .onChange(of: start) { store.saveTimes(start: start, end: end, step: step) }
-        .onChange(of: end) { store.saveTimes(start: start, end: end, step: step) }
-        .onChange(of: step) { store.saveTimes(start: start, end: end, step: step) }
+        .onChange(of: start) {
+            if end <= start { end = min(start + 1, 23) }
+            store.setTimeRange(start: start, end: end)
+        }
+        .onChange(of: end) {
+            if start >= end { start = max(end - 1, 0) }
+            store.setTimeRange(start: start, end: end)
+        }
     }
 
-    /// Same illustrative fill as the Ansicht preview when that hour has not been captured yet.
-    private func previewRate(_ hour: Int) -> String {
-        if let real = store.intervalValue("EUR", hour: hour) {
-            return "\(formatRate(real)) \(store.base)"
+    private static let columnWidth: CGFloat = 68
+
+    /// At least 2 days on small iPhones, 3+ on wider screens; «Heute» always on the far right.
+    private var days: [String] {
+        let usable = max(width - 32 - 32 - 50, 0)   // list margins, row insets, time column
+        let fit = Int(usable / (Self.columnWidth + 8))
+        let count = min(max(fit, 2), store.intervalDays.count)
+        return Array(store.intervalDays.prefix(count)).reversed()
+    }
+
+    private var table: some View {
+        let today = store.intervalDays.first
+        let shownDays = days
+        return VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text("").frame(width: 50, alignment: .leading)
+                Spacer(minLength: 0)
+                ForEach(shownDays, id: \.self) { day in
+                    Text(day == today ? "Heute" : store.pastDayHeader(day))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(width: Self.columnWidth, alignment: .trailing)
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            ForEach(store.hours(for: code), id: \.self) { hour in
+                HStack(spacing: 8) {
+                    Text(String(format: "%02d:00", hour))
+                        .frame(width: 50, alignment: .leading)
+                    Spacer(minLength: 0)
+                    ForEach(shownDays, id: \.self) { day in
+                        Text(value(hour, day: day, isToday: day == today))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(width: Self.columnWidth, alignment: .trailing)
+                    }
+                }
+                .font(.subheadline)
+                .monospacedDigit()
+            }
         }
-        guard let anchor = store.quote("EUR").value else { return "–" }
-        let nudge: Double
-        if hour == 7 { nudge = 0.0003 }
-        else if hour == 17 { nudge = 0.0014 }
-        else { nudge = Double((hour % 5) - 2) * 0.00035 }
-        return "\(formatRate(anchor + nudge)) \(store.base)"
+    }
+
+    private func value(_ hour: Int, day: String, isToday: Bool) -> String {
+        if isToday {
+            guard store.hourReached(hour), let v = store.intervalValue(code, hour: hour, on: day) ?? store.intervalValue(code, hour: hour) else { return "–" }
+            return formatRate(v)
+        }
+        guard let v = store.intervalValue(code, hour: hour, on: day) else { return "–" }
+        return formatRate(v)
     }
 }
 
@@ -325,16 +367,7 @@ struct AlertsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 10) {
-                        Toggle("Alle Alarme", isOn: $store.alertsMaster)
-                            .labelsHidden()
-                            .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
-                            .onChange(of: store.alertsMaster) {
-                                store.saveView()
-                                store.scheduleAlertSync()
-                            }
-                        SheetClose()
-                    }
+                    SheetClose()
                 }
             }
             .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
@@ -364,16 +397,6 @@ struct AlertsSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(alertIntroText).font(.footnote).foregroundStyle(.secondary)
                 notifications
-                #if DEBUG
-                // Xcode dev builds only: APNs test push (hidden in App Store screenshot mode)
-                if ScreenshotMode.shot == nil {
-                    Button("Test-Push senden") { Task { await sendTest() } }
-                        .buttonStyle(.bordered)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .disabled(busy || !store.pushEnabled)
-                }
-                #endif
                 ForEach(store.visible.filter { $0 != store.base }, id: \.self) { code in
                     AlarmCard(code: code)
                 }
@@ -386,33 +409,55 @@ struct AlertsSheet: View {
 
     private var denied: Bool { store.pushAuthorization == .denied }
 
-    /// Apple push on this device. Off removes the server subscription.
+    /// Apple push on this device. Off removes the server subscription (setPushEnabled → alert sync DELETE).
     private var notifications: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Toggle(isOn: Binding(get: { store.pushEnabled }, set: { store.setPushEnabled($0) })) {
-                Text("Mitteilungen").font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Alarme aktivieren")
+                    Text(store.pushEnabled ? "\(deviceSubject) erhält FX-Alarme" : "\(deviceSubject) erhält keine FX-Alarme")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
+            .padding(.vertical, 10)
             if store.pushEnabled && denied {
-                Text("Mitteilungen sind in den iOS-Einstellungen ausgeschaltet. Ohne sie kommen keine Alarme an.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Einstellungen öffnen") {
-                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                        UIApplication.shared.open(url)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Mitteilungen sind in den Einstellungen ausgeschaltet. Ohne sie kommen keine Alarme an.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Einstellungen öffnen") {
+                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
                     }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
-            } else if !store.pushEnabled {
-                Text("Aus: Dieses iPhone erhält keine FX-Alarme.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .padding(.bottom, 10)
             }
+            #if DEBUG
+            // Xcode dev builds only: APNs test push (hidden in App Store screenshot mode)
+            if ScreenshotMode.shot == nil {
+                Divider()
+                Button { Task { await sendTest() } } label: {
+                    Text("Test-Push senden")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                }
+                .foregroundStyle(busy || !store.pushEnabled ? Color.secondary : Color.blue)
+                .disabled(busy || !store.pushEnabled)
+            }
+            #endif
         }
-        .padding(12)
+        .padding(.horizontal, 16)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
     }
+
+    /// «Dieses iPhone», «Dieses iPad», «Dieser Mac».
+    private var deviceSubject: String { deviceSubjectText() }
 
     #if DEBUG
     private func sendTest() async {
@@ -448,21 +493,32 @@ struct AlarmCard: View {
                 Spacer()
                 Toggle("Aktiv", isOn: binding(\.enabled))
                     .labelsHidden()
-                    .disabled(!store.alertsMaster)
+            }
+            if store.threshold(for: code).enabled && !store.pushEnabled {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("\(deviceSubjectText()) erhält keine FX-Alarme.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Alarme aktivieren") { store.setPushEnabled(true) }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.bordered)
+                }
             }
             HStack {
-                Text("Fällt um mehr als")
+                Text("Steigt um mehr als")
                 Spacer()
-                TextField("0.50", value: binding(\.down), format: .number)
+                TextField("0.25", value: binding(\.up), format: .number)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 72)
                 Text("%")
             }
             HStack {
-                Text("Steigt um mehr als")
+                Text("Fällt um mehr als")
                 Spacer()
-                TextField("0.25", value: binding(\.up), format: .number)
+                TextField("0.50", value: binding(\.down), format: .number)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 72)
@@ -901,5 +957,16 @@ private struct RoundFlag: View {
             .clipShape(Circle())
             .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5))
             .accessibilityHidden(true)
+    }
+}
+
+/// «Dieses iPhone», «Dieses iPad», «Dieser Mac» for the FX-alarm texts.
+@MainActor
+func deviceSubjectText() -> String {
+    if ProcessInfo.processInfo.isiOSAppOnMac || ProcessInfo.processInfo.isMacCatalystApp { return "Dieser Mac" }
+    switch UIDevice.current.userInterfaceIdiom {
+    case .pad: return "Dieses iPad"
+    case .mac: return "Dieser Mac"
+    default: return "Dieses iPhone"
     }
 }

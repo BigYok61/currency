@@ -4,7 +4,6 @@ import UIKit
 struct RootView: View {
     @EnvironmentObject private var store: RatesStore
     @State private var showView = false
-    @State private var showTimes = false
     @State private var showAlerts = false
     @State private var showAdd = false
     @State private var showAbout = false
@@ -38,7 +37,6 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
-        .sheet(isPresented: $showTimes) { TimesSheet().environmentObject(store) }
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
         .sheet(isPresented: $showAbout) { AboutSheet() }
@@ -197,8 +195,6 @@ struct RootView: View {
         HStack(spacing: 22) {
             Button { showView = true } label: { Image(systemName: "slider.horizontal.3") }
                 .accessibilityLabel("Ansicht")
-            Button { showTimes = true } label: { Image(systemName: "clock") }
-                .accessibilityLabel("Erfassungszeiten und Intervalle")
             Button { showAlerts = true } label: { Image(systemName: "bell") }
                 .accessibilityLabel("FX-Alarme")
         }
@@ -255,6 +251,7 @@ struct CurrencyCard: View {
     var preview: Bool
     @FocusState private var amountFocused: Bool
     @State private var showDetail = false
+    @State private var showIntervalSheet = false
     @State private var rowWidth: CGFloat = 0
     /// One-time swipe hint for the interval area (set after the first nudge, never shown again).
     @AppStorage("wu.swipeHintShown") private var swipeHintShown = false
@@ -304,10 +301,10 @@ struct CurrencyCard: View {
                         .onTapGesture { if !preview && !editing { openDetail() } }
                 }
                 if store.showIntervals && duoSelect == nil {
-                    // interval rows open nothing; swiping and «Heute» keep working
+                    // Build 33: tapping the interval area opens the per-currency interval sheet; swiping and «Heute» keep working
                     intervals
                         .contentShape(Rectangle())
-                        .onTapGesture {}
+                        .onTapGesture { if !preview && !editing { showIntervalSheet = true } }
                 }
                 if store.showForecast { forecast.padding(.trailing, priceInset) }
                 if store.showReference { reference.padding(.trailing, priceInset) }
@@ -329,6 +326,17 @@ struct CurrencyCard: View {
         .sheet(isPresented: $showDetail) {
             ChartDetailSheet(code: code).environmentObject(store)
         }
+        .sheet(isPresented: $showIntervalSheet) {
+            IntervalSheet(code: code).environmentObject(store)
+        }
+        #if DEBUG
+        .task {
+            // -wuShot intervalsheet [-wuSelect EUR]: opens the interval sheet of that currency (default EUR)
+            if !preview && ScreenshotMode.shot == "intervalsheet" && code == (UserDefaults.standard.string(forKey: "wuIntervalCode") ?? "EUR") {
+                await ScreenshotMode.wait(); showIntervalSheet = true
+            }
+        }
+        #endif
     }
 
     private func openDetail() {
@@ -376,7 +384,7 @@ struct CurrencyCard: View {
                 .font(.system(size: 11, weight: .medium))
             }
             VStack(spacing: 3) {
-                ForEach(store.hours, id: \.self) { hour in
+                ForEach(store.hours(for: code), id: \.self) { hour in
                     HStack(spacing: 14) {
                         Text(String(format: "%02d:00", hour))
                             .foregroundStyle(.secondary)
@@ -432,7 +440,7 @@ struct CurrencyCard: View {
     private var hasEarlierDays: Bool {
         guard !preview, store.intervalDays.count > 1 else { return false }
         let day = store.intervalDays[1]
-        return store.hours.contains { store.intervalValue(code, hour: $0, on: day) != nil }
+        return store.hours(for: code).contains { store.intervalValue(code, hour: $0, on: day) != nil }
     }
 
     /// The first time the interval area appears with earlier days, it nudges right and back once.
@@ -506,6 +514,12 @@ struct CurrencyCard: View {
     private var reference: some View {
         HStack {
             Text("EZB-Referenzkurs")
+            // ECB data carries only the reference date (no time), so only the date is shown
+            if !preview, let day = store.referenceDay(code) {
+                Text(RatesStore.ecbDateText(day))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Text(shownReference()).monospacedDigit()
         }
@@ -697,7 +711,7 @@ struct CurrencyCard: View {
     }
 
     private func previewAnchor(excluding hour: Int?) -> Double? {
-        let known = store.hours.compactMap { item -> (Int, Double)? in
+        let known = store.hours(for: code).compactMap { item -> (Int, Double)? in
             if item == hour { return nil }
             guard let value = store.intervalValue(code, hour: item) else { return nil }
             return (item, value)

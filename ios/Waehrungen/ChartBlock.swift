@@ -917,17 +917,18 @@ struct CompareDetailSheet: View {
                     Text("Bezogen auf \(store.base)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    // Build 33: period picker above the chart, ~3-4 mm gap (as in the foreign-currency detail)
+                    spanPicker
+                        .padding(.bottom, 2)
                     if lines.contains(where: { $0.drawn.count >= 2 }) {
                         let dates = lines.flatMap { $0.full.map(\.date) }
                         ChartBoxHeader(caption: store.compareSpan.caption, range: ChartFormat.range(dates.min(), dates.max()))
                         ComparePlot(lines: lines, height: 260, scrubbing: true, caption: store.compareSpan.caption, preview: false, detail: true, onOpen: {})
-                        spanPicker
                         CompareOverviewCard(lines: lines, span: store.compareSpan, base: store.base)
                     } else {
                         Text("Keine Kurse in diesem Zeitraum.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        spanPicker
                     }
                 }
     }

@@ -35,7 +35,11 @@ final class RatesStore: ObservableObject {
     @Published var timeStart = 7
     @Published var timeEnd = 17
     @Published var timeStep: Int? = nil
+    /// Since 1.2 (33) there is no master switch any more: alarms are always on; only the per-device switch (pushEnabled) remains.
     @Published var alertsMaster = true
+    /// Interval step in hours per currency (iCloud-synced). Missing = global hours (default 07/12/17).
+    @Published var codeSteps: [String: Int] = [:]
+    static let pickerSteps = [1, 2, 3, 4, 6, 12]
     @Published var thresholds: [String: AlarmThreshold] = [:]
     @Published var topic = ""
     /// Apple push for FX alarms on this device. Per device, never synced via iCloud.
@@ -158,7 +162,7 @@ final class RatesStore: ObservableObject {
         "wu.baseCurrency", "wu.currencyOrder", "wu.currencyHidden",
         "wu.showCompare", "wu.showChart", "wu.showIntervals", "wu.showForecast", "wu.showReference",
         "wu.chartSpan", "wu.compareSpan", "wu.sameSpan", "wu.codeSpans", "wu.colorThreshold", "wu.colorChanges",
-        "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep",
+        "wu.hours", "wu.timesUserSet", "wu.timeStart", "wu.timeEnd", "wu.timeStep", "wu.codeSteps",
         "wu.alertsMaster", "wu.thresholds",
     ]
     private static let cloudAlertKeys: Set<String> = ["wu.alertsMaster", "wu.thresholds"]
@@ -1055,6 +1059,42 @@ final class RatesStore: ObservableObject {
         saveLocal()
     }
 
+    /// Interval hours of one currency: its own step between the global start and end, else the global hours.
+    func hours(for code: String) -> [Int] {
+        if let step = codeSteps[code], let list = Self.expand(start: timeStart, end: timeEnd, step: step), !list.isEmpty {
+            return list
+        }
+        return hours
+    }
+
+    func setStep(_ step: Int, for code: String) {
+        codeSteps[code] = step
+        saveLocal()
+    }
+
+    /// Global start/end for all currencies; keeps the global step (default 5 h = 07/12/17).
+    func setTimeRange(start: Int, end: Int) {
+        guard start < end else { return }
+        saveTimes(start: start, end: end, step: timeStep ?? 5)
+    }
+
+    /// Day key (yyyy-MM-dd) of the ECB reference shown for `code`. The ECB data carries only a date, no time.
+    func referenceDay(_ code: String) -> String? {
+        let today = Self.todayKey()
+        for offset in 0..<12 {
+            guard let day = Self.addDays(today, -offset) else { continue }
+            if let chf = days[day]?.ecb?[code], chf > 0 { return day }
+        }
+        return nil
+    }
+
+    /// '2026-10-20' -> '20.10.2026' (the ECB key is a plain date).
+    static func ecbDateText(_ day: String) -> String {
+        let bits = day.split(separator: "-")
+        guard bits.count == 3 else { return day }
+        return "\(bits[2]).\(bits[1]).\(bits[0])"
+    }
+
     /// An enabled FX alarm exists for this shown foreign currency (list bell).
     func hasActiveAlarm(_ code: String) -> Bool {
         guard alertsMaster, code != base, let t = thresholds[code] else { return false }
@@ -1288,7 +1328,11 @@ final class RatesStore: ObservableObject {
         timeStart = defaults.object(forKey: "wu.timeStart") as? Int ?? 7
         timeEnd = defaults.object(forKey: "wu.timeEnd") as? Int ?? 17
         if defaults.object(forKey: "wu.timeStep") != nil { timeStep = defaults.integer(forKey: "wu.timeStep") }
-        if defaults.object(forKey: "wu.alertsMaster") != nil { alertsMaster = defaults.bool(forKey: "wu.alertsMaster") }
+        alertsMaster = true   // master switch removed in 1.2 (33); an old stored «off» must not silence alarms
+        if let data = defaults.data(forKey: "wu.codeSteps"),
+           let map = try? JSONDecoder().decode([String: Int].self, from: data) {
+            codeSteps = map
+        }
         if let data = defaults.data(forKey: "wu.thresholds"),
            let map = try? JSONDecoder().decode([String: AlarmThreshold].self, from: data) {
             thresholds = map
@@ -1322,6 +1366,7 @@ final class RatesStore: ObservableObject {
         defaults.set(timeEnd, forKey: "wu.timeEnd")
         if let timeStep { defaults.set(timeStep, forKey: "wu.timeStep") } else { defaults.removeObject(forKey: "wu.timeStep") }
         defaults.set(alertsMaster, forKey: "wu.alertsMaster")
+        if let data = try? JSONEncoder().encode(codeSteps) { defaults.set(data, forKey: "wu.codeSteps") }
         if let data = try? JSONEncoder().encode(thresholds) { defaults.set(data, forKey: "wu.thresholds") }
         defaults.set(topic, forKey: "wu.alertTopic")
         defaults.set(pushEnabled, forKey: "wu.pushEnabled")
@@ -1340,7 +1385,7 @@ final class RatesStore: ObservableObject {
     }
 
     static func expand(start: Int, end: Int, step: Int) -> [Int]? {
-        let steps = [1, 2, 3, 4, 5, 8, 12, 24]
+        let steps = [1, 2, 3, 4, 5, 6, 8, 12, 24]
         guard steps.contains(step), start < end, start >= 0, end <= 23 else { return nil }
         return Array(stride(from: start, through: end, by: step))
     }
