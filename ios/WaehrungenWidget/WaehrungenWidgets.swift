@@ -107,7 +107,7 @@ struct ListProvider: TimelineProvider {
 
 // MARK: - Pro gate (Build 35)
 
-/// Free: the small widgets on iPhone (and the lock screen). Pro: medium, large and every iPad widget.
+/// Free: only the small home-screen widgets on iPhone. Pro: medium, large, every iPad widget and the lock screen (Build 36).
 /// Only active when ProShared.enforcementEnabled is true; until then every widget renders as before.
 @MainActor
 enum ProGate {
@@ -115,7 +115,6 @@ enum ProGate {
         guard ProShared.locked else { return false }
         switch family {
         case .systemSmall: return UIDevice.current.userInterfaceIdiom == .pad
-        case .accessoryRectangular, .accessoryCircular, .accessoryInline: return false
         default: return true
         }
     }
@@ -124,6 +123,17 @@ enum ProGate {
 struct ProLockedView: View {
     @Environment(\.widgetFamily) private var family
     var body: some View {
+        if family == .accessoryRectangular || family == .accessoryCircular || family == .accessoryInline {
+            VStack(alignment: .leading, spacing: 1) {
+                Label("Währungen Pro", systemImage: "sparkles").font(.headline)
+                Text("In der App freischalten").font(.system(size: 12))
+            }
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
         VStack(spacing: 6) {
             Image(systemName: "sparkles")
                 .font(.system(size: family == .systemSmall ? 22 : 28))
@@ -199,7 +209,9 @@ struct OverviewWidget: Widget {
 struct LockScreenWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "WaehrungenLock", provider: ListProvider()) { entry in
-            LockRectView(snap: entry.snap)
+            Group {
+                if ProGate.lockedHere(.accessoryRectangular) { ProLockedView() } else { LockRectView(snap: entry.snap) }
+            }
                 .containerBackground(for: .widget) { Color.clear }
                 .widgetURL(WidgetShared.url(for: nil))
         }

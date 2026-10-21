@@ -23,6 +23,16 @@
 		BB0000000000000000000033 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* WidgetViews.swift */; };
 		BB0000000000000000000034 /* WaehrungenWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* WaehrungenWidgets.swift */; };
 		BB0000000000000000000035 /* WaehrungenWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000002 /* WaehrungenWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DD0000000000000000000021 /* WaehrungenWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000011 /* WaehrungenWatchApp.swift */; };
+		DD0000000000000000000022 /* WatchData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000012 /* WatchData.swift */; };
+		DD0000000000000000000023 /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* WidgetShared.swift */; };
+		DD0000000000000000000024 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* WidgetData.swift */; };
+		DD0000000000000000000025 /* WaehrungenWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000002 /* WaehrungenWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EE0000000000000000000021 /* WatchComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0000000000000000000011 /* WatchComplication.swift */; };
+		EE0000000000000000000022 /* WatchData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000012 /* WatchData.swift */; };
+		EE0000000000000000000023 /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* WidgetShared.swift */; };
+		EE0000000000000000000024 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* WidgetData.swift */; };
+		EE0000000000000000000025 /* WaehrungenWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EE0000000000000000000002 /* WaehrungenWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +54,14 @@
 		BB0000000000000000000014 /* WaehrungenWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaehrungenWidgets.swift; sourceTree = "<group>"; };
 		BB0000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB0000000000000000000016 /* WaehrungenWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WaehrungenWidget.entitlements; sourceTree = "<group>"; };
+		DD0000000000000000000002 /* WaehrungenWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WaehrungenWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD0000000000000000000011 /* WaehrungenWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaehrungenWatchApp.swift; sourceTree = "<group>"; };
+		DD0000000000000000000012 /* WatchData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchData.swift; sourceTree = "<group>"; };
+		DD0000000000000000000013 /* WaehrungenWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WaehrungenWatch.entitlements; sourceTree = "<group>"; };
+		EE0000000000000000000002 /* WaehrungenWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WaehrungenWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE0000000000000000000011 /* WatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComplication.swift; sourceTree = "<group>"; };
+		EE0000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		EE0000000000000000000013 /* WaehrungenWatchWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WaehrungenWatchWidget.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -53,6 +71,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = BB0000000000000000000030;
 			remoteInfo = WaehrungenWidget;
+		};
+		DD0000000000000000000082 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000000000000000000040 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD0000000000000000000030;
+			remoteInfo = WaehrungenWatch;
+		};
+		EE0000000000000000000082 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000000000000000000040 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EE0000000000000000000030;
+			remoteInfo = WaehrungenWatchWidget;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -64,6 +96,28 @@
 			dstSubfolderSpec = 13;
 			files = (
 				BB0000000000000000000035 /* WaehrungenWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD0000000000000000000073 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				DD0000000000000000000025 /* WaehrungenWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000073 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				EE0000000000000000000025 /* WaehrungenWatchWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -85,6 +139,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD0000000000000000000072 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000072 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -94,6 +162,8 @@
 				AA0000000000000000000003 /* Waehrungen */,
 				BB0000000000000000000005 /* Shared */,
 				BB0000000000000000000003 /* WaehrungenWidget */,
+				DD0000000000000000000003 /* WaehrungenWatch */,
+				EE0000000000000000000003 /* WaehrungenWatchWidget */,
 				AA0000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -120,6 +190,8 @@
 			children = (
 				AA0000000000000000000002 /* Waehrungen.app */,
 				BB0000000000000000000002 /* WaehrungenWidget.appex */,
+				DD0000000000000000000002 /* WaehrungenWatch.app */,
+				EE0000000000000000000002 /* WaehrungenWatchWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -144,6 +216,26 @@
 			path = WaehrungenWidget;
 			sourceTree = "<group>";
 		};
+		DD0000000000000000000003 /* WaehrungenWatch */ = {
+			isa = PBXGroup;
+			children = (
+				DD0000000000000000000011 /* WaehrungenWatchApp.swift */,
+				DD0000000000000000000012 /* WatchData.swift */,
+				DD0000000000000000000013 /* WaehrungenWatch.entitlements */,
+			);
+			path = WaehrungenWatch;
+			sourceTree = "<group>";
+		};
+		EE0000000000000000000003 /* WaehrungenWatchWidget */ = {
+			isa = PBXGroup;
+			children = (
+				EE0000000000000000000011 /* WatchComplication.swift */,
+				EE0000000000000000000012 /* Info.plist */,
+				EE0000000000000000000013 /* WaehrungenWatchWidget.entitlements */,
+			);
+			path = WaehrungenWatchWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -155,11 +247,13 @@
 				AA0000000000000000000072 /* Frameworks */,
 				AA0000000000000000000071 /* Resources */,
 				BB0000000000000000000073 /* Embed Foundation Extensions */,
+				DD0000000000000000000073 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				BB0000000000000000000081 /* PBXTargetDependency */,
+				DD0000000000000000000081 /* PBXTargetDependency */,
 			);
 			name = Waehrungen;
 			productName = Waehrungen;
@@ -182,6 +276,40 @@
 			productReference = BB0000000000000000000002 /* WaehrungenWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		DD0000000000000000000030 /* WaehrungenWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD0000000000000000000050 /* Build configuration list for PBXNativeTarget "WaehrungenWatch" */;
+			buildPhases = (
+				DD0000000000000000000070 /* Sources */,
+				DD0000000000000000000072 /* Frameworks */,
+				EE0000000000000000000073 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EE0000000000000000000081 /* PBXTargetDependency */,
+			);
+			name = WaehrungenWatch;
+			productName = WaehrungenWatch;
+			productReference = DD0000000000000000000002 /* WaehrungenWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		EE0000000000000000000030 /* WaehrungenWatchWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE0000000000000000000050 /* Build configuration list for PBXNativeTarget "WaehrungenWatchWidget" */;
+			buildPhases = (
+				EE0000000000000000000070 /* Sources */,
+				EE0000000000000000000072 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WaehrungenWatchWidget;
+			productName = WaehrungenWatchWidget;
+			productReference = EE0000000000000000000002 /* WaehrungenWatchWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -196,6 +324,12 @@
 					};
 					BB0000000000000000000030 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					DD0000000000000000000030 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					EE0000000000000000000030 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -214,6 +348,8 @@
 			targets = (
 				AA0000000000000000000030 /* Waehrungen */,
 				BB0000000000000000000030 /* WaehrungenWidget */,
+				DD0000000000000000000030 /* WaehrungenWatch */,
+				EE0000000000000000000030 /* WaehrungenWatchWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -258,6 +394,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD0000000000000000000070 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD0000000000000000000021 /* WaehrungenWatchApp.swift in Sources */,
+				DD0000000000000000000022 /* WatchData.swift in Sources */,
+				DD0000000000000000000023 /* WidgetShared.swift in Sources */,
+				DD0000000000000000000024 /* WidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000070 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EE0000000000000000000021 /* WatchComplication.swift in Sources */,
+				EE0000000000000000000022 /* WatchData.swift in Sources */,
+				EE0000000000000000000023 /* WidgetShared.swift in Sources */,
+				EE0000000000000000000024 /* WidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,6 +423,16 @@
 			isa = PBXTargetDependency;
 			target = BB0000000000000000000030 /* WaehrungenWidget */;
 			targetProxy = BB0000000000000000000082 /* PBXContainerItemProxy */;
+		};
+		DD0000000000000000000081 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD0000000000000000000030 /* WaehrungenWatch */;
+			targetProxy = DD0000000000000000000082 /* PBXContainerItemProxy */;
+		};
+		EE0000000000000000000081 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EE0000000000000000000030 /* WaehrungenWatchWidget */;
+			targetProxy = EE0000000000000000000082 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -277,7 +445,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -310,7 +478,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -431,7 +599,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;
@@ -460,7 +628,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 36;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;
@@ -481,6 +649,120 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DD0000000000000000000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = WaehrungenWatch/WaehrungenWatch.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ch.computerworks.waehrungen;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ch.computerworks.waehrungen.watchkitapp;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 36;
+				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		DD0000000000000000000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = WaehrungenWatch/WaehrungenWatch.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ch.computerworks.waehrungen;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ch.computerworks.waehrungen.watchkitapp;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 36;
+				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		EE0000000000000000000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = WaehrungenWatchWidget/WaehrungenWatchWidget.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WaehrungenWatchWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ch.computerworks.waehrungen.watchkitapp.complication;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 36;
+				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		EE0000000000000000000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = WaehrungenWatchWidget/WaehrungenWatchWidget.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WaehrungenWatchWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ch.computerworks.waehrungen.watchkitapp.complication;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 36;
+				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -510,6 +792,24 @@
 			buildConfigurations = (
 				BB0000000000000000000060 /* Debug */,
 				BB0000000000000000000061 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD0000000000000000000050 /* Build configuration list for PBXNativeTarget "WaehrungenWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD0000000000000000000060 /* Debug */,
+				DD0000000000000000000061 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EE0000000000000000000050 /* Build configuration list for PBXNativeTarget "WaehrungenWatchWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE0000000000000000000060 /* Debug */,
+				EE0000000000000000000061 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

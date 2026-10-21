@@ -57,11 +57,14 @@ enum ProShared {
     /// false: nothing is locked or removed – FX alarms, server subscriptions and all widgets work as before;
     ///        only badges, the paywall and the Ansicht entry are shown.
     /// true:  non-Pro users lose FX alarms (server subscription deleted, not grandfathered) and the
-    ///        medium/large widgets show a «Währungen Pro» placeholder.
+    ///        medium/large, iPad and lock-screen widgets plus the Watch app and its complication show a
+    ///        «Währungen Pro» placeholder. Only the small iPhone home-screen widget stays free.
     static let enforcementEnabled = false
 
     static let productID = "ch.computerworks.waehrungen.pro"
     static let isProKey = "pro.isPro"
+    /// iCloud key-value flag the iPhone writes after a verified purchase; read by the Watch app.
+    static let cloudKey = "wu.pro.isPro"
 
     /// Last verified entitlement, written by the app's ProStore.
     static var isPro: Bool { WidgetShared.defaults?.bool(forKey: isProKey) ?? false }

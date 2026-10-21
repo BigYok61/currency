@@ -64,6 +64,8 @@ final class ProStore: ObservableObject {
         let changed = owned != isPro
         isPro = owned
         WidgetShared.defaults?.set(owned, forKey: ProShared.isProKey)
+        // the Watch learns Pro through iCloud KVS (plus its own StoreKit check); only a verified purchase sets it
+        if owned { NSUbiquitousKeyValueStore.default.set(true, forKey: ProShared.cloudKey) }
         if changed { WidgetCenter.shared.reloadAllTimelines() }
         rates?.setProLocked(locked)
     }
@@ -159,7 +161,7 @@ struct PaywallSheet: View {
                     }
                     VStack(alignment: .leading, spacing: 14) {
                         benefit("bell.badge", "FX-Alarme", "Mitteilung, sobald sich ein Kurs stärker bewegt – auch wenn die App geschlossen ist.")
-                        benefit("applewatch", "Apple Watch", "Ihre Kurse am Handgelenk, sobald die Watch-App verfügbar ist.")
+                        benefit("applewatch", "Apple Watch", "Watch-App mit Ihren Währungen, Tagesveränderung und Verlauf – auch ohne iPhone in der Nähe – und Komplikation fürs Zifferblatt.")
                         benefit("square.grid.2x2", "Alle Widgets", "Mittlere und grosse Widgets auf iPhone und iPad. Das kleine Widget bleibt gratis.")
                     }
                     .padding(16)
