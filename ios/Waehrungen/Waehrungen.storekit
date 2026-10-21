@@ -1,0 +1,36 @@
+{
+  "identifier" : "6C1F3A2B",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "5.00",
+      "familyShareable" : true,
+      "internalID" : "6C1F3A2C",
+      "localizations" : [
+        {
+          "description" : "FX-Alarme, Apple Watch und alle Widgets.",
+          "displayName" : "Währungen Pro",
+          "locale" : "de"
+        }
+      ],
+      "productID" : "ch.computerworks.waehrungen.pro",
+      "referenceName" : "Währungen Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "",
+    "_developerTeamID" : "ZHAQ42GZ6S",
+    "_locale" : "de",
+    "_storefront" : "CHE"
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

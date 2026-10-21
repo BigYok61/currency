@@ -63,6 +63,11 @@ final class RatesStore: ObservableObject {
     var convertReplace = false
 
     private var days: [String: DayFile] = [:]
+    /// Build 35: true only when Pro enforcement is on and this user has no Pro (set by ProStore). Alarms are then off
+    /// and the server subscription is removed. Always false while ProShared.enforcementEnabled == false.
+    @Published private(set) var proLocked = false
+    /// One-time notice after alarms were switched off for lack of Pro (UI shows it once).
+    @Published var proAlarmNotice = false
     /// Latest 15-minute live mid from the worker (CHF per unit), if any.
     private var live: LiveBlock?
     private var historyCache: [String: [RatePoint]] = [:]
@@ -138,6 +143,7 @@ final class RatesStore: ObservableObject {
 
     init() {
         loadLocal()
+        loadRatesCache()
         WidgetShared.publish(base: base, visible: visible)
         let localAlerts = (alertsMaster, try? JSONEncoder().encode(thresholds))
         let adopted = startCloudSync()
@@ -465,6 +471,7 @@ final class RatesStore: ObservableObject {
                 throw URLError(.badServerResponse)
             }
             let file = try JSONDecoder().decode(RatesFile.self, from: data)
+            Self.writeRatesCache(data)
             days = file.days
             live = file.live
             dataGeneration += 1
@@ -475,6 +482,51 @@ final class RatesStore: ObservableObject {
             await loadHistoryIfNeeded()
         } catch {
             errorText = "Die Kurse konnten nicht geladen werden."
+        }
+    }
+
+    // MARK: - Rate cache (Build 35): last good rates.json, shown immediately at cold start
+
+    private static var ratesCacheURL: URL? {
+        let dir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WidgetShared.appGroup)
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return dir?.appendingPathComponent("rates-cache.json")
+    }
+
+    /// Raw rates.json as received (days, live, updated). Errors are ignored: the cache is optional.
+    private static func writeRatesCache(_ data: Data) {
+        guard let url = ratesCacheURL else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    /// Synchronous, before the first frame. A missing or corrupt file leaves the store empty as before.
+    private func loadRatesCache() {
+        guard let url = Self.ratesCacheURL, let data = try? Data(contentsOf: url) else { return }
+        guard let file = try? JSONDecoder().decode(RatesFile.self, from: data) else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        days = file.days
+        live = file.live
+        updated = file.updated ?? ""
+        dataGeneration += 1
+    }
+
+    /// Called by ProStore. While enforcement is off this is always false and nothing changes.
+    func setProLocked(_ locked: Bool) {
+        guard locked != proLocked else { return }
+        proLocked = locked
+        guard locked else {
+            if pushEnabled { scheduleAlertSync() }   // Pro bought again: re-register the subscription
+            return
+        }
+        // not grandfathered: remove the server subscription; thresholds stay stored for a later purchase
+        let hadAlarms = thresholds.values.contains { $0.enabled }
+        scheduleAlertSync()
+        if hadAlarms && !defaults.bool(forKey: "wu.pro.alarmNoticeShown") {
+            defaults.set(true, forKey: "wu.pro.alarmNoticeShown")
+            proAlarmNotice = true
         }
     }
 
@@ -874,8 +926,8 @@ final class RatesStore: ObservableObject {
     /// Stores the current switches locally and registers every biquote currency with the Worker.
     func registerAlerts() async throws {
         ensureAlertIdentity()
-        guard pushEnabled else {
-            // Mitteilungen aus: Abo auf dem Server entfernen, damit keine Pushes mehr kommen.
+        guard pushEnabled && !proLocked else {
+            // Mitteilungen aus (oder Pro-Sperre aktiv): Abo auf dem Server entfernen, damit keine Pushes mehr kommen.
             saveLocal()
             _ = try await alertCall(method: "DELETE", body: nil)
             return
@@ -1102,7 +1154,7 @@ final class RatesStore: ObservableObject {
 
     /// An enabled FX alarm exists for this shown foreign currency (list bell).
     func hasActiveAlarm(_ code: String) -> Bool {
-        guard alertsMaster, code != base, let t = thresholds[code] else { return false }
+        guard alertsMaster, !proLocked, code != base, let t = thresholds[code] else { return false }
         return t.enabled
     }
 

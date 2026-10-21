@@ -10,6 +10,7 @@
 		AA0000000000000000000021 /* WaehrungenApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* WaehrungenApp.swift */; };
 		AA0000000000000000000022 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /* Models.swift */; };
 		AA0000000000000000000023 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000013 /* Store.swift */; };
+		CC0000000000000000000021 /* ProStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000011 /* ProStore.swift */; };
 		AA0000000000000000000024 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000014 /* RootView.swift */; };
 		AA0000000000000000000025 /* ChartBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000015 /* ChartBlock.swift */; };
 		AA0000000000000000000026 /* Sheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000016 /* Sheets.swift */; };
@@ -29,6 +30,8 @@
 		AA0000000000000000000011 /* WaehrungenApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaehrungenApp.swift; sourceTree = "<group>"; };
 		AA0000000000000000000012 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AA0000000000000000000013 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		CC0000000000000000000011 /* ProStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProStore.swift; sourceTree = "<group>"; };
+		CC0000000000000000000012 /* Waehrungen.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Waehrungen.storekit; sourceTree = "<group>"; };
 		AA0000000000000000000014 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000015 /* ChartBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartBlock.swift; sourceTree = "<group>"; };
 		AA0000000000000000000016 /* Sheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sheets.swift; sourceTree = "<group>"; };
@@ -101,6 +104,8 @@
 				AA0000000000000000000011 /* WaehrungenApp.swift */,
 				AA0000000000000000000012 /* Models.swift */,
 				AA0000000000000000000013 /* Store.swift */,
+				CC0000000000000000000011 /* ProStore.swift */,
+				CC0000000000000000000012 /* Waehrungen.storekit */,
 				AA0000000000000000000014 /* RootView.swift */,
 				AA0000000000000000000015 /* ChartBlock.swift */,
 				AA0000000000000000000016 /* Sheets.swift */,
@@ -232,6 +237,7 @@
 				AA0000000000000000000021 /* WaehrungenApp.swift in Sources */,
 				AA0000000000000000000022 /* Models.swift in Sources */,
 				AA0000000000000000000023 /* Store.swift in Sources */,
+				CC0000000000000000000021 /* ProStore.swift in Sources */,
 				AA0000000000000000000024 /* RootView.swift in Sources */,
 				AA0000000000000000000025 /* ChartBlock.swift in Sources */,
 				AA0000000000000000000026 /* Sheets.swift in Sources */,
@@ -271,7 +277,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -304,7 +310,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Waehrungen/Waehrungen.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -425,7 +431,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;
@@ -454,7 +460,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWidget/WaehrungenWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = ZHAQ42GZ6S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WaehrungenWidget/Info.plist;

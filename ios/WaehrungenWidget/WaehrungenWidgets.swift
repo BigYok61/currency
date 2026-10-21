@@ -1,4 +1,5 @@
 import AppIntents
+import UIKit
 import SwiftUI
 import WidgetKit
 
@@ -104,6 +105,42 @@ struct ListProvider: TimelineProvider {
     }
 }
 
+// MARK: - Pro gate (Build 35)
+
+/// Free: the small widgets on iPhone (and the lock screen). Pro: medium, large and every iPad widget.
+/// Only active when ProShared.enforcementEnabled is true; until then every widget renders as before.
+@MainActor
+enum ProGate {
+    static func lockedHere(_ family: WidgetFamily) -> Bool {
+        guard ProShared.locked else { return false }
+        switch family {
+        case .systemSmall: return UIDevice.current.userInterfaceIdiom == .pad
+        case .accessoryRectangular, .accessoryCircular, .accessoryInline: return false
+        default: return true
+        }
+    }
+}
+
+struct ProLockedView: View {
+    @Environment(\.widgetFamily) private var family
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: family == .systemSmall ? 22 : 28))
+                .foregroundStyle(Color.blue)
+            Text("Währungen Pro")
+                .font(.system(size: family == .systemSmall ? 15 : 18, weight: .semibold))
+            Text("Dieses Widget ist Teil von Währungen Pro. Freischalten in der App.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 // MARK: - Widgets
 
 private extension View {
@@ -117,7 +154,10 @@ struct SingleCurrencyWidget: Widget {
         AppIntentConfiguration(kind: "WaehrungenSingle", intent: SelectCurrencyIntent.self, provider: SingleProvider()) { entry in
             let code = entry.code ?? entry.snap.rows.first?.code ?? "EUR"
             let index = WidgetShared.read().foreign.firstIndex(of: code) ?? 0
-            SingleCurrencyView(snap: entry.snap, code: code, colorIndex: index)
+            Group {
+                if ProGate.lockedHere(.systemSmall) { ProLockedView() }
+                else { SingleCurrencyView(snap: entry.snap, code: code, colorIndex: index) }
+            }
                 .widgetCard()
                 .widgetURL(WidgetShared.url(for: code))
         }
@@ -131,7 +171,9 @@ struct OverviewWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var entry: WEntry
     var body: some View {
-        if family == .systemSmall {
+        if ProGate.lockedHere(family) {
+            ProLockedView()
+        } else if family == .systemSmall {
             TripleCurrencyView(snap: entry.snap)
         } else if family == .systemLarge {
             LargeOverviewView(snap: entry.snap)

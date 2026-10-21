@@ -6,6 +6,7 @@ import UserNotifications
 struct WaehrungenApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = RatesStore()
+    @StateObject private var pro = ProStore()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -18,8 +19,10 @@ struct WaehrungenApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
+                .environmentObject(pro)
                 .task {
                     appDelegate.store = store
+                    pro.start(rates: store)
                     await store.refreshPushAuthorization()
                     #if DEBUG
                     if let shot = ScreenshotMode.shot {

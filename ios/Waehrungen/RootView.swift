@@ -3,6 +3,8 @@ import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var store: RatesStore
+    @EnvironmentObject private var pro: ProStore
+    @State private var showPaywall = false
     @State private var showView = false
     @State private var showAlerts = false
     @State private var showAdd = false
@@ -38,8 +40,16 @@ struct RootView: View {
                 NavigationStack { mainList }
             }
         }
-        .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store) }
-        .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store) }
+        .sheet(isPresented: $showView) { AnsichtSheet().environmentObject(store).environmentObject(pro) }
+        .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store).environmentObject(pro) }
+        .sheet(isPresented: $showPaywall) { PaywallSheet().environmentObject(pro) }
+        // one-time notice when Pro enforcement switched the alarms off (never while enforcement is off)
+        .alert("FX-Alarme sind jetzt Teil von Währungen Pro", isPresented: $store.proAlarmNotice) {
+            Button("Mehr zu Pro") { showPaywall = true }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Ihre Alarme wurden pausiert, die Schwellen bleiben gespeichert. Mit Währungen Pro sind sie sofort wieder aktiv.")
+        }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
         .sheet(isPresented: $showAbout) { AboutSheet() }
         #if DEBUG
@@ -157,7 +167,12 @@ struct RootView: View {
             .navigationTitle("Währungen")
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) { titleRow }
-            .safeAreaInset(edge: .bottom, spacing: 0) { sourceBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    if pro.showHint { proHint }
+                    sourceBar
+                }
+            }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -219,12 +234,43 @@ struct RootView: View {
         HStack(spacing: 22) {
             Button { showView = true } label: { Image(systemName: "slider.horizontal.3") }
                 .accessibilityLabel("Ansicht")
-            Button { showAlerts = true } label: { Image(systemName: "bell") }
+            Button { if pro.locked { showPaywall = true } else { showAlerts = true } } label: {
+                Image(systemName: "bell")
+                    .overlay(alignment: .topTrailing) { ProBadge().scaleEffect(0.8).offset(x: 12, y: -8) }
+            }
                 .accessibilityLabel("FX-Alarme")
         }
         .buttonStyle(.plain)
         .font(.system(size: 19))
         .foregroundStyle(Color.blue)
+    }
+
+    /// Subtle one-time hint (5th day of use). Tap opens the paywall, × hides it for good.
+    private var proHint: some View {
+        HStack(spacing: 8) {
+            Button { showPaywall = true; pro.showHint = false } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                    Text("Währungen Pro: FX-Alarme, Apple Watch, alle Widgets")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.blue)
+            Spacer(minLength: 4)
+            Button { withAnimation { pro.showHint = false } } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hinweis schliessen")
+        }
+        .font(.system(size: 13, weight: .medium))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.08), in: Capsule())
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
     }
 
     private var sourceBar: some View {
@@ -374,7 +420,8 @@ struct CurrencyCard: View {
 
     /// Today's column stays at the right. Swiping right adds earlier trading days to its left (up to `pastCapacity` columns).
     private var intervals: some View {
-        let past = preview ? [] : store.visiblePastDays(capacity: pastCapacity)
+        // Build 35: the Ansicht preview shows an illustrated previous-day column too (non-interactive)
+        let past = preview ? Array(store.intervalDays.dropFirst().prefix(1)) : store.visiblePastDays(capacity: pastCapacity)
         let anyPast = !past.isEmpty
         return VStack(spacing: 3) {
             if anyPast {
@@ -401,7 +448,7 @@ struct CurrencyCard: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(store.dayOffset <= 1)
+                    .disabled(preview || store.dayOffset <= 1)
                     .accessibilityHint(store.dayOffset > 1 ? "Frühere Tage ausblenden" : "")
                 }
                 .font(.system(size: 11, weight: .medium))
@@ -504,7 +551,10 @@ struct CurrencyCard: View {
     }
 
     private func pastValue(_ hour: Int, _ day: String) -> String {
-        guard let value = store.intervalValue(code, hour: hour, on: day) else { return "–" }
+        guard let value = store.intervalValue(code, hour: hour, on: day) else {
+            guard preview, let anchor = previewAnchor(excluding: hour) else { return "–" }
+            return formatRate(anchor + previewNudge(hour) - 0.0011)   // illustrated previous day
+        }
         return formatRate(value)   // Build 34: no unit in the interval columns
     }
 

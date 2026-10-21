@@ -50,3 +50,22 @@ enum WidgetShared {
         URL(string: "\(urlScheme)://currency/\(code ?? "")") ?? URL(string: "\(urlScheme)://")!
     }
 }
+
+/// Währungen Pro state shared by the app and the widget extension (App Group).
+enum ProShared {
+    /// CENTRAL PRO SWITCH. Keep `false` until «Währungen Pro» is live in the App Store.
+    /// false: nothing is locked or removed – FX alarms, server subscriptions and all widgets work as before;
+    ///        only badges, the paywall and the Ansicht entry are shown.
+    /// true:  non-Pro users lose FX alarms (server subscription deleted, not grandfathered) and the
+    ///        medium/large widgets show a «Währungen Pro» placeholder.
+    static let enforcementEnabled = false
+
+    static let productID = "ch.computerworks.waehrungen.pro"
+    static let isProKey = "pro.isPro"
+
+    /// Last verified entitlement, written by the app's ProStore.
+    static var isPro: Bool { WidgetShared.defaults?.bool(forKey: isProKey) ?? false }
+
+    /// A Pro feature is actually blocked (only ever true once enforcement is on).
+    static var locked: Bool { enforcementEnabled && !isPro }
+}

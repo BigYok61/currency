@@ -39,6 +39,8 @@ private struct SheetColumn: Layout {
 
 struct AnsichtSheet: View {
     @EnvironmentObject private var store: RatesStore
+    @EnvironmentObject private var pro: ProStore
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack {
@@ -61,6 +63,8 @@ struct AnsichtSheet: View {
                             toggle("Prognose", on: store.showForecast, hint: "Heute und in 7 Tagen") { store.showForecast = $0; store.saveView() }
                             subNote(shortDisclaimerText)
                             toggle("Referenzkurse anzeigen", on: store.showReference, hint: nil) { store.showReference = $0; store.saveView() }
+                            proEntry
+                                .padding(.top, 8)
                             Text("Vorschau")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -76,6 +80,7 @@ struct AnsichtSheet: View {
                 }
             }
             .scrollIndicatorsFlash(onAppear: true)
+            .sheet(isPresented: $showPaywall) { PaywallSheet().environmentObject(pro) }
             .navigationTitle("Ansicht")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SheetClose() } }
@@ -109,6 +114,29 @@ struct AnsichtSheet: View {
                 .padding(.leading, 34)
                 .padding(.top, 2)
         }
+    }
+
+    /// «Währungen Pro» entry (Build 35): opens the paywall, or shows that Pro is active.
+    private var proEntry: some View {
+        Button { showPaywall = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: pro.isPro ? "checkmark.seal.fill" : "sparkles")
+                    .font(.system(size: 20))
+                    .foregroundStyle(pro.isPro ? Color.green : Color.blue)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Währungen Pro").foregroundStyle(.primary)
+                    Text(pro.isPro ? "Aktiv – danke!" : "FX-Alarme, Apple Watch, alle Widgets · \(pro.priceText)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Small grey note directly under a switch, aligned with its title.
@@ -361,6 +389,7 @@ struct AlertsSheet: View {
         NavigationStack {
             list
             .navigationTitle("FX-Alarme")
+            .toolbar { ToolbarItem(placement: .topBarLeading) { ProBadge() } }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
