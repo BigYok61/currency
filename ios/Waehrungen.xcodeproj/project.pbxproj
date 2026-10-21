@@ -33,6 +33,7 @@
 		EE0000000000000000000023 /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* WidgetShared.swift */; };
 		EE0000000000000000000024 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* WidgetData.swift */; };
 		EE0000000000000000000025 /* WaehrungenWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EE0000000000000000000002 /* WaehrungenWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DD0000000000000000000026 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000014 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +63,7 @@
 		EE0000000000000000000011 /* WatchComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchComplication.swift; sourceTree = "<group>"; };
 		EE0000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EE0000000000000000000013 /* WaehrungenWatchWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WaehrungenWatchWidget.entitlements; sourceTree = "<group>"; };
+		DD0000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -222,6 +224,7 @@
 				DD0000000000000000000011 /* WaehrungenWatchApp.swift */,
 				DD0000000000000000000012 /* WatchData.swift */,
 				DD0000000000000000000013 /* WaehrungenWatch.entitlements */,
+				DD0000000000000000000014 /* Assets.xcassets */,
 			);
 			path = WaehrungenWatch;
 			sourceTree = "<group>";
@@ -282,6 +285,7 @@
 			buildPhases = (
 				DD0000000000000000000070 /* Sources */,
 				DD0000000000000000000072 /* Frameworks */,
+				DD0000000000000000000071 /* Resources */,
 				EE0000000000000000000073 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -360,6 +364,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000027 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD0000000000000000000071 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD0000000000000000000026 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -655,7 +667,7 @@
 		DD0000000000000000000060 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWatch/WaehrungenWatch.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
@@ -684,7 +696,7 @@
 		DD0000000000000000000061 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = WaehrungenWatch/WaehrungenWatch.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Währungen";
