@@ -234,7 +234,8 @@ struct RootView: View {
         HStack(spacing: 22) {
             Button { showView = true } label: { Image(systemName: "slider.horizontal.3") }
                 .accessibilityLabel("Ansicht")
-            Button { if pro.locked { showPaywall = true } else { showAlerts = true } } label: {
+            // Build 37: the bell opens the alarm settings for everyone; the paywall comes only when switching an alarm on
+            Button { showAlerts = true } label: {
                 Image(systemName: "bell")
                     .overlay(alignment: .topTrailing) { ProBadge().scaleEffect(0.8).offset(x: 12, y: -8) }
             }

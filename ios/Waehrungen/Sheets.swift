@@ -3,6 +3,7 @@ import PhotosUI
 import MessageUI
 import StoreKit
 import UIKit
+import GameController
 
 struct SheetClose: View {
     @Environment(\.dismiss) private var dismiss
@@ -382,6 +383,10 @@ struct IntervalSheet: View {
 
 struct AlertsSheet: View {
     @EnvironmentObject private var store: RatesStore
+    @EnvironmentObject private var pro: ProStore
+    @State private var showPaywall = false
+    /// Set by tapping the version number in «Über» three times (Build 37).
+    @AppStorage("wu.dev.testPush") private var testPushUnlocked = false
     @State private var message = ""
     @State private var busy = false
 
@@ -401,6 +406,7 @@ struct AlertsSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
         }
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showPaywall) { PaywallSheet().environmentObject(pro) }
         .task {
             // first alarm setup: ask for permission while Mitteilungen are on
             #if DEBUG
@@ -438,7 +444,13 @@ struct AlertsSheet: View {
     /// Apple push on this device. Off removes the server subscription (setPushEnabled → alert sync DELETE).
     private var notifications: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Toggle(isOn: Binding(get: { store.pushEnabled }, set: { store.setPushEnabled($0) })) {
+            Toggle(isOn: Binding(
+                get: { store.pushEnabled && !pro.locked },
+                set: { on in
+                    // Build 37: switching on without Pro opens the paywall instead
+                    if on && pro.locked { showPaywall = true } else { store.setPushEnabled(on) }
+                }
+            )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Alarme aktivieren")
                     Text(store.pushEnabled ? "\(deviceSubject) erhält FX-Alarme" : "\(deviceSubject) erhält keine FX-Alarme")
@@ -448,14 +460,14 @@ struct AlertsSheet: View {
             }
             .tint(Color(red: 0.204, green: 0.780, blue: 0.349))
             .padding(.vertical, 10)
-            if store.pushEnabled && denied {
+            if denied {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Mitteilungen sind in den Einstellungen ausgeschaltet. Ohne sie kommen keine Alarme an.")
+                    Text("Mitteilungen für Währungen sind in den Systemeinstellungen ausgeschaltet. Ohne sie kommen keine Alarme an.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Einstellungen öffnen") {
-                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
                             UIApplication.shared.open(url)
                         }
                     }
@@ -463,9 +475,9 @@ struct AlertsSheet: View {
                 }
                 .padding(.bottom, 10)
             }
-            #if DEBUG
-            // Xcode dev builds only: APNs test push (hidden in App Store screenshot mode)
-            if ScreenshotMode.shot == nil {
+            // Build 37: hidden; shown after tapping the version in «Über» 3 times (iPhone/iPad),
+            // on a Mac only while the Option key is held.
+            if showsTestPush {
                 Divider()
                 Button { Task { await sendTest() } } label: {
                     Text("Test-Push senden")
@@ -476,7 +488,12 @@ struct AlertsSheet: View {
                 .foregroundStyle(busy || !store.pushEnabled ? Color.secondary : Color.blue)
                 .disabled(busy || !store.pushEnabled)
             }
-            #endif
+        }
+        .onReceive(Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()) { _ in
+            guard isMac else { return }
+            let held = GCKeyboard.coalesced?.keyboardInput?.button(forKeyCode: .leftAlt)?.isPressed == true
+                || GCKeyboard.coalesced?.keyboardInput?.button(forKeyCode: .rightAlt)?.isPressed == true
+            if held != optionHeld { optionHeld = held }
         }
         .padding(.horizontal, 16)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
@@ -485,7 +502,15 @@ struct AlertsSheet: View {
     /// «Dieses iPhone», «Dieses iPad», «Dieser Mac».
     private var deviceSubject: String { deviceSubjectText() }
 
-    #if DEBUG
+    @State private var optionHeld = false
+    private var isMac: Bool { ProcessInfo.processInfo.isiOSAppOnMac || ProcessInfo.processInfo.isMacCatalystApp }
+    private var showsTestPush: Bool {
+        #if DEBUG
+        if ScreenshotMode.shot != nil { return false }
+        #endif
+        return isMac ? optionHeld : testPushUnlocked
+    }
+
     private func sendTest() async {
         guard !busy else { return }
         resignField()
@@ -501,7 +526,6 @@ struct AlertsSheet: View {
             message = "Test-Push fehlgeschlagen: \(error.localizedDescription)"
         }
     }
-    #endif
 
     private func resignField() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -510,6 +534,8 @@ struct AlertsSheet: View {
 
 struct AlarmCard: View {
     @EnvironmentObject private var store: RatesStore
+    @EnvironmentObject private var pro: ProStore
+    @State private var showPaywall = false
     let code: String
 
     var body: some View {
@@ -517,7 +543,16 @@ struct AlarmCard: View {
             HStack {
                 Text("\(code)/\(store.base)").font(.headline)
                 Spacer()
-                Toggle("Aktiv", isOn: binding(\.enabled))
+                Toggle("Aktiv", isOn: Binding(
+                    get: { store.threshold(for: code).enabled && !pro.locked },
+                    set: { on in
+                        // Build 37: without Pro, switching an alarm on opens the paywall
+                        if on && pro.locked { showPaywall = true; return }
+                        var entry = store.threshold(for: code)
+                        entry.enabled = on
+                        store.setThreshold(entry, for: code)
+                    }
+                ))
                     .labelsHidden()
             }
             if store.threshold(for: code).enabled && !store.pushEnabled {
@@ -553,6 +588,7 @@ struct AlarmCard: View {
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .sheet(isPresented: $showPaywall) { PaywallSheet().environmentObject(pro) }
     }
 
     private func binding(_ keyPath: WritableKeyPath<RatesStore.AlarmThreshold, Bool>) -> Binding<Bool> {
@@ -650,6 +686,11 @@ struct AboutSheet: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    // Build 37: three taps reveal «Test-Push senden» in the FX-Alarme
+                    .onTapGesture(count: 3) {
+                        UserDefaults.standard.set(true, forKey: "wu.dev.testPush")
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
             }
             Text("Entwickelt von Jörg A. Weber, [ComputerWorks\u{00A0}AG](\(computerWorksAppURL.absoluteString))")
                 .font(.system(size: 14))

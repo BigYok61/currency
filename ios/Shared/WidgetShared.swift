@@ -59,7 +59,7 @@ enum ProShared {
     /// true:  non-Pro users lose FX alarms (server subscription deleted, not grandfathered) and the
     ///        medium/large, iPad and lock-screen widgets plus the Watch app and its complication show a
     ///        «Währungen Pro» placeholder. Only the small iPhone home-screen widget stays free.
-    static let enforcementEnabled = false
+    static let enforcementEnabled = true   // Build 37: Pro lock is on in 1.2
 
     static let productID = "ch.computerworks.waehrungen.pro"
     static let isProKey = "pro.isPro"
@@ -67,7 +67,18 @@ enum ProShared {
     static let cloudKey = "wu.pro.isPro"
 
     /// Last verified entitlement, written by the app's ProStore.
-    static var isPro: Bool { WidgetShared.defaults?.bool(forKey: isProKey) ?? false }
+    static var isPro: Bool { debugUnlocked || (WidgetShared.defaults?.bool(forKey: isProKey) ?? false) }
+
+    /// DEBUG-only override for Joerg's own test device: build Debug with the extra compilation condition
+    /// PRO_UNLOCKED (e.g. SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG PRO_UNLOCKED') and everything is unlocked.
+    /// Never active in Release (requires DEBUG) and not active in normal Debug/simulator builds.
+    static var debugUnlocked: Bool {
+        #if DEBUG && PRO_UNLOCKED
+        return true
+        #else
+        return false
+        #endif
+    }
 
     /// A Pro feature is actually blocked (only ever true once enforcement is on).
     static var locked: Bool { enforcementEnabled && !isPro }

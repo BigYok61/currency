@@ -60,12 +60,13 @@ final class ProStore: ObservableObject {
         apply(owned)
     }
 
-    private func apply(_ owned: Bool) {
+    private func apply(_ verified: Bool) {
+        let owned = verified || ProShared.debugUnlocked
         let changed = owned != isPro
         isPro = owned
         WidgetShared.defaults?.set(owned, forKey: ProShared.isProKey)
         // the Watch learns Pro through iCloud KVS (plus its own StoreKit check); only a verified purchase sets it
-        if owned { NSUbiquitousKeyValueStore.default.set(true, forKey: ProShared.cloudKey) }
+        if verified { NSUbiquitousKeyValueStore.default.set(true, forKey: ProShared.cloudKey) }
         if changed { WidgetCenter.shared.reloadAllTimelines() }
         rates?.setProLocked(locked)
     }
@@ -138,6 +139,8 @@ struct ProBadge: View {
         if !pro.isPro {
             Text("Pro")
                 .font(.system(size: 10, weight: .bold))
+                .lineLimit(1)
+                .fixedSize()   // Build 37: never truncated to «…» inside the small bell overlay
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1.5)
@@ -156,13 +159,13 @@ struct PaywallSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Währungen Pro").font(.system(size: 28, weight: .bold))
-                        Text("Einmal kaufen, für immer nutzen – kein Abo. Alle anderen Funktionen bleiben gratis.")
+                        Text("Einmal kaufen, für immer nutzen – kein Abo.")
                             .foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 14) {
                         benefit("bell.badge", "FX-Alarme", "Mitteilung, sobald sich ein Kurs stärker bewegt – auch wenn die App geschlossen ist.")
                         benefit("applewatch", "Apple Watch", "Watch-App mit Ihren Währungen, Tagesveränderung und Verlauf – auch ohne iPhone in der Nähe – und Komplikation fürs Zifferblatt.")
-                        benefit("square.grid.2x2", "Alle Widgets", "Mittlere und grosse Widgets auf iPhone und iPad. Das kleine Widget bleibt gratis.")
+                        benefit("square.grid.2x2", "Alle Widgets", "Kleine, mittlere und grosse Widgets auf iPhone und iPad sowie das Widget für den Sperrbildschirm.")
                     }
                     .padding(16)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -186,7 +189,7 @@ struct PaywallSheet: View {
                     if !pro.message.isEmpty {
                         Text(pro.message).font(.footnote).foregroundStyle(.secondary)
                     }
-                    Text("Einmaliger Kauf über Ihr Apple-Konto, mit der Familienfreigabe teilbar. Die Kurse bleiben unverbindlich und ohne Gewähr.")
+                    Text("Einmaliger Kauf über Ihr Apple-Konto. Gilt auf allen Ihren Geräten mit derselben Apple-ID (iPhone, iPhone Duo, iPad und Apple Watch). Die Kurse bleiben unverbindlich und ohne Gewähr.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
