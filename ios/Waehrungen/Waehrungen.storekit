@@ -11,12 +11,12 @@
       "localizations" : [
         {
           "description" : "FX-Alarme, Apple Watch und alle Widgets.",
-          "displayName" : "Währungen Pro",
+          "displayName" : "Vollversion",
           "locale" : "de"
         }
       ],
       "productID" : "ch.computerworks.waehrungen.pro",
-      "referenceName" : "Währungen Pro",
+      "referenceName" : "Vollversion",
       "type" : "NonConsumable"
     }
   ],

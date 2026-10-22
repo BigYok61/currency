@@ -125,7 +125,7 @@ struct ProLockedView: View {
     var body: some View {
         if family == .accessoryRectangular || family == .accessoryCircular || family == .accessoryInline {
             VStack(alignment: .leading, spacing: 1) {
-                Label("Währungen Pro", systemImage: "sparkles").font(.headline)
+                Label("Pro-Funktion", systemImage: "sparkles").font(.headline)
                 Text("In der App freischalten").font(.system(size: 12))
             }
         } else {
@@ -138,9 +138,9 @@ struct ProLockedView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: family == .systemSmall ? 22 : 28))
                 .foregroundStyle(Color.blue)
-            Text("Währungen Pro")
+            Text("Pro-Funktion")
                 .font(.system(size: family == .systemSmall ? 15 : 18, weight: .semibold))
-            Text("Dieses Widget ist Teil von Währungen Pro. Freischalten in der App.")
+            Text("Dieses Widget gehört zur Vollversion. Freischalten in der App.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

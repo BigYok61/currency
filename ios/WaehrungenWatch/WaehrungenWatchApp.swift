@@ -167,8 +167,8 @@ struct WatchProLockedView: View {
         ScrollView {
             VStack(spacing: 8) {
                 Image(systemName: "sparkles").font(.title2).foregroundStyle(Color.blue)
-                Text("Währungen Pro").font(.headline)
-                Text("Die Watch-App ist Teil von Währungen Pro. Sie können Pro in der Währungen-App auf dem iPhone kaufen.")
+                Text("Pro-Funktion").font(.headline)
+                Text("Die Watch-App gehört zur Vollversion. Sie können die Vollversion in der App auf dem iPhone kaufen.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)

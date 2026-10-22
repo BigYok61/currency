@@ -126,8 +126,8 @@ struct AnsichtSheet: View {
                     .foregroundStyle(pro.isPro ? Color.green : Color.blue)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Währungen Pro").foregroundStyle(.primary)
-                    Text(pro.isPro ? "Aktiv – danke!" : "FX-Alarme, Apple Watch, alle Widgets · \(pro.priceText)")
+                    Text("Vollversion").foregroundStyle(.primary)
+                    Text(pro.isPro ? "Vollversion aktiv – danke!" : "Alle Pro-Funktionen: FX-Alarme, Apple Watch, alle Widgets · \(pro.priceText)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

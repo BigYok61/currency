@@ -49,9 +49,9 @@ struct WatchComplicationView: View {
         let pct = WatchFmt.percent(entry.row?.percent)
         if entry.locked {
             switch family {
-            case .accessoryInline: Text("Währungen Pro")
+            case .accessoryInline: Text("Pro-Funktion")
             case .accessoryCircular: VStack(spacing: 0) { Image(systemName: "sparkles"); Text("Pro").font(.system(size: 12, weight: .semibold)) }
-            default: VStack(alignment: .leading) { Text("Währungen Pro").font(.headline); Text("Auf dem iPhone freischalten").font(.system(size: 12)) }
+            default: VStack(alignment: .leading) { Text("Pro-Funktion").font(.headline); Text("Auf dem iPhone freischalten").font(.system(size: 12)) }
             }
         } else {
             switch family {

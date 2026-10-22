@@ -86,7 +86,7 @@ final class ProStore: ObservableObject {
                 }
                 await transaction.finish()
                 await refreshEntitlement()
-                message = isPro ? "Danke! Währungen Pro ist aktiv." : ""
+                message = isPro ? "Danke! Die Vollversion ist aktiv." : ""
             case .pending:
                 message = "Der Kauf wartet auf eine Bestätigung."
             case .userCancelled:
@@ -106,7 +106,7 @@ final class ProStore: ObservableObject {
         do {
             try await AppStore.sync()
             await refreshEntitlement()
-            message = isPro ? "Währungen Pro wurde wiederhergestellt." : "Kein Kauf von Währungen Pro gefunden."
+            message = isPro ? "Die Vollversion wurde wiederhergestellt." : "Kein Kauf der Vollversion gefunden."
         } catch {
             message = "Wiederherstellen fehlgeschlagen: \(error.localizedDescription)"
         }
@@ -145,7 +145,7 @@ struct ProBadge: View {
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1.5)
                 .background(Color.orange, in: Capsule())
-                .accessibilityLabel("Währungen Pro")
+                .accessibilityLabel("Pro-Funktion")
         }
     }
 }
@@ -158,10 +158,12 @@ struct PaywallSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Währungen Pro").font(.system(size: 28, weight: .bold))
+                        Text("Vollversion").font(.system(size: 28, weight: .bold))
                         Text("Einmal kaufen, für immer nutzen – kein Abo.")
                             .foregroundStyle(.secondary)
                     }
+                    Text("Mit der Vollversion erhalten Sie alle Pro-Funktionen:")
+                        .font(.subheadline.weight(.semibold))
                     VStack(alignment: .leading, spacing: 14) {
                         benefit("bell.badge", "FX-Alarme", "Mitteilung, sobald sich ein Kurs stärker bewegt – auch wenn die App geschlossen ist.")
                         benefit("applewatch", "Apple Watch", "Watch-App mit Ihren Währungen, Tagesveränderung und Verlauf – auch ohne iPhone in der Nähe – und Komplikation fürs Zifferblatt.")
@@ -170,12 +172,12 @@ struct PaywallSheet: View {
                     .padding(16)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     if pro.isPro {
-                        Label("Währungen Pro ist aktiv. Danke!", systemImage: "checkmark.seal.fill")
+                        Label("Die Vollversion ist aktiv. Danke!", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(Color.green)
                             .font(.headline)
                     } else {
                         Button { Task { await pro.purchase() } } label: {
-                            Text("Kaufen für \(pro.priceText)")
+                            Text("Vollversion kaufen für \(pro.priceText)")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 6)

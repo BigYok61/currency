@@ -44,11 +44,11 @@ struct RootView: View {
         .sheet(isPresented: $showAlerts) { AlertsSheet().environmentObject(store).environmentObject(pro) }
         .sheet(isPresented: $showPaywall) { PaywallSheet().environmentObject(pro) }
         // one-time notice when Pro enforcement switched the alarms off (never while enforcement is off)
-        .alert("FX-Alarme sind jetzt Teil von Währungen Pro", isPresented: $store.proAlarmNotice) {
-            Button("Mehr zu Pro") { showPaywall = true }
+        .alert("FX-Alarme sind jetzt eine Pro-Funktion", isPresented: $store.proAlarmNotice) {
+            Button("Mehr zur Vollversion") { showPaywall = true }
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Ihre Alarme wurden pausiert, die Schwellen bleiben gespeichert. Mit Währungen Pro sind sie sofort wieder aktiv.")
+            Text("Ihre Alarme wurden pausiert, die Schwellen bleiben gespeichert. Mit der Vollversion sind sie sofort wieder aktiv.")
         }
         .sheet(isPresented: $showAdd) { AddSheet().environmentObject(store) }
         .sheet(isPresented: $showAbout) { AboutSheet() }
@@ -252,7 +252,7 @@ struct RootView: View {
             Button { showPaywall = true; pro.showHint = false } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles")
-                    Text("Währungen Pro: FX-Alarme, Apple Watch, alle Widgets")
+                    Text("Pro-Funktionen: FX-Alarme, Apple Watch, alle Widgets")
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
